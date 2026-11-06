@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ura Bridge</title>
+<title>Ura point</title>
 <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
 <div class="center-box">
   <div class="card">
-    <h1>📡 Ura Bridge</h1>
+    <h1>📡 Ura point</h1>
     <!-- first run -->
     <form id="setup" hidden>
-      <p class="muted">Welcome! Create the admin password for this bridge.</p>
+      <p class="muted">Welcome! Create the admin password for this point.</p>
       <div class="field">
         <label for="code">Setup code</label>
         <input type="text" id="code" autocomplete="off" required>
-        <div class="help">Printed in the bridge log at startup, and saved in <code>data/setup-code.txt</code>.
-          It proves you are the person who installed the bridge.</div>
+        <div class="help">Printed in the log at startup, and saved in <code>data/setup-code.txt</code>.
+          It proves you are the person who installed this point.</div>
       </div>
       <div class="field">
         <label for="pw1">Admin password</label>
@@ -31,7 +31,7 @@
     </form>
     <!-- login -->
     <form id="login" hidden>
-      <p class="muted">Log in to manage the bridge.</p>
+      <p class="muted">Log in to manage this point.</p>
       <div class="field">
         <label for="pw">Password</label>
         <input type="password" id="pw" autocomplete="current-password" required autofocus>

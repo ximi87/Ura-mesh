@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ura point</title>
+<link rel="stylesheet" href="static/style.css">
+<style>
+  :root { --s-out: #2563eb; --s-in: #c2410c; }
+  @media (prefers-color-scheme: dark) { :root { --s-out: #6b9bff; --s-in: #f0883e; } }
+  .wrap { max-width: 1000px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+          border: 1px solid var(--border); font-size: 12px; color: var(--muted); background: var(--panel); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); } .dot.wait { background: #c98a12; } .dot.off { background: var(--muted); }
+  .range { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .range button { border: 0; border-radius: 0; padding: 6px 12px; font-size: 13px; background: var(--panel); color: var(--muted); }
+  .range button.on { background: var(--bg); color: var(--text); font-weight: 600; }
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  @media (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.t th, table.t td { text-align: left; padding: 7px 5px; border-bottom: 1px solid var(--border); }
+  table.t th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  table.t td.n, table.t th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .flag { font-size: 17px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #chart { width: 100%; height: 170px; display: block; }
+  #chart .grid { stroke: var(--border); stroke-width: 1; }
+  #chart text { fill: var(--muted); font-size: 10px; }
+  .tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+         padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; z-index: 10; }
+  .privacy { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>🌍 <span id="title">Ura point</span></h1>
+  <span class="spacer"></span>
+  <a href="settings">⚙️ Admin</a>
+  <button id="logout">Log out</button>
+</header>
+<div class="wrap">
+  <div class="bar">
+    <div class="pills">
+      <span class="pill"><span class="dot" id="srv-dot"></span><span id="srv-label">Server</span></span>
+      <span class="pill" id="mt-pill" hidden><span class="dot" id="mt-dot"></span>Meshtastic</span>
+      <span class="pill" id="mc-pill" hidden><span class="dot" id="mc-dot"></span>MeshCore</span>
+      <span class="pill" id="nodes-pill">– nodes heard</span>
+    </div>
+    <div class="range" id="range">
+      <button data-h="24" class="on">24 hours</button><button data-h="168">7 days</button><button data-h="720">30 days</button>
+    </div>
+  </div>
+
+  <div class="note" id="setup-note" hidden></div>
+
+  <div class="tiles">
+    <div class="tile"><b id="t-out">–</b><span>heard here → sent to other points</span></div>
+    <div class="tile"><b id="t-in">–</b><span>received from other points</span></div>
+    <div class="tile"><b id="t-tx">–</b><span>transmitted on our radio</span></div>
+    <div class="tile"><b id="t-held">–</b><span>held back (radio limit) or refused</span></div>
+  </div>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div class="legend"><span><i style="background:var(--s-out)"></i>Heard here (sent out)</span><span><i style="background:var(--s-in)"></i>Received from other points</span></div>
+    <svg id="chart" role="img" aria-label="Messages per time slot"></svg>
+    <p class="help" id="chart-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>Points we exchange messages with</h2>
+    <p class="desc">Per point, never per person. Message text is never stored.</p>
+    <div style="overflow-x:auto;margin-bottom:12px"><table class="t" id="points"></table></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Our radios</h2>
+      <table class="t" id="nets" style="margin-bottom:12px"></table>
+    </section>
+    <section class="card">
+      <h2>Protecting local airtime</h2>
+      <table class="t" id="air" style="margin-bottom:12px"></table>
+    </section>
+  </div>
+  <p class="privacy">🔒 This page shows counts only. Ura never stores or shows what people write.</p>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const flag = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : "🏳️";
+const fmt = n => (n || 0).toLocaleString();
+function ago(ts) {
+  if (!ts) return "—";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago";
+  return Math.floor(s / 86400) + " d ago";
+}
+let hours = 24;
+try { hours = +localStorage.getItem("ura-range") || 24; } catch (e) {}
+
+async function get(url) {
+  const r = await fetch(url);
+  if (r.status === 401) { location.href = "login"; throw new Error("login"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function drawState(st) {
+  const name = st.point.name || "Ura point";
+  document.title = "Ura · " + name;
+  $("title").textContent = "Ura · " + (st.point.country ? flag(st.point.country) + " " : "") + name;
+  const s = st.server, ok = s.status === "approved" && s.connected_since;
+  $("srv-dot").className = "dot " + (ok ? "on" : s.status === "pending" ? "wait" : s.enabled ? "" : "off");
+  $("srv-label").textContent = "Server · " + (ok ? "connected" : s.status);
+  for (const k of ["mt", "mc"]) {
+    $(k + "-pill").hidden = !st.radios[k].enabled;
+    $(k + "-dot").className = "dot " + (st.radios[k].connected ? "on" : "");
+  }
+  $("nodes-pill").textContent = fmt(st.nodes_heard) + " nodes heard";
+  const note = !s.enabled ? "This point is not connected to a server yet. Open <a href='settings'>Admin</a> to set it up."
+    : s.status === "pending" ? "⏳ Waiting for the server owner to approve this point."
+    : s.status === "approved" && !s.linked.length ? "Approved — now link a channel to a room on the <a href='settings'>Admin</a> page."
+    : "";
+  $("setup-note").innerHTML = note; $("setup-note").hidden = !note;
+  const pr = st.public_rate;
+  $("air").innerHTML = `
+    <tr><td>Radio limit</td><td class="n">${st.rf.per_min} / min</td></tr>
+    <tr><td>Waiting to be transmitted</td><td class="n">${st.rf.queued} / ${st.rf.queue_max}</td></tr>
+    <tr><td>Local public channel traffic</td><td class="n">${pr.per_hour} / hour</td></tr>
+    <tr><td colspan="2" class="help">Public channel: average over the last ${pr.measured_hours} h (counted, never read). Used for the
+      public-channel rule: only quiet places may ever link it.</td></tr>`;
+}
+
+function drawStats(d) {
+  const t = d.totals || {};
+  $("t-out").textContent = fmt(t.local_in);
+  $("t-in").textContent = fmt(t.remote_in);
+  $("t-tx").textContent = fmt(t.rf_tx);
+  $("t-held").textContent = fmt((t.rf_drop || 0) + (t.refused || 0));
+
+  $("points").innerHTML = `<tr><th></th><th>Point</th><th class="n">Received from</th><th class="n">Sent to</th><th>Last activity</th></tr>` +
+    (d.points.length ? d.points.map(p => `<tr><td class="flag">${flag(p.cc)}</td><td><b>${esc(p.name || p.id)}</b></td>
+      <td class="n">${fmt(p.in)}</td><td class="n">${fmt(p.out)}</td><td>${ago(p.last)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="muted">No messages exchanged in this period.</td></tr>`);
+
+  const NN = { mt: "Meshtastic", mc: "MeshCore" };
+  const nets = Object.keys(NN).filter(k => d.nets[k]);
+  $("nets").innerHTML = `<tr><th>Network</th><th class="n">Heard (linked)</th><th class="n">Transmitted</th><th class="n">Dropped</th></tr>` +
+    (nets.length ? nets.map(k => { const n = d.nets[k];
+      return `<tr><td>${NN[k]}</td><td class="n">${fmt(n.local_in)}</td><td class="n">${fmt(n.rf_tx)}</td><td class="n">${fmt(n.rf_drop)}</td></tr>`; }).join("")
+    : `<tr><td colspan="4" class="muted">No radio activity in this period.</td></tr>`);
+
+  drawChart(d);
+}
+
+// grouped bars, two series, one axis
+function drawChart(d) {
+  const svg = $("chart"), W = svg.clientWidth || 600, H = 170, padL = 28, padB = 18, padT = 6;
+  const step = d.bucket, end = Math.floor(Date.now() / 1000 / step) * step, n = Math.round(d.hours * 3600 / step);
+  const by = Object.fromEntries(d.series.map(s => [s.t, s]));
+  const rows = Array.from({ length: n }, (_, i) => { const t = end - (n - 1 - i) * step; return by[t] || { t, local_in: 0, remote_in: 0 }; });
+  const max = Math.max(1, ...rows.map(r => Math.max(r.local_in, r.remote_in)));
+  const nice = max <= 5 ? 5 : Math.ceil(max / 5) * 5;
+  const cw = (W - padL) / n, bw = Math.max(1, Math.min(10, (cw - 3) / 2));
+  const y = v => padT + (H - padT - padB) * (1 - v / nice);
+  let g = "";
+  for (const v of [0, nice / 2, nice]) g += `<line class="grid" x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 4}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
+  const lbl = t => step >= 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" })
+                                  : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit" });
+  rows.forEach((r, i) => {
+    const x = padL + i * cw + (cw - 2 * bw - 2) / 2;
+    const bar = (v, xx, col) => v ? `<rect x="${xx}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="${Math.min(2, bw / 2)}" fill="var(${col})"/>` : "";
+    g += `<g data-i="${i}">${bar(r.local_in, x, "--s-out")}${bar(r.remote_in, x + bw + 2, "--s-in")}
+      <rect x="${padL + i * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="transparent"/></g>`;
+    if (i % Math.ceil(n / 8) === 0) g += `<text x="${padL + i * cw + cw / 2}" y="${H - 4}" text-anchor="middle">${lbl(r.t)}</text>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+  const tip = $("tip");
+  svg.querySelectorAll("g[data-i]").forEach(el => {
+    el.onmousemove = e => { const r = rows[+el.dataset.i];
+      tip.innerHTML = `<b>${step >= 86400 ? new Date(r.t * 1000).toLocaleDateString() : new Date(r.t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</b><br>
+        Heard here: ${r.local_in}<br>From other points: ${r.remote_in}`;
+      tip.style.display = "block"; tip.style.left = Math.min(e.clientX + 12, innerWidth - 180) + "px"; tip.style.top = e.clientY + 12 + "px"; };
+    el.onmouseleave = () => tip.style.display = "none";
+  });
+  $("chart-note").textContent = step >= 86400 ? "Per day." : "Per hour.";
+}
+
+async function load() {
+  try {
+    const [st, d] = await Promise.all([get("api/state"), get("api/stats?hours=" + hours)]);
+    drawState(st); drawStats(d); window._last = d;
+  } catch (e) { console.error(e); }
+}
+document.querySelectorAll("#range button").forEach(b => {
+  b.classList.toggle("on", +b.dataset.h === hours);
+  b.onclick = () => { hours = +b.dataset.h; try { localStorage.setItem("ura-range", hours); } catch (e) {}
+    document.querySelectorAll("#range button").forEach(x => x.classList.toggle("on", x === b)); load(); };
+});
+$("logout").onclick = async () => { await fetch("api/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); location.href = "login"; };
+addEventListener("resize", () => window._last && drawChart(window._last));
+load();
+setInterval(load, 20000);
+</script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ura point · Admin</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>⚙️ Admin</h1>
+  <span class="spacer"></span>
+  <a href="./">← Dashboard</a>
+  <button id="logout">Log out</button>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="muted">Loading…</div>
+  <form id="f" hidden autocomplete="off">
+
+    <section class="card">
+      <h2>This point</h2>
+      <p class="desc">How this point appears on the server. Messages relayed from here are marked with the country code, e.g. <code>[AL] Name: text</code>.</p>
+      <div class="grid2">
+        <div class="field"><label for="point.name">Point name</label><input type="text" id="point.name" maxlength="40" placeholder="e.g. Tirana"></div>
+        <div class="field"><label for="point.country">Country code</label><input type="text" id="point.country" maxlength="2" placeholder="e.g. AL"></div>
+        <div class="field"><label for="point.city">City</label><input type="text" id="point.city" maxlength="40"></div>
+        <div class="field"><label for="point.contact">Contact for the server owner</label><input type="text" id="point.contact" maxlength="80" placeholder="phone, e-mail or Telegram"></div>
+      </div>
+      <div class="field"><label>Location on the server map</label>
+        <div class="inline"><input type="text" id="point.lat" placeholder="latitude"><input type="text" id="point.lon" placeholder="longitude"></div>
+        <div class="help">City centre is enough. The server rounds it to about 1 km.</div></div>
+    </section>
+
+    <section class="card">
+      <h2><span class="chip" style="background:var(--mt)"></span>Meshtastic radio</h2>
+      <div class="field"><label class="switch"><input type="checkbox" id="meshtastic.enabled"> Use a Meshtastic radio</label></div>
+      <div data-group="meshtastic">
+        <div class="field"><label>Connection</label>
+          <div class="seg">
+            <label><input type="radio" name="meshtastic.connection" value="tcp"><span>Network (TCP)</span></label>
+            <label><input type="radio" name="meshtastic.connection" value="serial"><span>USB serial</span></label>
+          </div></div>
+        <div class="field" data-show="meshtastic.connection=tcp"><label for="meshtastic.host">Radio IP address or hostname</label>
+          <input type="text" id="meshtastic.host" placeholder="e.g. 192.168.1.50"></div>
+        <div class="field" data-show="meshtastic.connection=serial"><label for="meshtastic.serial_port">Serial port</label>
+          <div class="inline"><select id="meshtastic.serial_port" data-ports></select><button type="button" data-refresh-ports>↻</button></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="chip" style="background:var(--mc)"></span>MeshCore radio</h2>
+      <p class="desc">Must run <b>companion</b> firmware (USB or Wi-Fi). Put it next to your repeater.</p>
+      <div class="field"><label class="switch"><input type="checkbox" id="meshcore.enabled"> Use a MeshCore radio</label></div>
+      <div data-group="meshcore">
+        <div class="field"><label>Connection</label>
+          <div class="seg">
+            <label><input type="radio" name="meshcore.connection" value="serial"><span>USB serial</span></label>
+            <label><input type="radio" name="meshcore.connection" value="tcp"><span>Network (TCP)</span></label>
+          </div></div>
+        <div class="grid2" data-show="meshcore.connection=serial">
+          <div class="field"><label for="meshcore.serial_port">Serial port</label>
+            <div class="inline"><select id="meshcore.serial_port" data-ports></select><button type="button" data-refresh-ports>↻</button></div></div>
+          <div class="field"><label for="meshcore.baudrate">Baud rate</label><input type="number" id="meshcore.baudrate"></div>
+        </div>
+        <div class="grid2" data-show="meshcore.connection=tcp">
+          <div class="field"><label for="meshcore.host">Radio IP address</label><input type="text" id="meshcore.host"></div>
+          <div class="field"><label for="meshcore.tcp_port">TCP port</label><input type="number" id="meshcore.tcp_port"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🌍 Server connection</h2>
+      <div class="note" id="srv-state"></div>
+      <div class="field"><label class="switch"><input type="checkbox" id="server.enabled"> Connect to the server</label></div>
+      <div class="field"><label for="server.url">Server address</label>
+        <input type="text" id="server.url" placeholder="e.g. http://192.168.77.20:8100"></div>
+      <div class="field" id="join-box">
+        <label for="join-note">Message to the server owner (optional)</label>
+        <input type="text" id="join-note" maxlength="300" placeholder="Who you are, which area your radios cover">
+        <div style="margin-top:8px"><button type="button" class="primary" id="join">Request to join</button> <span id="join-msg"></span></div>
+        <div class="help">Fill in "This point" above first.</div>
+      </div>
+
+      <h3 style="font-size:14px;margin:8px 0 4px">Linked channels</h3>
+      <p class="help" style="margin:0 0 8px">For each room the server offers, pick the channel on your radio that carries it. Create the channel
+        on the radio first and tell local users to add it. Channel 0 (your local public channel) is never linked.</p>
+      <div id="links"></div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="field"><label for="server.rf_per_min">Radio limit (relayed messages per minute)</label>
+          <input type="number" id="server.rf_per_min" min="0" max="30">
+          <div class="help">Protects local airtime. Extra messages wait in a short queue (20); 0 = never transmit relayed messages.</div></div>
+      </div>
+      <div class="field" id="leave-box" hidden><button type="button" id="leave">Leave the server</button>
+        <span class="help">Forgets this point's key; you'd have to ask to join again.</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Admin password</h2>
+      <div class="grid2">
+        <div class="field"><label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password"></div>
+        <div class="field"><label for="pw-new">New password</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+      </div>
+      <div class="field"><button type="button" id="pw-btn">Change password</button> <span id="pw-msg"></span></div>
+    </section>
+    <p class="muted" style="font-size:12px">Settings are stored in <code id="data-dir"></code>/config.json.</p>
+  </form>
+</div>
+
+<div class="savebar" id="savebar" hidden>
+  <span class="msg" id="save-msg"></span>
+  <button type="button" id="restart">Restart</button>
+  <button type="button" class="primary" id="save">Save &amp; apply</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let cfg = null, ports = [], st = {};
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.href = "login"; throw new Error("login required"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function setPortOptions(sel, value) {
+  const list = ports.map(p => p.path);
+  if (value && !list.includes(value)) list.unshift(value);
+  sel.innerHTML = `<option value="">— pick a port —</option>` + list.map(path => {
+    const p = ports.find(x => x.path === path);
+    return `<option value="${esc(path)}">${esc(p ? `${p.description || p.device} — ${p.device}` : `${path} (not plugged in)`)}</option>`;
+  }).join("");
+  sel.value = value || "";
+}
+function fill() {
+  for (const [sec, fields] of Object.entries(cfg)) for (const [key, val] of Object.entries(fields)) {
+    const id = sec + "." + key;
+    const radios = document.querySelectorAll(`input[name="${id}"]`);
+    if (radios.length) { radios.forEach(r => r.checked = r.value === val); continue; }
+    const el = $(id);
+    if (!el) continue;
+    if (el.type === "checkbox") el.checked = !!val;
+    else if (el.tagName === "SELECT") setPortOptions(el, val);
+    else el.value = val ?? "";
+  }
+  refresh();
+}
+function collect() {
+  const out = {};
+  for (const [sec, fields] of Object.entries(cfg)) {
+    out[sec] = {};
+    for (const key of Object.keys(fields)) {
+      const id = sec + "." + key;
+      const radio = document.querySelector(`input[name="${id}"]:checked`);
+      if (radio) { out[sec][key] = radio.value; continue; }
+      const el = $(id);
+      if (el) out[sec][key] = el.type === "checkbox" ? el.checked : el.value;
+    }
+  }
+  out.server.links = [...document.querySelectorAll("#links [data-room]")].map(row => ({ room: row.dataset.room,
+    mt_channel: +row.querySelector("[data-k=mt]").value, mc_channel: +row.querySelector("[data-k=mc]").value }));
+  return out;
+}
+function refresh() {
+  for (const sec of ["meshtastic", "meshcore"])
+    document.querySelector(`[data-group="${sec}"]`).classList.toggle("disabled-group", !$(sec + ".enabled").checked);
+  document.querySelectorAll("[data-show]").forEach(el => {
+    const [name, val] = el.dataset.show.split("=");
+    const cur = document.querySelector(`input[name="${name}"]:checked`);
+    el.hidden = !cur || cur.value !== val;
+  });
+}
+function chanSelect(k, val) {
+  let o = `<option value="-1">off</option>`;
+  for (let i = 1; i <= 7; i++) o += `<option value="${i}" ${i === val ? "selected" : ""}>channel ${i}</option>`;
+  return `<select data-k="${k}">${o}</select>`;
+}
+function drawServer() {
+  const s = st.server || {}, joined = !!s.point_id, status = s.status || "off";
+  $("srv-state").innerHTML = !joined ? "Not joined yet. Fill in <b>This point</b>, the server address, then click <b>Request to join</b>."
+    : status === "approved" ? `✅ Approved and ${s.connected_since ? "connected" : "<b>not connected</b> right now"} · server <b>${esc(s.name || "")}</b> · point id <code>${esc(s.point_id)}</code>`
+    : status === "pending" ? `⏳ Waiting for the server owner to approve this point (<code>${esc(s.point_id)}</code>).`
+    : `Status: <b>${esc(status)}</b> · point id <code>${esc(s.point_id)}</code>`;
+  $("srv-state").className = "note " + (status === "approved" ? "ok" : status === "blocked" || status.startsWith("refused") ? "bad" : "");
+  $("join-box").hidden = joined; $("leave-box").hidden = !joined;
+  const rooms = [...new Set([...(s.rooms || []), ...cfg.server.links.map(l => l.room)])];
+  const mtOn = $("meshtastic.enabled").checked, mcOn = $("meshcore.enabled").checked;
+  $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th></tr>` + rooms.map(r => {
+      const l = cfg.server.links.find(x => x.room === r) || { mt_channel: -1, mc_channel: -1 };
+      const gone = status === "approved" && !(s.rooms || []).includes(r);
+      return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}</td>
+        <td>${mtOn ? chanSelect("mt", l.mt_channel) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
+        <td>${mcOn ? chanSelect("mc", l.mc_channel) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td></tr>`;
+    }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
+}
+function dirty() { $("save-msg").className = "msg muted"; $("save-msg").textContent = "Unsaved changes"; }
+async function waitForRestart(msg) {
+  $("save-msg").className = "msg muted"; $("save-msg").textContent = msg;
+  await new Promise(r => setTimeout(r, 2500));
+  for (let i = 0; i < 30; i++) { try { await api("GET", "api/config"); break; } catch (e) { await new Promise(r => setTimeout(r, 1000)); } }
+  await load();
+  $("save-msg").className = "msg ok"; $("save-msg").textContent = "✓ Saved — restarted with the new settings";
+}
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  try { await api("PUT", "api/config", collect()); await waitForRestart("Saved, restarting…"); }
+  catch (e) { $("save-msg").className = "msg bad"; $("save-msg").textContent = e.message; }
+  $("save").disabled = false;
+};
+$("restart").onclick = async () => { try { await api("POST", "api/restart", {}); await waitForRestart("Restarting…"); } catch (e) { alert(e.message); } };
+$("join").onclick = async () => {
+  const m = $("join-msg"); m.className = "muted"; m.textContent = "asking the server…";
+  const c = collect();
+  try {
+    const r = await api("POST", "api/join", { point: c.point, server: { url: c.server.url }, meshtastic: c.meshtastic,
+      meshcore: c.meshcore, note: $("join-note").value });
+    m.className = "ok"; m.textContent = `✓ Request sent (id ${r.point_id})`;
+    await waitForRestart("Joined — waiting for approval");
+  } catch (e) { m.className = "bad"; m.textContent = e.message; }
+};
+$("leave").onclick = async () => {
+  if (!confirm("Leave the server? Linked rooms stop until you join again.")) return;
+  try { await api("POST", "api/leave", {}); await waitForRestart("Left the server, restarting…"); } catch (e) { alert(e.message); }
+};
+$("pw-btn").onclick = async () => {
+  const m = $("pw-msg");
+  try { await api("POST", "api/password", { current: $("pw-cur").value, new: $("pw-new").value });
+    m.className = "ok"; m.textContent = "✓ Password changed"; $("pw-cur").value = $("pw-new").value = ""; }
+  catch (e) { m.className = "bad"; m.textContent = e.message; }
+};
+$("logout").onclick = async () => { await api("POST", "api/logout", {}); location.href = "login"; };
+document.querySelectorAll("[data-refresh-ports]").forEach(b => b.onclick = async () => {
+  ports = await api("GET", "api/serial-ports");
+  document.querySelectorAll("select[data-ports]").forEach(s => setPortOptions(s, s.value));
+});
+$("f").addEventListener("input", e => { if (!e.target.id.startsWith("pw-") && e.target.id !== "join-note") dirty(); refresh(); });
+$("f").addEventListener("change", e => { refresh();
+  if (e.target.id === "meshtastic.enabled" || e.target.id === "meshcore.enabled") { cfg.server.links = collect().server.links; drawServer(); } });
+$("f").onsubmit = e => e.preventDefault();
+
+async function load() {
+  const d = await api("GET", "api/config");
+  cfg = d.config; ports = d.serial_ports; st = d.state;
+  $("data-dir").textContent = d.data_dir;
+  fill(); drawServer();
+  $("loading").hidden = true; $("f").hidden = false; $("savebar").hidden = false;
+}
+load().catch(e => { $("loading").textContent = "Could not load: " + e.message; });
+</script>
+</body>
+</html>

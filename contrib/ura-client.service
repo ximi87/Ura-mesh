@@ -1,20 +1,20 @@
 # systemd *user* service. Install:
 #   mkdir -p ~/.config/systemd/user
-#   cp contrib/ura-bridge.service ~/.config/systemd/user/
+#   cp contrib/ura-client.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
-#   systemctl --user enable --now ura-bridge
+#   systemctl --user enable --now ura-client
 #   sudo loginctl enable-linger $USER      # keep running after you log out
 # Logs (the first-run setup code is printed here):
-#   journalctl --user -u ura-bridge -f
+#   journalctl --user -u ura-client -f
 [Unit]
-Description=Ura Bridge
+Description=ura-mesh-client
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/ura/bridge
-Environment=DATA_DIR=%h/ura/bridge/data
+WorkingDirectory=%h/ura/client
+Environment=DATA_DIR=%h/ura/client/data
 Environment=WEB_PORT=8080
-ExecStart=%h/ura/venv/bin/python -u bridge.py
+ExecStart=%h/ura/venv/bin/python -u client.py
 Restart=always
 RestartSec=15
 

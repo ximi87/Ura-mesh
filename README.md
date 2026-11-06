@@ -13,12 +13,12 @@ cities and countries over the internet, without flooding the local radio channel
    Tirana   Germany   USA   France   …
       \        |       |      /
        \       |       |     /
-        ───────  Ura Hub  ───────
+        ──── ura-mesh-server ────
 ```
 
-- **Ura Bridge** runs next to your radios (Meshtastic and/or MeshCore) and connects *out* to a Hub.
+- **ura-mesh-client** runs next to your repeater/radios (Meshtastic and/or MeshCore) and connects *out* to a Hub.
   No port forwarding needed at home.
-- **Ura Hub** is the central server: it passes messages between bridges and shows a public
+- **ura-mesh-server** is the central server: it passes messages between bridges and shows a public
   directory and world map of all bridges.
 
 > The agreed specification is in [SPEC.md](SPEC.md).
@@ -39,8 +39,8 @@ cities and countries over the internet, without flooding the local radio channel
 
 ## Layout
 
-- `hub/` — Ura Hub (`hub.py`, web pages)
-- `bridge/` — Ura Bridge (radios + Telegram + dashboard + hub link)
+- `server/` — ura-mesh-server (`server.py`, public page + admin page)
+- `client/` — ura-mesh-client (`client.py`, one per point: radios + server link + statistics dashboard + admin page)
 - `PROTOCOL.md` — how bridges and the hub talk
 - `contrib/` — systemd service files
 

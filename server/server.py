@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Ura Hub — links Ura bridges (Meshtastic / MeshCore sites) worldwide.
+"""ura-mesh-server — links Ura points (radio groups) worldwide.
 
-Bridges connect out to /link over a WebSocket (see PROTOCOL.md). The hub keeps a
-directory of bridges, relays messages between bridges that share a room, enforces
+Points (ura-mesh-client) connect out to /link over a WebSocket (see PROTOCOL.md). The server
+keeps a directory of points, relays messages between points that share a room, enforces
 approval, rate limits and duplicate suppression, and serves:
 
-    /          public page: bridge directory + world map
-    /admin     admin page: approve / block / limit bridges, rooms, message log
+    /          public page: points + world map
+    /admin     admin page: approve / block / limit points, rooms, relay statistics
+
+Privacy (SPEC.md): message text is relayed in memory only and never stored, logged or shown.
+The relay log keeps time, point, room, size and result.
 
 Settings live in DATA_DIR/hub.json, everything else in DATA_DIR/hub.db.
 Environment: DATA_DIR (./data), WEB_HOST (0.0.0.0), WEB_PORT (8100).
@@ -39,15 +42,13 @@ SETUP_CODE_PATH = os.path.join(DATA_DIR, "setup-code.txt")
 
 PROTOCOL_VERSION = 1
 DEDUPE_SECS = 600
-KEEP_MESSAGES = 5000
+KEEP_DAYS = 90
 ONLINE_GRACE = 90          # bridge counts as online this long after its socket drops (reconnects)
 
 DEFAULT_SETTINGS = {
-    "name": "Ura Hub",
+    "name": "Ura Server",
     "default_per_min": 6,      # messages per minute a bridge may send to the hub
     "max_bytes": 200,
-    "public_feed": False,      # show recent room messages on the public page
-    "show_nodes": True,        # show nodes that bridges chose to share on the public map
     "min_distance_km": 20,     # one bridge per area: approved bridges closer than this are flagged (0 = off)
     "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
     "auth": {"password_hash": "", "session_secret": ""},
@@ -86,12 +87,12 @@ def key_hash(key):
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def norm_text(text):
-    """Text used for duplicate detection: without a '[CC] name: ' relay prefix, case/space folded."""
+def text_hash(text):
+    """Fingerprint for duplicate detection (relay prefix removed, case/space folded). Only the hash is kept."""
     t = PREFIX_RE.sub("", text or "")
     if PREFIX_RE.match(text or ""):
         t = t.split(": ", 1)[-1]
-    return " ".join(t.lower().split())
+    return hashlib.sha256(" ".join(t.lower().split()).encode()).hexdigest()
 
 
 def distance_km(a_lat, a_lon, b_lat, b_lon):
@@ -143,11 +144,18 @@ class DB:
         CREATE TABLE IF NOT EXISTS rooms (
             name TEXT PRIMARY KEY, description TEXT, open INTEGER DEFAULT 1, created REAL);
         CREATE TABLE IF NOT EXISTS room_members (room TEXT, bridge_id TEXT, PRIMARY KEY (room, bridge_id));
-        CREATE TABLE IF NOT EXISTS messages (
-            id TEXT PRIMARY KEY, ts REAL, room TEXT, bridge_id TEXT, net TEXT, sender TEXT,
-            text TEXT, delivered INTEGER, rejected TEXT);
-        CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts);
+        DROP TABLE IF EXISTS messages;            -- old versions stored text; never again
+        CREATE TABLE IF NOT EXISTS relay_log (
+            id TEXT PRIMARY KEY, ts REAL, room TEXT, bridge_id TEXT, net TEXT, bytes INTEGER,
+            delivered INTEGER, rejected TEXT);
+        CREATE INDEX IF NOT EXISTS relay_log_ts ON relay_log(ts);
+        CREATE TABLE IF NOT EXISTS deliveries (ts REAL, room TEXT, src TEXT, dst TEXT);
+        CREATE INDEX IF NOT EXISTS deliveries_ts ON deliveries(ts);
         """)
+        have = {r[1] for r in self.con.execute("PRAGMA table_info(bridges)")}
+        for col, typ in (("public_rate", "REAL"), ("public_hours", "REAL"), ("client_version", "TEXT")):
+            if col not in have:
+                self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
         if not self.con.execute("SELECT 1 FROM rooms").fetchone():
             self.con.execute("INSERT INTO rooms VALUES ('Global', 'Worldwide chat for every bridge', 1, ?)",
                              (time.time(),))
@@ -192,12 +200,13 @@ class Hub:
     def __init__(self):
         os.makedirs(DATA_DIR, exist_ok=True)
         self.s = load_settings()
+        for old in ("public_feed", "show_nodes"):   # removed options (privacy)
+            self.s.pop(old, None)
         self.db = DB(DB_PATH)
         self.conns = {}          # bridge_id -> websocket
         self.buckets = {}        # bridge_id -> Bucket
         self.seen_ids = {}       # message id -> ts
         self.seen_text = {}      # (room, normalized text) -> ts
-        self.shared_nodes = {}   # bridge_id -> [nodes]
         self.dropped_at = {}     # bridge_id -> time the socket went away
         self.setup_code = None
         self.login_fail = {}
@@ -291,11 +300,13 @@ class Hub:
         sender = str(frame.get("sender") or "?").strip()[:40]
         net = frame.get("net") if frame.get("net") in ("mt", "mc", "web", "tg") else "web"
 
+        size = len(text.encode())
+
         def reject(reason):
             if mid:
-                self.db.run("INSERT OR IGNORE INTO messages VALUES (?,?,?,?,?,?,?,?,?)",
-                            (mid, time.time(), room, bid, net, sender, text[:300], 0, reason))
-            return {"type": "ack", "id": mid, "ok": False, "to": 0, "reason": reason}
+                self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
+                            (mid, time.time(), room, bid, net, size, 0, reason))
+            return {"type": "ack", "id": mid, "ok": False, "to": 0, "to_points": [], "reason": reason}
 
         if not mid or not text:
             return reject("empty")
@@ -309,7 +320,7 @@ class Hub:
         self.prune()
         if mid in self.seen_ids:
             return reject("duplicate id")
-        key = (room, norm_text(text))
+        key = (room, text_hash(text))
         if key in self.seen_text:
             self.seen_ids[mid] = time.time()
             return reject("duplicate (same text already relayed)")
@@ -322,29 +333,32 @@ class Hub:
         self.seen_text[key] = now
         out = {"type": "msg", "id": mid, "room": room, "net": net, "sender": sender, "text": text, "ts": now,
                "from": {"bridge_id": bid, "name": b["name"], "country": b["country"], "city": b["city"]}}
-        delivered = 0
+        to_points = []
         for target in self.room_bridges(room) - {bid}:
             ws = self.conns.get(target)
             if ws is None:
                 continue
             try:
                 await ws.send_json(out)
-                delivered += 1
+                t = self.bridge(target)
+                to_points.append({"id": target, "name": t["name"], "country": t["country"]})
                 self.db.con.execute("UPDATE bridges SET msgs_out=msgs_out+1 WHERE id=?", (target,))
+                self.db.con.execute("INSERT INTO deliveries VALUES (?,?,?,?)", (now, room, bid, target))
             except Exception as e:
                 log.warning("send to %s failed: %s", target, e)
         self.db.run("UPDATE bridges SET msgs_in=msgs_in+1 WHERE id=?", (bid,))
-        self.db.run("INSERT OR IGNORE INTO messages VALUES (?,?,?,?,?,?,?,?,?)",
-                    (mid, now, room, bid, net, sender, text, delivered, None))
-        await self.admin_event({"kind": "msg", "msg": self.message_row(mid)})
-        log.info("[%s] %s/%s → %d bridge(s)", room, b["name"], sender, delivered)
-        return {"type": "ack", "id": mid, "ok": True, "to": delivered}
+        self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
+                    (mid, now, room, bid, net, size, len(to_points), None))
+        await self.admin_event({"kind": "msg", "msg": self.log_row(mid)})
+        log.info("[%s] %s → %d point(s)", room, b["name"], len(to_points))
+        return {"type": "ack", "id": mid, "ok": True, "to": len(to_points), "to_points": to_points}
 
     async def cleanup_loop(self):
         while True:
             await asyncio.sleep(3600)
-            self.db.run("DELETE FROM messages WHERE ts < (SELECT ts FROM messages ORDER BY ts DESC "
-                        "LIMIT 1 OFFSET ?)", (KEEP_MESSAGES,))
+            cutoff = time.time() - KEEP_DAYS * 86400
+            self.db.run("DELETE FROM relay_log WHERE ts < ?", (cutoff,))
+            self.db.run("DELETE FROM deliveries WHERE ts < ?", (cutoff,))
 
     # ── /link websocket ──────────────────────────────────────────
     async def link(self, request):
@@ -372,6 +386,8 @@ class Hub:
                                contact=?, version=? WHERE id=?""",
                             (info["name"], info["country"], info["city"], info["lat"], info["lon"],
                              info["networks"], info["contact"] or b["contact"], hello.get("version"), bid))
+                self.db.run("UPDATE bridges SET client_version=? WHERE id=?",
+                            (str(hello.get("client") or "")[:20], bid))
             except ValueError as e:
                 log.info("bridge %s sent bad info: %s", bid, e)
             old = self.conns.get(bid)
@@ -415,17 +431,13 @@ class Hub:
         except (TypeError, ValueError):
             count = 0
         self.db.run("UPDATE bridges SET node_count=? WHERE id=?", (max(0, min(count, 100000)), bid))
-        shared = []
-        for n in (frame.get("shared") or [])[:500]:
+        pr = frame.get("public_rate")
+        if isinstance(pr, dict):
             try:
-                lat, lon = float(n["lat"]), float(n["lon"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            # ~2 km grid, whatever the bridge sent
-            shared.append({"net": n.get("net") if n.get("net") in ("mt", "mc") else "mt",
-                           "name": str(n.get("name") or "")[:40],
-                           "lat": round(lat * 50) / 50, "lon": round(lon * 50) / 50})
-        self.shared_nodes[bid] = shared
+                self.db.run("UPDATE bridges SET public_rate=?, public_hours=? WHERE id=?",
+                            (float(pr.get("per_hour") or 0), float(pr.get("measured_hours") or 0), bid))
+            except (TypeError, ValueError):
+                pass
 
     # ── public API ───────────────────────────────────────────────
     def public_bridges(self):
@@ -445,16 +457,8 @@ class Hub:
                 "rooms": self.db.q("SELECT name, description, open FROM rooms ORDER BY name"),
                 "stats": {"bridges": len(bridges), "online": sum(b["online"] for b in bridges),
                           "countries": len({b["country"] for b in bridges}),
-                          "messages_24h": self.db.one("SELECT COUNT(*) n FROM messages WHERE ts>? "
-                                                      "AND rejected IS NULL", (day,))["n"]},
-                "nodes": [], "feed": []}
-        if self.s["show_nodes"]:
-            ok = {b["id"] for b in bridges}
-            data["nodes"] = [dict(n, bridge=bid) for bid, ns in self.shared_nodes.items() if bid in ok for n in ns]
-        if self.s["public_feed"]:
-            data["feed"] = self.db.q("""SELECT m.ts, m.room, m.sender, m.text, b.name bridge, b.country
-                                        FROM messages m JOIN bridges b ON b.id=m.bridge_id
-                                        WHERE m.rejected IS NULL ORDER BY m.ts DESC LIMIT 50""")
+                          "messages_24h": self.db.one("SELECT COUNT(*) n FROM relay_log WHERE ts>? "
+                                                      "AND rejected IS NULL", (day,))["n"]}}
         return web.json_response(data)
 
     async def api_join(self, request):
@@ -571,8 +575,8 @@ class Hub:
         return resp
 
     # ── admin API ────────────────────────────────────────────────
-    def message_row(self, mid):
-        return self.db.one("""SELECT m.*, b.name bridge, b.country FROM messages m
+    def log_row(self, mid):
+        return self.db.one("""SELECT m.*, b.name bridge, b.country FROM relay_log m
                               LEFT JOIN bridges b ON b.id=m.bridge_id WHERE m.id=?""", (mid,))
 
     async def admin_state(self, request):
@@ -588,7 +592,7 @@ class Hub:
                 "SELECT bridge_id FROM room_members WHERE room=?", (r["name"],))]
         settings = {k: v for k, v in self.s.items() if k != "auth"}
         return web.json_response({"bridges": bridges, "rooms": rooms, "settings": settings,
-                                  "messages": self.db.q("""SELECT m.*, b.name bridge, b.country FROM messages m
+                                  "messages": self.db.q("""SELECT m.*, b.name bridge, b.country FROM relay_log m
                                       LEFT JOIN bridges b ON b.id=m.bridge_id ORDER BY m.ts DESC LIMIT 200""")})
 
     async def admin_bridge(self, request):
@@ -605,7 +609,6 @@ class Hub:
         elif action == "delete":
             self.db.run("DELETE FROM bridges WHERE id=?", (bid,))
             self.db.run("DELETE FROM room_members WHERE bridge_id=?", (bid,))
-            self.shared_nodes.pop(bid, None)
         elif action == "limit":
             v = body.get("per_min")
             per_min = None if v in (None, "") else int(v)
@@ -654,7 +657,7 @@ class Hub:
         if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000 \
                 or not 0 <= s["min_distance_km"] <= 1000:
             raise web.HTTPBadRequest(text="limits out of range")
-        for k in ("public_feed", "show_nodes", "distance_strict"):
+        for k in ("distance_strict",):
             if k in body:
                 s[k] = bool(body[k])
         save_settings(s)

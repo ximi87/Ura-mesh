@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ura Hub Admin</title>
+<title>Ura Server · Admin</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   .wrap { max-width: 1100px; }
@@ -30,7 +30,7 @@
 </head>
 <body>
 <header class="top">
-  <h1>🌍 <span id="hub-name">Ura Hub</span> · Admin</h1>
+  <h1>🌍 <span id="hub-name">Ura Server</span> · Admin</h1>
   <span class="spacer"></span>
   <a href="/">Public page</a>
   <button id="logout">Log out</button>
@@ -39,55 +39,53 @@
 
   <section class="card" id="pending-card">
     <h2>Join requests</h2>
-    <p class="desc">New bridges wait here until you approve them. They cannot send or receive anything before that.</p>
+    <p class="desc">New points wait here until you approve them. They cannot send or receive anything before that.</p>
     <div id="pending"></div>
   </section>
 
   <section class="card">
-    <h2>Bridges</h2>
-    <p class="desc">Limit = messages per minute this bridge may send (empty = hub default).</p>
+    <h2>Points</h2>
+    <p class="desc">Limit = messages per minute this point may send (empty = server default).
+      Public ch. = how busy the point's local public channel is (counted, never read).</p>
     <div class="scroll"><table class="t" id="bridges"></table></div>
   </section>
 
   <section class="card">
     <h2>Rooms</h2>
-    <p class="desc">A room is a linked channel. <b>Open</b> rooms include every approved bridge; closed rooms only the bridges you tick.</p>
+    <p class="desc">A room is a linked channel. <b>Open</b> rooms include every approved point; closed rooms only the points you tick.</p>
     <div class="scroll"><table class="t" id="rooms"></table></div>
     <h3 style="font-size:14px;margin:4px 0 8px">Add or edit a room</h3>
     <div class="grid2">
       <div class="field"><label for="r-name">Name</label><input type="text" id="r-name" placeholder="e.g. Europe"></div>
       <div class="field"><label for="r-desc">Description</label><input type="text" id="r-desc"></div>
     </div>
-    <div class="field"><label class="switch"><input type="checkbox" id="r-open" checked> Open to every approved bridge</label></div>
+    <div class="field"><label class="switch"><input type="checkbox" id="r-open" checked> Open to every approved point</label></div>
     <div id="r-members-box"><label style="font-weight:600;font-size:13px">Members</label><div class="checks" id="r-members"></div></div>
     <div class="field"><button class="primary" id="r-save">Save room</button> <span id="r-msg"></span></div>
   </section>
 
   <section class="card">
-    <h2>Message log</h2>
-    <p class="desc">Last 200 messages through the hub, newest first. Red = rejected (not relayed).</p>
+    <h2>Relay log</h2>
+    <p class="desc">Last 200 relays, newest first: time, point, room, size, result. Message text is never stored. Red = refused.</p>
     <div class="scroll" style="max-height:420px;overflow-y:auto"><table class="t" id="log"></table></div>
   </section>
 
   <section class="card">
     <h2>Hub settings</h2>
     <div class="grid2">
-      <div class="field"><label for="s-name">Hub name</label><input type="text" id="s-name"></div>
-      <div class="field"><label for="s-per">Default limit (messages / minute / bridge)</label><input type="number" id="s-per" min="0" max="600"></div>
+      <div class="field"><label for="s-name">Server name</label><input type="text" id="s-name"></div>
+      <div class="field"><label for="s-per">Default limit (messages / minute / point)</label><input type="number" id="s-per" min="0" max="600"></div>
       <div class="field"><label for="s-max">Max message size (bytes)</label><input type="number" id="s-max" min="20" max="1000">
         <div class="help">Meshtastic fits about 200 bytes, MeshCore about 130.</div></div>
     </div>
-    <h3 style="font-size:14px;margin:4px 0 4px">One bridge per area</h3>
+    <h3 style="font-size:14px;margin:4px 0 4px">One point per area</h3>
     <div class="grid2">
-      <div class="field"><label for="s-dist">Minimum distance between bridges (km)</label>
+      <div class="field"><label for="s-dist">Minimum distance between points (km)</label>
         <input type="number" id="s-dist" min="0" max="1000">
-        <div class="help">0 = off. Bridges closer than this to an approved bridge are flagged.</div></div>
+        <div class="help">0 = off. Points closer than this to an approved point are flagged.</div></div>
     </div>
-    <div class="field"><label class="switch"><input type="checkbox" id="s-strict"> Strict: refuse join requests inside an existing bridge's area</label>
-      <div class="help">Off = such requests still arrive, with a warning, and you decide. On = they are refused automatically and the bridge owner is told why.</div></div>
-    <div class="field"><label class="switch"><input type="checkbox" id="s-feed"> Show recent messages on the public page</label></div>
-    <div class="field"><label class="switch"><input type="checkbox" id="s-nodes"> Show shared node positions on the public map</label>
-      <div class="help">Only nodes whose bridge owner turned sharing on, rounded to about 2 km.</div></div>
+    <div class="field"><label class="switch"><input type="checkbox" id="s-strict"> Strict: refuse join requests inside an existing point's area</label>
+      <div class="help">Off = such requests still arrive, with a warning, and you decide. On = they are refused automatically and the point owner is told why.</div></div>
     <div class="field"><button class="primary" id="s-save">Save settings</button> <span id="s-msg"></span></div>
   </section>
 
@@ -128,8 +126,8 @@ async function act(bid, action, extra = {}) {
     if (a.nearby && a.nearby.length && !confirm(`${b.name} is ${a.nearby[0].km} km from ${a.nearby[0].name}, inside the ` +
         `${st.settings.min_distance_km} km one-bridge-per-area limit.\n\nApprove anyway?`)) return;
   }
-  if (action === "delete" && !confirm("Delete this bridge? Its key stops working; it would have to request to join again.")) return;
-  if (action === "block" && !confirm("Block this bridge? It is disconnected and cannot send or receive.")) return;
+  if (action === "delete" && !confirm("Delete this point? Its key stops working; it would have to request to join again.")) return;
+  if (action === "block" && !confirm("Block this point? It is disconnected and cannot send or receive.")) return;
   try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); await load(); }
   catch (e) { alert(e.message); }
 }
@@ -148,13 +146,14 @@ function draw() {
     : `<p class="muted">No requests waiting.</p>`;
 
   const others = st.bridges.filter(b => b.status !== "pending");
-  $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
+  $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>Public ch.</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
     (others.length ? others.map(b => `<tr>
       <td class="flag">${flag(b.country)}</td>
-      <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.contact ? "<br>" + esc(b.contact) : ""}</span>${b.status === "approved" ? areaWarn(b) : ""}</td>
+      <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.client_version ? " · v" + esc(b.client_version) : ""}${b.contact ? "<br>" + esc(b.contact) : ""}</span>${b.status === "approved" ? areaWarn(b) : ""}</td>
       <td><span class="badge ${b.status}">${b.status}</span></td>
       <td><span class="dot ${b.online ? "on" : ""}"></span>${b.online ? "now" : when(b.last_seen)}</td>
       <td>${b.node_count || 0}</td>
+      <td>${b.public_rate == null ? "—" : `${b.public_rate}/h<br><span class="muted">${b.public_hours} h measured</span>`}</td>
       <td>${b.msgs_in} / ${b.msgs_out}</td>
       <td><input class="limit" type="number" min="0" max="600" value="${b.per_min ?? ""}" placeholder="${st.settings.default_per_min}" data-limit="${esc(b.id)}"></td>
       <td>${esc((b.rooms || []).join(", "))}</td>
@@ -162,7 +161,7 @@ function draw() {
         ? `<button data-a="unblock" data-id="${esc(b.id)}">Unblock</button>`
         : `<button data-a="block" data-id="${esc(b.id)}">Block</button>`}
         <button data-a="delete" data-id="${esc(b.id)}">Delete</button></div></td></tr>`).join("")
-    : `<tr><td colspan="9" class="muted">No approved bridges yet.</td></tr>`);
+    : `<tr><td colspan="10" class="muted">No approved points yet.</td></tr>`);
 
   $("rooms").innerHTML = `<tr><th>Room</th><th>Description</th><th>Who</th><th></th></tr>` + st.rooms.map(r => `<tr>
       <td><b>#${esc(r.name)}</b></td><td>${esc(r.description)}</td>
@@ -171,7 +170,7 @@ function draw() {
         <button data-del-room="${esc(r.name)}">Delete</button></div></td></tr>`).join("");
   fillMembers();
 
-  $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From</th><th>Message</th><th>To</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
+  $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From point</th><th>Size</th><th>Result</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
     : `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`);
 
   document.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.id, b.dataset.a));
@@ -184,9 +183,9 @@ function draw() {
 }
 function logRow(m) {
   return `<tr><td>${when(m.ts)}</td><td>#${esc(m.room)}</td>
-    <td>${flag(m.country)} ${esc(m.bridge || m.bridge_id)}<br><span class="muted">${esc(m.sender)} · ${esc(NETS[m.net] || m.net)}</span></td>
-    <td>${esc(m.text)}${m.rejected ? `<div class="rej">rejected: ${esc(m.rejected)}</div>` : ""}</td>
-    <td>${m.rejected ? "—" : m.delivered}</td></tr>`;
+    <td>${flag(m.country)} ${esc(m.bridge || m.bridge_id)} <span class="muted">· ${esc(NETS[m.net] || m.net)}</span></td>
+    <td>${m.bytes ?? "—"} B</td>
+    <td>${m.rejected ? `<span class="rej">refused: ${esc(m.rejected)}</span>` : `delivered to ${m.delivered} point${m.delivered == 1 ? "" : "s"}`}</td></tr>`;
 }
 function fillMembers(checked) {
   const approved = st.bridges.filter(b => b.status === "approved");
@@ -212,7 +211,6 @@ $("r-save").onclick = async () => {
 $("s-save").onclick = async () => {
   try {
     await api("POST", "/api/admin/settings", { name: $("s-name").value, default_per_min: $("s-per").value, max_bytes: $("s-max").value,
-      public_feed: $("s-feed").checked, show_nodes: $("s-nodes").checked,
       min_distance_km: $("s-dist").value || 0, distance_strict: $("s-strict").checked });
     $("s-msg").className = "ok"; $("s-msg").textContent = "✓ Saved"; await load();
   } catch (e) { $("s-msg").className = "bad"; $("s-msg").textContent = e.message; }
@@ -229,7 +227,6 @@ async function load() {
   st = await api("GET", "/api/admin/state");
   draw();
   $("s-name").value = st.settings.name; $("s-per").value = st.settings.default_per_min; $("s-max").value = st.settings.max_bytes;
-  $("s-feed").checked = st.settings.public_feed; $("s-nodes").checked = st.settings.show_nodes;
   $("s-dist").value = st.settings.min_distance_km; $("s-strict").checked = st.settings.distance_strict;
 }
 function live() {

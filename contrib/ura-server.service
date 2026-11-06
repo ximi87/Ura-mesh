@@ -1,0 +1,17 @@
+# systemd service for the Ura Hub (system-wide). Adjust User and paths, then:
+#   sudo cp contrib/ura-server.service /etc/systemd/system/ && sudo systemctl enable --now ura-server
+[Unit]
+Description=ura-mesh-server
+After=network-online.target
+
+[Service]
+User=ura
+WorkingDirectory=/opt/ura/server
+Environment=DATA_DIR=/opt/ura/server-data
+Environment=WEB_PORT=8100
+ExecStart=/opt/ura/venv/bin/python -u server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

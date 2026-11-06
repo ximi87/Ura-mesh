@@ -1,6 +1,6 @@
 # Ura link protocol (v1)
 
-Bridges connect **out** to the Hub over one WebSocket: `ws(s)://<hub>/link`. All frames are JSON objects
+Points (ura-mesh-client, called *bridges* in the field names below) connect **out** to the server (ura-mesh-server) over one WebSocket: `ws(s)://<hub>/link`. All frames are JSON objects
 with a `type`.
 
 ## Joining
@@ -25,10 +25,10 @@ The hub admin then approves or rejects the bridge.
 | bridge → hub | `{"type":"hello","bridge_id","key","version":1,"info":{…same fields as join…}}` | First frame. Wrong key → socket closed. |
 | hub → bridge | `{"type":"welcome","status","hub":"name","rooms":[{"name","description"}],"limits":{"per_min","max_bytes"}}` | `status` = `pending`, `approved` or `blocked`. Only approved bridges send/receive messages. |
 | hub → bridge | `{"type":"status", …same fields as welcome…}` | Sent when the admin changes the bridge (approve, block, rooms, limits). |
-| bridge → hub | `{"type":"msg","id","room","net","sender","text"}` | A message heard on a linked channel (or written by the operator). `id` is a random id (dedupe). |
+| bridge → hub | `{"type":"msg","id","room","net","sender","text"}` | A message heard on a linked channel. `id` is a random id (dedupe). |
 | hub → bridge | `{"type":"msg","id","room","net","sender","text","ts","from":{"bridge_id","name","country","city"}}` | A message from another bridge. |
-| hub → bridge | `{"type":"ack","id","ok","to":N,"reason"}` | Result for a `msg` the bridge sent: delivered to N bridges, or rejected (rate limit, duplicate, not approved, too long). |
-| bridge → hub | `{"type":"nodes","count":N,"shared":[{"net","name","lat","lon"}]}` | Every few minutes. `shared` only if the bridge owner enabled position sharing; the hub rounds positions to ~2 km anyway. |
+| hub → bridge | `{"type":"ack","id","ok","to":N,"to_points":[{"id","name","country"}],"reason"}` | Result for a `msg` the bridge sent: which points received it, or why it was refused (rate limit, duplicate, not approved, too long). |
+| bridge → hub | `{"type":"nodes","count":N,"shared":[],"public_rate":{"per_hour","measured_hours","count"}}` | Every few minutes: how many nodes the point hears, and how busy its local public channel is (messages counted, never read). `shared` stays empty (no positions are shared). |
 
 ## Rules the hub enforces
 
@@ -36,7 +36,8 @@ The hub admin then approves or rejects the bridge.
 - `per_min` messages per minute per bridge (token bucket), `max_bytes` per message.
 - Duplicate `id`s, and the same text in the same room within 10 minutes, are dropped (stops loops when two
   bridges hear each other's radio).
-- Bridge positions are rounded to ~1 km, shared node positions to ~2 km.
+- Point positions are rounded to ~1 km.
+- **Message text is relayed in memory only. The server never stores, logs or shows it**; the relay log keeps time, point, room, size and result (SPEC.md).
 
 ## Rules the bridge follows
 
