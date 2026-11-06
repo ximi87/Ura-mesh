@@ -74,13 +74,17 @@
       <h2>🌍 Server connection</h2>
       <div class="note" id="srv-state"></div>
       <div class="field"><label class="switch"><input type="checkbox" id="server.enabled"> Connect to the server</label></div>
-      <div class="field"><label for="server.url">Server address</label>
-        <input type="text" id="server.url" placeholder="e.g. http://192.168.77.20:8100"></div>
+      <div class="field"><label for="srv-url">Server address</label>
+        <div class="inline"><input type="text" id="srv-url" placeholder="e.g. https://192.168.77.20:8100">
+          <button type="button" id="check">Check certificate</button></div>
+        <div class="help">The connection is encrypted (https). You check the server's certificate once; after that this point
+          accepts only that certificate.</div></div>
+      <div class="note" id="cert-box" hidden></div>
       <div class="field" id="join-box">
         <label for="join-note">Message to the server owner (optional)</label>
         <input type="text" id="join-note" maxlength="300" placeholder="Who you are, which area your radios cover">
-        <div style="margin-top:8px"><button type="button" class="primary" id="join">Request to join</button> <span id="join-msg"></span></div>
-        <div class="help">Fill in "This point" above first.</div>
+        <div style="margin-top:8px"><button type="button" class="primary" id="join" disabled>Request to join</button> <span id="join-msg"></span></div>
+        <div class="help">Fill in "This point" above, then <b>Check certificate</b> and confirm it, then request to join.</div>
       </div>
 
       <h3 style="font-size:14px;margin:8px 0 4px">Linked channels</h3>
@@ -183,7 +187,13 @@ function drawServer() {
     : status === "approved" ? `✅ Approved and ${s.connected_since ? "connected" : "<b>not connected</b> right now"} · server <b>${esc(s.name || "")}</b> · point id <code>${esc(s.point_id)}</code>`
     : status === "pending" ? `⏳ Waiting for the server owner to approve this point (<code>${esc(s.point_id)}</code>).`
     : `Status: <b>${esc(status)}</b> · point id <code>${esc(s.point_id)}</code>`;
-  $("srv-state").className = "note " + (status === "approved" ? "ok" : status === "blocked" || status.startsWith("refused") ? "bad" : "");
+  if (joined) $("srv-state").innerHTML += s.encrypted
+      ? `<br>🔒 Encrypted · pinned certificate <code style="word-break:break-all">${esc(s.fingerprint)}</code>`
+      : `<br><span class="bad">⚠ Not encrypted (http). Enter the https address and check the certificate.</span>`;
+  if (s.cert_problem) $("srv-state").innerHTML += `<br><span class="bad">⛔ ${esc(s.cert_problem)}. If the server owner changed the
+      certificate on purpose, check it again below.</span>`;
+  $("srv-state").className = "note " + (s.cert_problem || (joined && !s.encrypted) ? "bad" : status === "approved" ? "ok" : status === "blocked" || status.startsWith("refused") ? "bad" : "");
+  $("srv-url").value = $("srv-url").value || s.url || cfg.server.url || "";
   $("join-box").hidden = joined; $("leave-box").hidden = !joined;
   const rooms = [...new Set([...(s.rooms || []), ...cfg.server.links.map(l => l.room)])];
   const mtOn = $("meshtastic.enabled").checked, mcOn = $("meshcore.enabled").checked;
@@ -195,6 +205,39 @@ function drawServer() {
         <td>${mcOn ? chanSelect("mc", l.mc_channel) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td></tr>`;
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
 }
+let checked = null;   // {url, encrypted, fingerprint} confirmed by the owner
+$("check").onclick = async () => {
+  const box = $("cert-box"); box.hidden = false; box.className = "note"; box.textContent = "reading the certificate…";
+  checked = null; $("join").disabled = true;
+  try {
+    const r = await api("POST", "api/server/check", { url: $("srv-url").value });
+    const joined = !!(st.server || {}).point_id;
+    if (!r.encrypted) {
+      box.className = "note bad";
+      box.innerHTML = `⚠ <b>${esc(r.url)}</b> is <b>not encrypted</b> (http). Messages would cross the network readable.
+        Use the https address of the server.<div style="margin-top:8px"><button type="button" id="cert-ok">Use it anyway (testing only)</button></div>`;
+    } else {
+      box.innerHTML = `🔒 Certificate fingerprint of <b>${esc(r.url)}</b>:<br><code style="word-break:break-all">${esc(r.fingerprint)}</code>
+        <br><span class="help">Compare it with <b>Server certificate</b> on the server's admin page (or ask the server owner).
+        Only continue if it is exactly the same.</span>
+        ${r.same_as_pinned ? `<br><span class="ok">✓ Same as the certificate this point already trusts.</span>` : ""}
+        <div style="margin-top:8px"><button type="button" class="primary" id="cert-ok">It matches — ${joined ? "use this server" : "continue"}</button>
+        <button type="button" id="cert-no">It does not match</button></div>`;
+    }
+    $("cert-ok").onclick = async () => {
+      checked = r;
+      if (joined) {
+        try { await api("POST", "api/server/trust", { url: r.url, fingerprint: r.fingerprint }); await waitForRestart("Certificate pinned, restarting…"); }
+        catch (e) { box.className = "note bad"; box.textContent = e.message; }
+      } else {
+        box.className = "note ok"; box.innerHTML = `✓ Confirmed${r.encrypted ? ": " + `<code>${esc(r.fingerprint)}</code>` : " (not encrypted)"}. Now click <b>Request to join</b>.`;
+        $("join").disabled = false;
+      }
+    };
+    if ($("cert-no")) $("cert-no").onclick = () => { box.className = "note bad";
+      box.innerHTML = "Do <b>not</b> connect. Someone may be pretending to be the server — contact the server owner."; };
+  } catch (e) { box.className = "note bad"; box.textContent = e.message; }
+};
 function dirty() { $("save-msg").className = "msg muted"; $("save-msg").textContent = "Unsaved changes"; }
 async function waitForRestart(msg) {
   $("save-msg").className = "msg muted"; $("save-msg").textContent = msg;
@@ -214,8 +257,9 @@ $("join").onclick = async () => {
   const m = $("join-msg"); m.className = "muted"; m.textContent = "asking the server…";
   const c = collect();
   try {
-    const r = await api("POST", "api/join", { point: c.point, server: { url: c.server.url }, meshtastic: c.meshtastic,
-      meshcore: c.meshcore, note: $("join-note").value });
+    if (!checked) throw new Error("check the server certificate first");
+    const r = await api("POST", "api/join", { point: c.point, server: { url: checked.url }, fingerprint: checked.fingerprint,
+      meshtastic: c.meshtastic, meshcore: c.meshcore, note: $("join-note").value });
     m.className = "ok"; m.textContent = `✓ Request sent (id ${r.point_id})`;
     await waitForRestart("Joined — waiting for approval");
   } catch (e) { m.className = "bad"; m.textContent = e.message; }
@@ -235,7 +279,8 @@ document.querySelectorAll("[data-refresh-ports]").forEach(b => b.onclick = async
   ports = await api("GET", "api/serial-ports");
   document.querySelectorAll("select[data-ports]").forEach(s => setPortOptions(s, s.value));
 });
-$("f").addEventListener("input", e => { if (!e.target.id.startsWith("pw-") && e.target.id !== "join-note") dirty(); refresh(); });
+$("f").addEventListener("input", e => { if (e.target.id === "srv-url") { checked = null; $("join").disabled = true; return; }
+  if (!e.target.id.startsWith("pw-") && e.target.id !== "join-note") dirty(); refresh(); });
 $("f").addEventListener("change", e => { refresh();
   if (e.target.id === "meshtastic.enabled" || e.target.id === "meshcore.enabled") { cfg.server.links = collect().server.links; drawServer(); } });
 $("f").onsubmit = e => e.preventDefault();

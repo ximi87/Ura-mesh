@@ -123,13 +123,13 @@ function drawState(st) {
   $("title").textContent = "Ura · " + (st.point.country ? flag(st.point.country) + " " : "") + name;
   const s = st.server, ok = s.status === "approved" && s.connected_since;
   $("srv-dot").className = "dot " + (ok ? "on" : s.status === "pending" ? "wait" : s.enabled ? "" : "off");
-  $("srv-label").textContent = "Server · " + (ok ? "connected" : s.status);
+  $("srv-label").textContent = (s.enabled && !s.encrypted ? "⚠ not encrypted · " : s.encrypted ? "🔒 " : "") + "Server · " + (ok ? "connected" : s.status);
   for (const k of ["mt", "mc"]) {
     $(k + "-pill").hidden = !st.radios[k].enabled;
     $(k + "-dot").className = "dot " + (st.radios[k].connected ? "on" : "");
   }
   $("nodes-pill").textContent = fmt(st.nodes_heard) + " nodes heard";
-  const note = !s.enabled ? "This point is not connected to a server yet. Open <a href='settings'>Admin</a> to set it up."
+  const note = s.cert_problem ? `⛔ ${esc(s.cert_problem)}. See <a href='settings'>Admin</a>.` : !s.enabled ? "This point is not connected to a server yet. Open <a href='settings'>Admin</a> to set it up."
     : s.status === "pending" ? "⏳ Waiting for the server owner to approve this point."
     : s.status === "approved" && !s.linked.length ? "Approved — now link a channel to a room on the <a href='settings'>Admin</a> page."
     : "";

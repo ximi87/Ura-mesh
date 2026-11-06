@@ -91,6 +91,13 @@
   </section>
 
   <section class="card">
+    <h2>🔒 Server certificate</h2>
+    <p class="desc">Points check this fingerprint once when they join, then accept only this certificate.
+      Read it to the point owner (or send it) so they can compare.</p>
+    <div class="note" id="fp" style="font-family:ui-monospace,monospace;word-break:break-all"></div>
+  </section>
+
+  <section class="card">
     <h2>Admin password</h2>
     <div class="grid2">
       <div class="field"><label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password"></div>
@@ -228,6 +235,8 @@ async function load() {
   st = await api("GET", "/api/admin/state");
   draw();
   $("s-name").value = st.settings.name; $("s-per").value = st.settings.default_per_min; $("s-max").value = st.settings.max_bytes;
+  $("fp").innerHTML = st.settings.tls ? esc(st.settings.fingerprint)
+    : `<span class="bad">TLS is off on this server (WEB_TLS=0). Only acceptable behind a reverse proxy that does TLS.</span>`;
   $("s-dist").value = st.settings.min_distance_km; $("s-strict").checked = st.settings.distance_strict;
 }
 function live() {

@@ -72,6 +72,8 @@
       <li>The server owner approves your point. Then add the <b>Global</b> channel on your radio
         (Meshtastic: a secondary channel, MeshCore: a new channel) and link it on the Admin page.</li>
     </ol>
+    <p style="font-size:13px" id="fp-line" hidden>🔒 Server certificate fingerprint (SHA-256):<br>
+      <code id="fp" style="word-break:break-all"></code></p>
     <p class="muted" style="font-size:13px">Only channels a point owner links are relayed. Message text is never stored. Local public channels never leave their area.
       Messages from other countries arrive as <code>[CC] Name: text</code>.</p>
   </section>
@@ -106,6 +108,8 @@ function draw(d) {
   document.getElementById("s-bridges").textContent = d.stats.bridges;
   document.getElementById("s-countries").textContent = d.stats.countries;
   document.getElementById("s-msgs").textContent = d.stats.messages_24h;
+  document.getElementById("fp-line").hidden = !d.tls;
+  document.getElementById("fp").textContent = d.fingerprint || "";
 
   bridgeLayer.clearLayers(); lineLayer.clearLayers();
   const pts = [];

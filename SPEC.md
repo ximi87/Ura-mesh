@@ -60,13 +60,15 @@ Linking busy public channels (e.g. Germany ↔ USA ↔ China) would bring endles
 
 ## Security
 
-- **Option A (now):** client ↔ server connection encrypted with TLS (`wss://`). Each point has its own
+- **Option A (now, done):** client ↔ server connection encrypted with TLS (`wss://`). Each point has its own
   key, issued on join and approved by the server owner. The server never stores or shows message text,
   but relays it in memory.
 - **Option B (later):** end-to-end encryption between points, so the server cannot read messages at all.
 - **Certificates:** without a domain, the server creates its own certificate. On join the client shows the
   server's certificate fingerprint; the point owner compares it once with the fingerprint on the server
   admin page, then the client pins it (refuses any other certificate). With a domain later: Let's Encrypt.
+  *(done: server creates `tls.crt`/`tls.key` with openssl on first start, shows the fingerprint on the admin
+  and public pages; client "Check certificate" → confirm → pin; mismatch = refuse to connect + warning.)*
 
 ## Not part of Ura
 

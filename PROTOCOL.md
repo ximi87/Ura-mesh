@@ -1,6 +1,8 @@
 # Ura link protocol (v1)
 
-Points (ura-mesh-client, called *bridges* in the field names below) connect **out** to the server (ura-mesh-server) over one WebSocket: `ws(s)://<hub>/link`. All frames are JSON objects
+Points (ura-mesh-client, called *bridges* in the field names below) connect **out** to the server (ura-mesh-server) over one encrypted WebSocket: `wss://<server>/link`.
+The server certificate is self-signed; the client pins its SHA-256 fingerprint (confirmed by a human at join time) and
+refuses any other certificate. All frames are JSON objects
 with a `type`.
 
 ## Joining

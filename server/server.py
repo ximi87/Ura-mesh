@@ -12,7 +12,12 @@ Privacy (SPEC.md): message text is relayed in memory only and never stored, logg
 The relay log keeps time, point, room, size and result.
 
 Settings live in DATA_DIR/hub.json, everything else in DATA_DIR/hub.db.
-Environment: DATA_DIR (./data), WEB_HOST (0.0.0.0), WEB_PORT (8100).
+Environment: DATA_DIR (./data), WEB_HOST (0.0.0.0), WEB_PORT (8100), WEB_TLS (1).
+
+TLS: with WEB_TLS=1 (default) the server speaks HTTPS/wss only. Its own certificate is
+created on first start (DATA_DIR/tls.crt + tls.key, via openssl). Points pin the certificate's
+SHA-256 fingerprint when they join, so a different server cannot pretend to be this one.
+Set WEB_TLS=0 only behind a reverse proxy that does TLS.
 """
 import asyncio
 import hashlib
@@ -24,6 +29,8 @@ import os
 import re
 import secrets
 import sqlite3
+import ssl
+import subprocess
 import time
 
 from aiohttp import WSMsgType, web
@@ -39,6 +46,29 @@ WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 SETTINGS_PATH = os.path.join(DATA_DIR, "hub.json")
 DB_PATH = os.path.join(DATA_DIR, "hub.db")
 SETUP_CODE_PATH = os.path.join(DATA_DIR, "setup-code.txt")
+WEB_TLS = os.environ.get("WEB_TLS", "1") not in ("0", "no", "false")
+TLS_CERT = os.path.join(DATA_DIR, "tls.crt")
+TLS_KEY = os.path.join(DATA_DIR, "tls.key")
+
+
+def ensure_certificate():
+    """Create a self-signed certificate on first start. Returns its SHA-256 fingerprint (hex)."""
+    if not (os.path.exists(TLS_CERT) and os.path.exists(TLS_KEY)):
+        log.warning("creating a new TLS certificate in %s", DATA_DIR)
+        old = os.umask(0o077)
+        try:
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                            "-nodes", "-keyout", TLS_KEY, "-out", TLS_CERT, "-days", "3650",
+                            "-subj", "/CN=ura-mesh-server"], check=True, capture_output=True)
+        finally:
+            os.umask(old)
+    with open(TLS_CERT) as f:
+        der = ssl.PEM_cert_to_DER_cert(f.read())
+    return hashlib.sha256(der).hexdigest()
+
+
+def pretty_fp(hexfp):
+    return ":".join(hexfp[i:i + 2] for i in range(0, len(hexfp), 2)).upper() if hexfp else ""
 
 PROTOCOL_VERSION = 1
 DEDUPE_SECS = 600
@@ -209,6 +239,7 @@ class Hub:
         self.seen_text = {}      # (room, normalized text) -> ts
         self.dropped_at = {}     # bridge_id -> time the socket went away
         self.setup_code = None
+        self.fingerprint = ensure_certificate() if WEB_TLS else ""
         self.login_fail = {}
         self.admin_sockets = set()
 
@@ -453,7 +484,8 @@ class Hub:
     async def api_public(self, request):
         bridges = self.public_bridges()
         day = time.time() - 86400
-        data = {"name": self.s["name"], "bridges": bridges,
+        data = {"name": self.s["name"], "bridges": bridges, "tls": WEB_TLS,
+                "fingerprint": pretty_fp(self.fingerprint),
                 "rooms": self.db.q("SELECT name, description, open FROM rooms ORDER BY name"),
                 "stats": {"bridges": len(bridges), "online": sum(b["online"] for b in bridges),
                           "countries": len({b["country"] for b in bridges}),
@@ -591,6 +623,8 @@ class Hub:
             r["members"] = [m["bridge_id"] for m in self.db.q(
                 "SELECT bridge_id FROM room_members WHERE room=?", (r["name"],))]
         settings = {k: v for k, v in self.s.items() if k != "auth"}
+        settings["tls"] = WEB_TLS
+        settings["fingerprint"] = pretty_fp(self.fingerprint)
         return web.json_response({"bridges": bridges, "rooms": rooms, "settings": settings,
                                   "messages": self.db.q("""SELECT m.*, b.name bridge, b.country FROM relay_log m
                                       LEFT JOIN bridges b ON b.id=m.bridge_id ORDER BY m.ts DESC LIMIT 200""")})
@@ -767,7 +801,7 @@ class Hub:
             with open(SETUP_CODE_PATH, "w") as f:
                 f.write(self.setup_code + "\n")
             log.warning("=" * 60)
-            log.warning("FIRST RUN — open http://<this-host>:%s/admin/setup", WEB_PORT)
+            log.warning("FIRST RUN — open %s://<this-host>:%s/admin/setup", "https" if WEB_TLS else "http", WEB_PORT)
             log.warning("Setup code: %s   (also in %s)", self.setup_code, SETUP_CODE_PATH)
             log.warning("=" * 60)
         app = web.Application(middlewares=[self.guard])
@@ -793,8 +827,17 @@ class Hub:
         r.add_get("/api/admin/ws", self.admin_ws)
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
-        await web.TCPSite(runner, WEB_HOST, WEB_PORT).start()
-        log.info("%s listening on http://%s:%s/", self.s["name"], WEB_HOST, WEB_PORT)
+        ctx = None
+        if WEB_TLS:
+            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.load_cert_chain(TLS_CERT, TLS_KEY)
+        await web.TCPSite(runner, WEB_HOST, WEB_PORT, ssl_context=ctx).start()
+        log.info("%s listening on %s://%s:%s/", self.s["name"], "https" if WEB_TLS else "http", WEB_HOST, WEB_PORT)
+        if WEB_TLS:
+            log.info("certificate fingerprint (SHA-256): %s", pretty_fp(self.fingerprint))
+        else:
+            log.warning("TLS is OFF (WEB_TLS=0): only use this behind a reverse proxy that does TLS")
         asyncio.create_task(self.cleanup_loop())
         await asyncio.Event().wait()
 

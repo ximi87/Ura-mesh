@@ -38,7 +38,7 @@ DEFAULTS = {
     },
     "server": {
         "enabled": False,
-        "url": "",                      # e.g. https://192.168.77.20:8100
+        "url": "",                      # e.g. https://192.168.77.20:8100 (set by join / certificate check)
         "point_id": "",                 # given by the server when you ask to join
         "key": "",
         "fingerprint": "",              # pinned SHA-256 of the server certificate
@@ -49,7 +49,8 @@ DEFAULTS = {
 }
 
 SECRET_FIELDS = {("server", "key")}
-READONLY_FIELDS = {("server", "point_id"), ("server", "key"), ("server", "fingerprint")}
+READONLY_FIELDS = {("server", "point_id"), ("server", "key"), ("server", "fingerprint"),
+                   ("server", "url")}   # url + fingerprint change only through a certificate check
 MASK = "••••••••"
 LATLON = ("point.lat", "point.lon")
 

@@ -12,14 +12,17 @@ kept: counts, times, networks, rooms.
 Admin page + statistics dashboard on WEB_PORT (default 8091). Settings: DATA_DIR/config.json.
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
 import secrets
 import sqlite3
+import ssl
 import sys
 import time
+import urllib.parse
 import uuid
 from collections import deque
 
@@ -53,6 +56,42 @@ KEEP_DAYS = 90
 def clip(text, limit):
     b = text.encode()
     return text if len(b) <= limit else b[: limit - 3].decode(errors="ignore") + "..."
+
+
+def norm_fp(fp):
+    """'AB:CD:…' or 'abcd…' → 64 lowercase hex characters ('' if not a SHA-256 fingerprint)."""
+    h = re.sub(r"[^0-9a-fA-F]", "", fp or "").lower()
+    return h if len(h) == 64 else ""
+
+
+def pretty_fp(fp):
+    h = norm_fp(fp)
+    return ":".join(h[i:i + 2] for i in range(0, 64, 2)).upper() if h else ""
+
+
+async def fetch_fingerprint(url):
+    """Connect once without checking anything and read the server certificate's SHA-256 (trust on first use,
+    confirmed by a human comparing it with the server admin page)."""
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "https" or not u.hostname:
+        raise ValueError("the address must start with https://")
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(u.hostname, u.port or 443, ssl=ctx, server_hostname=u.hostname), 10)
+    try:
+        der = writer.get_extra_info("ssl_object").getpeercert(binary_form=True)
+    finally:
+        writer.close()
+    return hashlib.sha256(der).hexdigest()
+
+
+def clean_url(url):
+    url = (url or "").strip().rstrip("/")
+    if not re.match(r"^https?://[^/\s]+$", url):
+        raise ValueError("server address must look like https://host:port")
+    return url
 
 
 def list_serial_ports():
@@ -148,6 +187,7 @@ class Client:
         self.rooms = []                # rooms the server offers this point
         self.limits = {}
         self.connected_since = None
+        self.cert_problem = None
         self.backoff = 5
         self.pending = {}              # message id -> (room, net) for acks
         self.rf_queue = deque(maxlen=RF_QUEUE_MAX)
@@ -372,6 +412,16 @@ class Client:
     def ws_url(self):
         return re.sub(r"^http", "ws", self.sc["url"].rstrip("/")) + "/link"
 
+    def ssl_param(self, url=None, fp=None):
+        """https → accept only the pinned certificate; http → no encryption (warned about on every page)."""
+        url = url or self.sc["url"]
+        if not url.startswith("https://"):
+            return None
+        h = norm_fp(fp if fp is not None else self.sc["fingerprint"])
+        if not h:
+            raise ValueError("no pinned certificate fingerprint — check the server certificate first")
+        return aiohttp.Fingerprint(bytes.fromhex(h))
+
     async def frame(self, f):
         t = f.get("type")
         if t in ("welcome", "status"):
@@ -402,7 +452,7 @@ class Client:
                 if self.status in ("off", "offline"):
                     self.status = "connecting"
                 try:
-                    async with session.ws_connect(self.ws_url(), heartbeat=30) as ws:
+                    async with session.ws_connect(self.ws_url(), heartbeat=30, ssl=self.ssl_param()) as ws:
                         await ws.send_json({"type": "hello", "bridge_id": s["point_id"], "key": s["key"],
                                             "version": 1, "client": VERSION, "info": self.point_info()})
                         self.ws = ws
@@ -416,13 +466,21 @@ class Client:
                                     log.exception("server frame")
                             elif m.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                                 break
+                except aiohttp.ServerFingerprintMismatch as e:
+                    self.cert_problem = ("the server presented a DIFFERENT certificate than the one pinned "
+                                         f"({pretty_fp(e.got.hex())}) — not connecting")
+                    self.status = "certificate mismatch"
+                    log.error("certificate mismatch: expected %s got %s", pretty_fp(e.expected.hex()), pretty_fp(e.got.hex()))
                 except Exception as e:
                     log.warning("server connection failed: %s", e)
+                else:
+                    self.cert_problem = None
                 self.ws = None
                 self.connected_since = None
                 if self.status == "approved":
                     self.status = "offline"
-                wait = 600 if self.status == "blocked" or self.status.startswith("refused") else self.backoff
+                wait = 600 if self.status in ("blocked", "certificate mismatch") or self.status.startswith("refused") \
+                    else self.backoff
                 self.backoff = min(self.backoff * 2, 120)
                 await asyncio.sleep(wait)
 
@@ -550,6 +608,8 @@ class Client:
             "version": VERSION,
             "point": {k: self.pc[k] for k in ("name", "country", "city")},
             "server": {"enabled": self.sc["enabled"], "status": self.status, "name": self.server_name,
+                       "url": self.sc["url"], "encrypted": self.sc["url"].startswith("https://"),
+                       "fingerprint": pretty_fp(self.sc["fingerprint"]), "cert_problem": self.cert_problem,
                        "point_id": self.sc["point_id"], "connected_since": self.connected_since,
                        "rooms": [r["name"] for r in self.rooms], "linked": self.sc["links"],
                        "limits": self.limits},
@@ -596,11 +656,20 @@ class Client:
         """Ask the server to let this point join; stores the id + key it hands out."""
         body = await self.json_body(request)
         note = str(body.pop("note", "") or "")[:300]
+        confirmed = norm_fp(body.pop("fingerprint", ""))
         try:
+            url = clean_url((body.pop("server", None) or {}).get("url", ""))
             new = config.apply_update(self.cfg, body)
         except ValueError as e:
             raise web.HTTPBadRequest(text=str(e))
         p, s = new["point"], new["server"]
+        s["url"] = url
+        if url.startswith("https://"):
+            if not confirmed:
+                raise web.HTTPBadRequest(text="check and confirm the server certificate first")
+            s["fingerprint"] = confirmed
+        else:
+            s["fingerprint"] = ""
         if not (s["url"] and p["name"] and p["country"]):
             raise web.HTTPBadRequest(text="enter the server address, the point name and the country code first")
         info = {"name": p["name"], "country": p["country"], "city": p["city"], "lat": p["lat"], "lon": p["lon"],
@@ -608,12 +677,15 @@ class Client:
                 "networks": [n for n, k in (("mt", "meshtastic"), ("mc", "meshcore")) if new[k]["enabled"]]}
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as sess:
-                async with sess.post(s["url"].rstrip("/") + "/api/join", json=info) as r:
+                async with sess.post(s["url"] + "/api/join", json=info,
+                                     ssl=self.ssl_param(s["url"], s["fingerprint"])) as r:
                     if r.status != 200:
                         raise web.HTTPBadGateway(text=f"server said: {(await r.text())[:300]}")
                     data = await r.json()
         except web.HTTPException:
             raise
+        except aiohttp.ServerFingerprintMismatch:
+            raise web.HTTPConflict(text="the server certificate changed since you checked it — check again")
         except Exception as e:
             raise web.HTTPBadGateway(text=f"cannot reach the server: {e}")
         s["point_id"], s["key"], s["enabled"] = data["bridge_id"], data["key"], True
@@ -622,6 +694,46 @@ class Client:
         log.info("asked %s to join as %s", s["url"], data["bridge_id"])
         self.schedule_restart()
         return web.json_response({"ok": True, "point_id": data["bridge_id"]})
+
+    async def web_check(self, request):
+        """Read the certificate of a server address so the owner can compare the fingerprint."""
+        body = await self.json_body(request)
+        try:
+            url = clean_url(body.get("url"))
+        except ValueError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        if url.startswith("http://"):
+            return web.json_response({"url": url, "encrypted": False, "fingerprint": ""})
+        try:
+            fp = await fetch_fingerprint(url)
+        except Exception as e:
+            raise web.HTTPBadGateway(text=f"cannot read the certificate of {url}: {e}")
+        return web.json_response({"url": url, "encrypted": True, "fingerprint": pretty_fp(fp),
+                                  "same_as_pinned": fp == norm_fp(self.sc["fingerprint"])})
+
+    async def web_trust(self, request):
+        """Already joined: switch to a (new) address and pin the certificate the owner confirmed."""
+        body = await self.json_body(request)
+        try:
+            url = clean_url(body.get("url"))
+        except ValueError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        fp = ""
+        if url.startswith("https://"):
+            fp = norm_fp(body.get("fingerprint"))
+            if not fp:
+                raise web.HTTPBadRequest(text="confirm the certificate fingerprint")
+            try:
+                now_fp = await fetch_fingerprint(url)
+            except Exception as e:
+                raise web.HTTPBadGateway(text=f"cannot read the certificate: {e}")
+            if now_fp != fp:
+                raise web.HTTPConflict(text="the server certificate changed since you checked it — check again")
+        self.sc["url"], self.sc["fingerprint"] = url, fp
+        config.save(self.cfg)
+        log.info("server address %s, pinned certificate %s", url, pretty_fp(fp) or "(none, NOT encrypted)")
+        self.schedule_restart()
+        return web.json_response({"ok": True})
 
     async def web_leave(self, request):
         await self.json_body(request)
@@ -683,6 +795,8 @@ class Client:
         r.add_get("/api/serial-ports", self.web_ports)
         r.add_post("/api/join", self.web_join)
         r.add_post("/api/leave", self.web_leave)
+        r.add_post("/api/server/check", self.web_check)
+        r.add_post("/api/server/trust", self.web_trust)
         r.add_post("/api/restart", self.web_restart)
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
