@@ -161,7 +161,11 @@ def _coerce(default, value, path):
             return [int(x) for x in value]
         except (TypeError, ValueError):
             raise ValueError(f"{path}: expected a list of numeric ids")
-    return "" if value is None else str(value).strip()
+    if value is None:
+        return ""
+    if path == "general.sign":
+        return str(value).replace("\n", " ").lstrip()   # keep the trailing space: "Base: hello"
+    return str(value).strip()
 
 
 def apply_update(cfg, incoming):
