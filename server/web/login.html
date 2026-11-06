@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ura Hub Admin</title>
+<title>Ura Server · Admin</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="center-box">
   <div class="card">
-    <h1>🌍 Ura Hub</h1>
+    <h1>🌍 Ura Server</h1>
     <!-- first run -->
     <form id="setup" hidden>
       <p class="muted">Welcome! Create the admin password for this bridge.</p>
       <div class="field">
         <label for="code">Setup code</label>
         <input type="text" id="code" autocomplete="off" required>
-        <div class="help">Printed in the hub log at startup, and saved in <code>data/setup-code.txt</code>.
-          It proves you are the person who installed the hub.</div>
+        <div class="help">Printed in the server log at startup, and saved in <code>data/setup-code.txt</code>.
+          It proves you are the person who installed the server.</div>
       </div>
       <div class="field">
         <label for="pw1">Admin password</label>
@@ -31,7 +31,7 @@
     </form>
     <!-- login -->
     <form id="login" hidden>
-      <p class="muted">Log in to manage the hub.</p>
+      <p class="muted">Log in to manage the server.</p>
       <div class="field">
         <label for="pw">Password</label>
         <input type="password" id="pw" autocomplete="current-password" required autofocus>
@@ -61,10 +61,10 @@ form.onsubmit = async e => {
       const a = document.getElementById("pw1").value, b = document.getElementById("pw2").value;
       if (a !== b) throw new Error("The passwords do not match");
       await post("/api/admin/setup", { code: document.getElementById("code").value, password: a });
-      location.href = "/admin";
+      location.href = "/admin/dashboard";
     } else {
       await post("/api/admin/login", { password: document.getElementById("pw").value });
-      location.href = "/admin";
+      location.href = "/admin/dashboard";
     }
   } catch (x) { err.textContent = x.message; }
   btn.disabled = false;

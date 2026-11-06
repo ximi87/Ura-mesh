@@ -595,6 +595,64 @@ class Hub:
                                   "messages": self.db.q("""SELECT m.*, b.name bridge, b.country FROM relay_log m
                                       LEFT JOIN bridges b ON b.id=m.bridge_id ORDER BY m.ts DESC LIMIT 200""")})
 
+    async def admin_stats(self, request):
+        """Statistics for the dashboard: counts per point and per pair of points. No message text exists."""
+        try:
+            hours = max(1, min(int(request.query.get("hours", "24")), 24 * KEEP_DAYS))
+        except ValueError:
+            hours = 24
+        since = time.time() - hours * 3600
+        q = lambda sql, *a: self.db.q(sql, (since,) + a)
+        names = {b["id"]: b for b in self.db.q("SELECT id, name, country, city, status, last_seen, node_count, "
+                                               "public_rate, client_version FROM bridges")}
+        relayed = q("SELECT COUNT(*) n, COALESCE(SUM(bytes),0) b FROM relay_log WHERE ts>=? AND rejected IS NULL")[0]
+        refused = q("SELECT COUNT(*) n FROM relay_log WHERE ts>=? AND rejected IS NOT NULL")[0]["n"]
+        delivered = q("SELECT COUNT(*) n FROM deliveries WHERE ts>=?")[0]["n"]
+        points = {}
+        def pt(bid):
+            b = names.get(bid, {})
+            return points.setdefault(bid, {"id": bid, "name": b.get("name") or bid, "country": b.get("country"),
+                                           "city": b.get("city"), "status": b.get("status") or "deleted",
+                                           "online": self.online(bid), "last_seen": b.get("last_seen"),
+                                           "nodes": b.get("node_count"), "public_rate": b.get("public_rate"),
+                                           "version": b.get("client_version"),
+                                           "sent": 0, "received": 0, "refused": 0, "last_activity": None})
+        for r in q("SELECT bridge_id, rejected IS NOT NULL bad, COUNT(*) n, MAX(ts) last FROM relay_log "
+                   "WHERE ts>=? GROUP BY 1, 2"):
+            p = pt(r["bridge_id"])
+            p["refused" if r["bad"] else "sent"] += r["n"]
+            p["last_activity"] = max(p["last_activity"] or 0, r["last"])
+        for r in q("SELECT dst, COUNT(*) n, MAX(ts) last FROM deliveries WHERE ts>=? GROUP BY dst"):
+            p = pt(r["dst"])
+            p["received"] += r["n"]
+            p["last_activity"] = max(p["last_activity"] or 0, r["last"])
+        for bid, b in names.items():      # approved points without traffic are listed too
+            if b["status"] == "approved":
+                pt(bid)
+        pairs = q("SELECT src, dst, COUNT(*) n, MAX(ts) last FROM deliveries WHERE ts>=? GROUP BY src, dst")
+        for r in pairs:
+            r["src_name"], r["dst_name"] = pt(r["src"])["name"], pt(r["dst"])["name"]
+            r["src_cc"], r["dst_cc"] = pt(r["src"])["country"], pt(r["dst"])["country"]
+        bucket = 3600 if hours <= 48 else 86400
+        series = {}
+        for r in q(f"""SELECT CAST(ts/{bucket} AS INTEGER)*{bucket} t, rejected IS NOT NULL bad, COUNT(*) n
+                       FROM relay_log WHERE ts>=? GROUP BY 1, 2"""):
+            row = series.setdefault(r["t"], {"t": r["t"], "relayed": 0, "refused": 0})
+            row["refused" if r["bad"] else "relayed"] += r["n"]
+        return web.json_response({
+            "hours": hours, "bucket": bucket,
+            "totals": {"relayed": relayed["n"], "bytes": relayed["b"], "delivered": delivered, "refused": refused,
+                       "points_online": sum(1 for b in names.values() if b["status"] == "approved" and self.online(b["id"])),
+                       "points_approved": sum(1 for b in names.values() if b["status"] == "approved"),
+                       "points_pending": sum(1 for b in names.values() if b["status"] == "pending")},
+            "points": sorted(points.values(), key=lambda p: (-(p["sent"] + p["received"]), p["name"] or "")),
+            "pairs": sorted(pairs, key=lambda r: -r["n"]),
+            "rooms": q("SELECT room, COUNT(*) n FROM relay_log WHERE ts>=? AND rejected IS NULL GROUP BY room ORDER BY n DESC"),
+            "refused_by_reason": q("SELECT rejected reason, COUNT(*) n FROM relay_log WHERE ts>=? AND rejected IS NOT NULL "
+                                   "GROUP BY rejected ORDER BY n DESC"),
+            "series": sorted(series.values(), key=lambda r: r["t"]),
+        })
+
     async def admin_bridge(self, request):
         bid = request.match_info["bid"]
         if not self.bridge(bid):
@@ -716,6 +774,7 @@ class Hub:
         r = app.router
         r.add_get("/", self.page("index.html"))
         r.add_get("/admin", self.page("admin.html"))
+        r.add_get("/admin/dashboard", self.page("dashboard.html"))
         r.add_get("/admin/login", self.page("login.html"))
         r.add_get("/admin/setup", self.page("login.html"))
         r.add_static("/static/", WEB_DIR)
@@ -727,6 +786,7 @@ class Hub:
         r.add_post("/api/admin/logout", self.admin_logout)
         r.add_post("/api/admin/password", self.admin_password)
         r.add_get("/api/admin/state", self.admin_state)
+        r.add_get("/api/admin/stats", self.admin_stats)
         r.add_post("/api/admin/bridge/{bid}", self.admin_bridge)
         r.add_post("/api/admin/room", self.admin_room)
         r.add_post("/api/admin/settings", self.admin_settings)

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ura Server · Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  :root { --s-ok: #2563eb; --s-bad: #c2410c; --heat: 37, 99, 235; }
+  @media (prefers-color-scheme: dark) { :root { --s-ok: #6b9bff; --s-bad: #f0883e; --heat: 107, 155, 255; } }
+  .wrap { max-width: 1150px; }
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .range { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .range button { border: 0; border-radius: 0; padding: 6px 12px; font-size: 13px; background: var(--panel); color: var(--muted); }
+  .range button.on { background: var(--bg); color: var(--text); font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  .tile a { font-size: 12px; }
+  @media (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.t th, table.t td { text-align: left; padding: 7px 5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.t th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  table.t td.n, table.t th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; margin-bottom: 12px; }
+  .flag { font-size: 17px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; }
+  .dot.on { background: var(--ok); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #chart { width: 100%; height: 170px; display: block; }
+  #chart .grid { stroke: var(--border); stroke-width: 1; }
+  #chart text { fill: var(--muted); font-size: 10px; }
+  table.matrix td.c { text-align: center; font-variant-numeric: tabular-nums; min-width: 46px; border: 2px solid var(--panel); border-radius: 4px; }
+  table.matrix th.rot { font-size: 12px; text-align: center; }
+  .pairbar { height: 6px; border-radius: 3px; background: var(--s-ok); margin-top: 3px; }
+  .tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+         padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; z-index: 10; }
+  .privacy { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; background: #b45309; }
+  a.badge-link { text-decoration: none; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>🌍 <span id="srv-name">Ura Server</span> · Dashboard</h1>
+  <span class="spacer"></span>
+  <a href="/admin">⚙️ Manage points</a>
+  <a href="/">Public page</a>
+  <button id="logout">Log out</button>
+</header>
+<div class="wrap">
+  <div class="bar">
+    <span class="muted" id="updated"></span>
+    <div class="range" id="range"><button data-h="24" class="on">24 hours</button><button data-h="168">7 days</button><button data-h="720">30 days</button></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><b id="t-online">–</b><span>points online</span> <span id="t-pending"></span></div>
+    <div class="tile"><b id="t-relayed">–</b><span>messages relayed</span></div>
+    <div class="tile"><b id="t-delivered">–</b><span>deliveries to points</span></div>
+    <div class="tile"><b id="t-refused">–</b><span>refused</span></div>
+  </div>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div class="legend"><span><i style="background:var(--s-ok)"></i>Relayed</span><span><i style="background:var(--s-bad)"></i>Refused</span></div>
+    <svg id="chart" role="img" aria-label="Messages relayed and refused per time slot"></svg>
+    <p class="help" id="chart-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>Who talks to whom</h2>
+    <p class="desc">Messages delivered from one point to another. Per point, never per person.</p>
+    <div class="scroll" id="pairs"></div>
+    <div class="scroll" id="matrix"></div>
+  </section>
+
+  <section class="card">
+    <h2>Points</h2>
+    <p class="desc">Public ch. = how busy the point's local public channel is (counted, never read).</p>
+    <div class="scroll"><table class="t" id="points"></table></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card"><h2>Refused, by reason</h2><table class="t" id="refused" style="margin-bottom:12px"></table></section>
+    <section class="card"><h2>Rooms</h2><table class="t" id="rooms" style="margin-bottom:12px"></table></section>
+  </div>
+  <p class="privacy">🔒 Counts only. The server never stores or shows what people write.</p>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const flag = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : "🏳️";
+const fmt = n => (n || 0).toLocaleString();
+function ago(ts) {
+  if (!ts) return "—";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago";
+  return Math.floor(s / 86400) + " d ago";
+}
+let hours = 24, last = null;
+try { hours = +localStorage.getItem("ura-srv-range") || 24; } catch (e) {}
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.href = "/admin/login"; throw new Error("login"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function draw(d) {
+  const t = d.totals;
+  $("t-online").textContent = `${t.points_online} / ${t.points_approved}`;
+  $("t-pending").innerHTML = t.points_pending ? `<br><a class="badge-link" href="/admin"><span class="badge">${t.points_pending} waiting for approval</span></a>` : "";
+  $("t-relayed").textContent = fmt(t.relayed);
+  $("t-delivered").textContent = fmt(t.delivered);
+  $("t-refused").textContent = fmt(t.refused);
+  $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+
+  // pairs: A ↔ B with both directions
+  const key = (a, b) => [a, b].sort().join("|");
+  const pairs = {};
+  for (const r of d.pairs) {
+    const k = key(r.src, r.dst);
+    const p = pairs[k] ||= { a: r.src < r.dst ? r : null, items: {}, total: 0 };
+    p.items[r.src] = r; p.total += r.n;
+  }
+  const list = Object.values(pairs).sort((x, y) => y.total - x.total);
+  const maxP = Math.max(1, ...list.map(p => p.total));
+  const label = (cc, name) => `${flag(cc)} <b>${esc(name)}</b>`;
+  $("pairs").innerHTML = list.length ? `<table class="t"><tr><th>Points (first ↔ second)</th><th class="n">first → second</th><th class="n">second → first</th><th class="n">Total</th><th style="width:30%"></th></tr>` +
+    list.map(p => {
+      const [x, y] = Object.values(p.items).length === 2 ? Object.values(p.items) : [Object.values(p.items)[0], null];
+      const A = { id: x.src, name: x.src_name, cc: x.src_cc }, B = { id: x.dst, name: x.dst_name, cc: x.dst_cc };
+      const ab = x.n, ba = y ? y.n : 0;
+      return `<tr><td>${label(A.cc, A.name)} ↔ ${label(B.cc, B.name)}</td><td class="n" title="${esc(A.name)} → ${esc(B.name)}">${fmt(ab)}</td>
+        <td class="n" title="${esc(B.name)} → ${esc(A.name)}">${fmt(ba)}</td><td class="n"><b>${fmt(p.total)}</b></td>
+        <td><div class="pairbar" style="width:${Math.max(3, 100 * p.total / maxP)}%"></div></td></tr>`;
+    }).join("") + `</table>` : `<p class="muted">No messages between points in this period.</p>`;
+
+  // matrix (only when it stays readable)
+  const ids = d.points.filter(p => p.sent || p.received).map(p => p.id);
+  if (ids.length >= 2 && ids.length <= 10) {
+    const byId = Object.fromEntries(d.points.map(p => [p.id, p]));
+    const cell = {}; let maxC = 1;
+    for (const r of d.pairs) { cell[r.src + "|" + r.dst] = r.n; maxC = Math.max(maxC, r.n); }
+    $("matrix").innerHTML = `<p class="help" style="margin:10px 0 4px">From (row) → to (column)</p><table class="t matrix"><tr><th></th>` +
+      ids.map(i => `<th class="rot">${flag(byId[i].country)}<br>${esc(byId[i].name)}</th>`).join("") + `</tr>` +
+      ids.map(r => `<tr><th>${flag(byId[r].country)} ${esc(byId[r].name)}</th>` + ids.map(c => {
+        if (r === c) return `<td class="c muted">—</td>`;
+        const n = cell[r + "|" + c] || 0;
+        return `<td class="c" style="background:rgba(var(--heat),${n ? (0.12 + 0.6 * n / maxC).toFixed(2) : 0})" title="${esc(byId[r].name)} → ${esc(byId[c].name)}: ${n}">${n || ""}</td>`;
+      }).join("") + `</tr>`).join("") + `</table>`;
+  } else $("matrix").innerHTML = "";
+
+  $("points").innerHTML = `<tr><th></th><th>Point</th><th>Status</th><th class="n">Sent</th><th class="n">Received</th><th class="n">Refused</th>
+    <th class="n">Nodes</th><th class="n">Public ch.</th><th>Version</th><th>Last activity</th></tr>` +
+    (d.points.length ? d.points.map(p => `<tr><td class="flag">${flag(p.country)}</td><td><b>${esc(p.name)}</b><br><span class="muted">${esc(p.city || "")}</span></td>
+      <td><span class="dot ${p.online ? "on" : ""}"></span>${p.status === "approved" ? (p.online ? "online" : "offline · " + ago(p.last_seen)) : esc(p.status)}</td>
+      <td class="n">${fmt(p.sent)}</td><td class="n">${fmt(p.received)}</td><td class="n">${fmt(p.refused)}</td>
+      <td class="n">${p.nodes ?? "—"}</td><td class="n">${p.public_rate == null ? "—" : p.public_rate + "/h"}</td>
+      <td>${esc(p.version || "—")}</td><td>${ago(p.last_activity)}</td></tr>`).join("")
+    : `<tr><td colspan="10" class="muted">No points yet.</td></tr>`);
+
+  $("refused").innerHTML = d.refused_by_reason.length ? `<tr><th>Reason</th><th class="n">Count</th></tr>` +
+    d.refused_by_reason.map(r => `<tr><td>${esc(r.reason)}</td><td class="n">${fmt(r.n)}</td></tr>`).join("")
+    : `<tr><td class="muted">Nothing refused in this period.</td></tr>`;
+  $("rooms").innerHTML = d.rooms.length ? `<tr><th>Room</th><th class="n">Relayed</th></tr>` +
+    d.rooms.map(r => `<tr><td>#${esc(r.room)}</td><td class="n">${fmt(r.n)}</td></tr>`).join("")
+    : `<tr><td class="muted">No traffic in this period.</td></tr>`;
+  drawChart(d);
+}
+
+function drawChart(d) {
+  const svg = $("chart"), W = svg.clientWidth || 700, H = 170, padL = 30, padB = 18, padT = 6;
+  const step = d.bucket, end = Math.floor(Date.now() / 1000 / step) * step, n = Math.round(d.hours * 3600 / step);
+  const by = Object.fromEntries(d.series.map(s => [s.t, s]));
+  const rows = Array.from({ length: n }, (_, i) => { const t = end - (n - 1 - i) * step; return by[t] || { t, relayed: 0, refused: 0 }; });
+  const max = Math.max(1, ...rows.map(r => Math.max(r.relayed, r.refused)));
+  const nice = max <= 5 ? 5 : Math.ceil(max / 5) * 5;
+  const cw = (W - padL) / n, bw = Math.max(1, Math.min(10, (cw - 3) / 2));
+  const y = v => padT + (H - padT - padB) * (1 - v / nice);
+  let g = "";
+  for (const v of [0, nice / 2, nice]) g += `<line class="grid" x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${padL - 4}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
+  const lbl = t => step >= 86400 ? new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" })
+                                  : new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit" });
+  rows.forEach((r, i) => {
+    const x = padL + i * cw + (cw - 2 * bw - 2) / 2;
+    const bar = (v, xx, col) => v ? `<rect x="${xx}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="${Math.min(2, bw / 2)}" fill="var(${col})"/>` : "";
+    g += `<g data-i="${i}">${bar(r.relayed, x, "--s-ok")}${bar(r.refused, x + bw + 2, "--s-bad")}
+      <rect x="${padL + i * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="transparent"/></g>`;
+    if (i % Math.ceil(n / 8) === 0) g += `<text x="${padL + i * cw + cw / 2}" y="${H - 4}" text-anchor="middle">${lbl(r.t)}</text>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+  const tip = $("tip");
+  svg.querySelectorAll("g[data-i]").forEach(el => {
+    el.onmousemove = e => { const r = rows[+el.dataset.i];
+      tip.innerHTML = `<b>${step >= 86400 ? new Date(r.t * 1000).toLocaleDateString() : new Date(r.t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</b><br>Relayed: ${r.relayed}<br>Refused: ${r.refused}`;
+      tip.style.display = "block"; tip.style.left = Math.min(e.clientX + 12, innerWidth - 180) + "px"; tip.style.top = e.clientY + 12 + "px"; };
+    el.onmouseleave = () => tip.style.display = "none";
+  });
+  $("chart-note").textContent = step >= 86400 ? "Per day." : "Per hour.";
+}
+
+async function load() {
+  try {
+    const [st, d] = await Promise.all([api("GET", "/api/admin/state"), api("GET", "/api/admin/stats?hours=" + hours)]);
+    $("srv-name").textContent = st.settings.name; document.title = st.settings.name + " · Dashboard";
+    last = d; draw(d);
+  } catch (e) { console.error(e); }
+}
+document.querySelectorAll("#range button").forEach(b => {
+  b.classList.toggle("on", +b.dataset.h === hours);
+  b.onclick = () => { hours = +b.dataset.h; try { localStorage.setItem("ura-srv-range", hours); } catch (e) {}
+    document.querySelectorAll("#range button").forEach(x => x.classList.toggle("on", x === b)); load(); };
+});
+$("logout").onclick = async () => { await api("POST", "/api/admin/logout"); location.href = "/admin/login"; };
+addEventListener("resize", () => last && drawChart(last));
+function live() {   // refresh when something happens on the server
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/admin/ws");
+  let t = null;
+  ws.onmessage = () => { clearTimeout(t); t = setTimeout(load, 1500); };
+  ws.onclose = () => setTimeout(live, 5000);
+}
+load(); live();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

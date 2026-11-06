@@ -32,16 +32,16 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 
 ## Statistics
 
-**Client dashboard (one point):**
+**Client dashboard (one point):** *(done)*
 - connection to the server (online, since when), point status (pending / approved / blocked)
 - per remote point: messages received from it / sent to it, last activity
 - per network (Meshtastic / MeshCore): messages in / out
 - messages held back or dropped by the radio limit
 - activity over time (hour / day)
 
-**Server dashboard (all points):**
+**Server dashboard (all points):** `/admin/dashboard` *(done)*
 - every point: online / offline, last seen, version, messages in / out
-- **who talks to whom**: point A ↔ point B message counts
+- **who talks to whom**: point A ↔ point B message counts (list + matrix)
 - activity over time, refusals by reason (rate limit, duplicate, not approved, …)
 
 ## Public-channel rule
