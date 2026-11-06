@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ura Hub Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .wrap { max-width: 1100px; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.t th, table.t td { text-align: left; padding: 7px 5px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.t th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .scroll { overflow-x: auto; margin-bottom: 14px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; color: #fff; }
+  .badge.approved { background: var(--ok); } .badge.pending { background: #c98a12; } .badge.blocked { background: var(--bad); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 4px; }
+  .dot.on { background: var(--ok); }
+  .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .actions button, .small { padding: 4px 9px; font-size: 12px; }
+  .req { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; background: var(--bg); }
+  .req .meta { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+  input.limit { width: 70px; padding: 4px 6px; }
+  .rej { color: var(--bad); font-size: 11px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 12px; }
+  .checks label { font-size: 13px; display: flex; gap: 5px; align-items: center; }
+  .flag { font-size: 16px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>🌍 <span id="hub-name">Ura Hub</span> · Admin</h1>
+  <span class="spacer"></span>
+  <a href="/">Public page</a>
+  <button id="logout">Log out</button>
+</header>
+<div class="wrap">
+
+  <section class="card" id="pending-card">
+    <h2>Join requests</h2>
+    <p class="desc">New bridges wait here until you approve them. They cannot send or receive anything before that.</p>
+    <div id="pending"></div>
+  </section>
+
+  <section class="card">
+    <h2>Bridges</h2>
+    <p class="desc">Limit = messages per minute this bridge may send (empty = hub default).</p>
+    <div class="scroll"><table class="t" id="bridges"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Rooms</h2>
+    <p class="desc">A room is a linked channel. <b>Open</b> rooms include every approved bridge; closed rooms only the bridges you tick.</p>
+    <div class="scroll"><table class="t" id="rooms"></table></div>
+    <h3 style="font-size:14px;margin:4px 0 8px">Add or edit a room</h3>
+    <div class="grid2">
+      <div class="field"><label for="r-name">Name</label><input type="text" id="r-name" placeholder="e.g. Europe"></div>
+      <div class="field"><label for="r-desc">Description</label><input type="text" id="r-desc"></div>
+    </div>
+    <div class="field"><label class="switch"><input type="checkbox" id="r-open" checked> Open to every approved bridge</label></div>
+    <div id="r-members-box"><label style="font-weight:600;font-size:13px">Members</label><div class="checks" id="r-members"></div></div>
+    <div class="field"><button class="primary" id="r-save">Save room</button> <span id="r-msg"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Message log</h2>
+    <p class="desc">Last 200 messages through the hub, newest first. Red = rejected (not relayed).</p>
+    <div class="scroll" style="max-height:420px;overflow-y:auto"><table class="t" id="log"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Hub settings</h2>
+    <div class="grid2">
+      <div class="field"><label for="s-name">Hub name</label><input type="text" id="s-name"></div>
+      <div class="field"><label for="s-per">Default limit (messages / minute / bridge)</label><input type="number" id="s-per" min="0" max="600"></div>
+      <div class="field"><label for="s-max">Max message size (bytes)</label><input type="number" id="s-max" min="20" max="1000">
+        <div class="help">Meshtastic fits about 200 bytes, MeshCore about 130.</div></div>
+    </div>
+    <div class="field"><label class="switch"><input type="checkbox" id="s-feed"> Show recent messages on the public page</label></div>
+    <div class="field"><label class="switch"><input type="checkbox" id="s-nodes"> Show shared node positions on the public map</label>
+      <div class="help">Only nodes whose bridge owner turned sharing on, rounded to about 2 km.</div></div>
+    <div class="field"><button class="primary" id="s-save">Save settings</button> <span id="s-msg"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Admin password</h2>
+    <div class="grid2">
+      <div class="field"><label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password"></div>
+      <div class="field"><label for="pw-new">New password</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+    </div>
+    <div class="field"><button id="pw-btn">Change password</button> <span id="pw-msg"></span></div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const flag = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : "🏳️";
+const NETS = { mt: "Meshtastic", mc: "MeshCore", web: "web", tg: "Telegram" };
+const when = ts => ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+let st = null;
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.href = "/admin/login"; throw new Error("login required"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function act(bid, action, extra = {}) {
+  if (action === "delete" && !confirm("Delete this bridge? Its key stops working; it would have to request to join again.")) return;
+  if (action === "block" && !confirm("Block this bridge? It is disconnected and cannot send or receive.")) return;
+  try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); await load(); }
+  catch (e) { alert(e.message); }
+}
+
+function draw() {
+  $("hub-name").textContent = st.settings.name;
+  const pend = st.bridges.filter(b => b.status === "pending");
+  $("pending").innerHTML = pend.length ? pend.map(b => `<div class="req">
+      <b><span class="flag">${flag(b.country)}</span> ${esc(b.name)}</b> <span class="muted">${esc(b.city)}, ${esc(b.country)}</span>
+      <div class="meta">${(b.networks || "").split(",").filter(Boolean).map(n => NETS[n]).join(" + ") || "no radio listed"}
+        · requested ${when(b.created)} from ${esc(b.ip || "?")} · ${b.online ? "connected, waiting" : "not connected"}
+        ${b.contact ? `<br>Contact: <b>${esc(b.contact)}</b>` : ""}${b.note ? `<br>Note: ${esc(b.note)}` : ""}</div>
+      <div class="actions"><button class="primary" data-a="approve" data-id="${esc(b.id)}">Approve</button>
+        <button data-a="block" data-id="${esc(b.id)}">Reject &amp; block</button>
+        <button data-a="delete" data-id="${esc(b.id)}">Delete</button></div></div>`).join("")
+    : `<p class="muted">No requests waiting.</p>`;
+
+  const others = st.bridges.filter(b => b.status !== "pending");
+  $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
+    (others.length ? others.map(b => `<tr>
+      <td class="flag">${flag(b.country)}</td>
+      <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.contact ? "<br>" + esc(b.contact) : ""}</span></td>
+      <td><span class="badge ${b.status}">${b.status}</span></td>
+      <td><span class="dot ${b.online ? "on" : ""}"></span>${b.online ? "now" : when(b.last_seen)}</td>
+      <td>${b.node_count || 0}</td>
+      <td>${b.msgs_in} / ${b.msgs_out}</td>
+      <td><input class="limit" type="number" min="0" max="600" value="${b.per_min ?? ""}" placeholder="${st.settings.default_per_min}" data-limit="${esc(b.id)}"></td>
+      <td>${esc((b.rooms || []).join(", "))}</td>
+      <td><div class="actions">${b.status === "blocked"
+        ? `<button data-a="unblock" data-id="${esc(b.id)}">Unblock</button>`
+        : `<button data-a="block" data-id="${esc(b.id)}">Block</button>`}
+        <button data-a="delete" data-id="${esc(b.id)}">Delete</button></div></td></tr>`).join("")
+    : `<tr><td colspan="9" class="muted">No approved bridges yet.</td></tr>`);
+
+  $("rooms").innerHTML = `<tr><th>Room</th><th>Description</th><th>Who</th><th></th></tr>` + st.rooms.map(r => `<tr>
+      <td><b>#${esc(r.name)}</b></td><td>${esc(r.description)}</td>
+      <td>${r.open ? "every approved bridge" : (r.members.map(id => esc((st.bridges.find(b => b.id === id) || {}).name || id)).join(", ") || "nobody")}</td>
+      <td><div class="actions"><button data-edit-room="${esc(r.name)}">Edit</button>
+        <button data-del-room="${esc(r.name)}">Delete</button></div></td></tr>`).join("");
+  fillMembers();
+
+  $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From</th><th>Message</th><th>To</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
+    : `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`);
+
+  document.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.id, b.dataset.a));
+  document.querySelectorAll("[data-limit]").forEach(i => i.onchange = () => act(i.dataset.limit, "limit", { per_min: i.value }));
+  document.querySelectorAll("[data-edit-room]").forEach(b => b.onclick = () => editRoom(b.dataset.editRoom));
+  document.querySelectorAll("[data-del-room]").forEach(b => b.onclick = async () => {
+    if (!confirm("Delete room #" + b.dataset.delRoom + "?")) return;
+    try { await api("POST", "/api/admin/room", { action: "delete", name: b.dataset.delRoom }); await load(); } catch (e) { alert(e.message); }
+  });
+}
+function logRow(m) {
+  return `<tr><td>${when(m.ts)}</td><td>#${esc(m.room)}</td>
+    <td>${flag(m.country)} ${esc(m.bridge || m.bridge_id)}<br><span class="muted">${esc(m.sender)} · ${esc(NETS[m.net] || m.net)}</span></td>
+    <td>${esc(m.text)}${m.rejected ? `<div class="rej">rejected: ${esc(m.rejected)}</div>` : ""}</td>
+    <td>${m.rejected ? "—" : m.delivered}</td></tr>`;
+}
+function fillMembers(checked) {
+  const approved = st.bridges.filter(b => b.status === "approved");
+  const cur = checked || [...document.querySelectorAll("#r-members input:checked")].map(i => i.value);
+  $("r-members").innerHTML = approved.length ? approved.map(b => `<label><input type="checkbox" value="${esc(b.id)}" ${cur.includes(b.id) ? "checked" : ""}>
+    ${flag(b.country)} ${esc(b.name)}</label>`).join("") : `<span class="muted">No approved bridges yet.</span>`;
+  $("r-members-box").hidden = $("r-open").checked;
+}
+function editRoom(name) {
+  const r = st.rooms.find(x => x.name === name);
+  $("r-name").value = r.name; $("r-desc").value = r.description || ""; $("r-open").checked = !!r.open;
+  fillMembers(r.members);
+  $("r-name").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+$("r-open").onchange = () => fillMembers();
+$("r-save").onclick = async () => {
+  try {
+    await api("POST", "/api/admin/room", { action: "save", name: $("r-name").value.trim(), description: $("r-desc").value,
+      open: $("r-open").checked, members: [...document.querySelectorAll("#r-members input:checked")].map(i => i.value) });
+    $("r-msg").className = "ok"; $("r-msg").textContent = "✓ Saved"; await load();
+  } catch (e) { $("r-msg").className = "bad"; $("r-msg").textContent = e.message; }
+};
+$("s-save").onclick = async () => {
+  try {
+    await api("POST", "/api/admin/settings", { name: $("s-name").value, default_per_min: $("s-per").value, max_bytes: $("s-max").value,
+      public_feed: $("s-feed").checked, show_nodes: $("s-nodes").checked });
+    $("s-msg").className = "ok"; $("s-msg").textContent = "✓ Saved"; await load();
+  } catch (e) { $("s-msg").className = "bad"; $("s-msg").textContent = e.message; }
+};
+$("pw-btn").onclick = async () => {
+  try {
+    await api("POST", "/api/admin/password", { current: $("pw-cur").value, new: $("pw-new").value });
+    $("pw-msg").className = "ok"; $("pw-msg").textContent = "✓ Password changed"; $("pw-cur").value = $("pw-new").value = "";
+  } catch (e) { $("pw-msg").className = "bad"; $("pw-msg").textContent = e.message; }
+};
+$("logout").onclick = async () => { await api("POST", "/api/admin/logout"); location.href = "/admin/login"; };
+
+async function load() {
+  st = await api("GET", "/api/admin/state");
+  draw();
+  $("s-name").value = st.settings.name; $("s-per").value = st.settings.default_per_min; $("s-max").value = st.settings.max_bytes;
+  $("s-feed").checked = st.settings.public_feed; $("s-nodes").checked = st.settings.show_nodes;
+}
+function live() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/admin/ws");
+  ws.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    if (ev.kind === "msg" && st) { st.messages.unshift(ev.msg); st.messages.length = Math.min(st.messages.length, 200); draw(); }
+    else if (ev.kind === "bridges") load();
+  };
+  ws.onclose = () => setTimeout(live, 3000);
+}
+load().catch(e => alert("Could not load: " + e.message));
+live();
+setInterval(() => load().catch(() => {}), 30000);
+</script>
+</body>
+</html>

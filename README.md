@@ -33,10 +33,17 @@ cities and countries over the internet, without flooding the local radio channel
 - **Clearly labelled.** Messages that came over the internet are marked with where they came from.
 - **Private messages** go only to the bridge where the recipient is.
 
+## Layout
+
+- `hub/` — Ura Hub (`hub.py`, web pages)
+- `bridge/` — Ura Bridge (radios + Telegram + dashboard + hub link)
+- `PROTOCOL.md` — how bridges and the hub talk
+- `contrib/` — systemd service files
+
 ## Plan
 
-1. Hub + bridge link, test Tirana ↔ Germany on a private network
-2. Hub admin page (approve / block / limits) and public directory + map
+1. Hub + bridge link, test Tirana ↔ Germany on a private network — *code done, tested with two bridges without radios*
+2. Hub admin page (approve / block / limits) and public directory + map — *first version done*
 3. HTTPS and public internet access, first outside bridges
 4. Public release
 

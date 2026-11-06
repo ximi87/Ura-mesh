@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ura Hub</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .hero { padding: 18px 16px 6px; max-width: 1200px; margin: 0 auto; width: 100%; }
+  .hero h1 { margin: 0; font-size: 24px; }
+  .hero p { margin: 4px 0 0; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; max-width: 1200px;
+           margin: 14px auto 0; padding: 0 16px; width: 100%; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 14px;
+            max-width: 1200px; margin: 14px auto; padding: 0 16px; width: 100%; }
+  #map { height: 520px; border-radius: 12px; border: 1px solid var(--border); }
+  .list { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+          display: flex; flex-direction: column; max-height: 520px; }
+  .list h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .rows { overflow-y: auto; }
+  .br { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .br:hover { background: var(--bg); }
+  .flag { font-size: 22px; width: 28px; text-align: center; }
+  .br .who { flex: 1; min-width: 0; }
+  .br .who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .br .who small { color: var(--muted); }
+  .net { font-size: 10px; font-weight: 700; color: #fff; padding: 1px 6px; border-radius: 4px; margin-left: 3px; }
+  .net.mt { background: var(--mt); } .net.mc { background: var(--mc); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+  .wide { max-width: 1200px; margin: 0 auto 14px; padding: 0 16px; width: 100%; }
+  .feed .m { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .feed .m small { color: var(--muted); }
+  .empty { color: var(--muted); padding: 20px 14px; text-align: center; }
+  ol { padding-left: 20px; margin: 6px 0 12px; }
+  footer { margin-top: auto; text-align: center; color: var(--muted); font-size: 12px; padding: 16px; }
+  @media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: brightness(.75) contrast(1.1) saturate(.8); } }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    #map { height: 360px; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1 id="title">🌍 Ura Hub</h1>
+  <p>Every mesh, one world. LoRa mesh networks — Meshtastic and MeshCore — linked across countries.</p>
+</div>
+<div class="stats">
+  <div class="stat"><b id="s-online">–</b><span>bridges online</span></div>
+  <div class="stat"><b id="s-bridges">–</b><span>bridges</span></div>
+  <div class="stat"><b id="s-countries">–</b><span>countries</span></div>
+  <div class="stat"><b id="s-msgs">–</b><span>messages, last 24 h</span></div>
+</div>
+<div class="layout">
+  <div id="map"></div>
+  <div class="list">
+    <h2>Bridges</h2>
+    <div class="rows" id="rows"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+<div class="wide" id="feed-box" hidden>
+  <section class="card feed"><h2>Recent messages</h2><div id="feed"></div></section>
+</div>
+<div class="wide">
+  <section class="card">
+    <h2>Join with your own bridge</h2>
+    <ol>
+      <li>Set up an <b>Ura bridge</b> next to your Meshtastic and/or MeshCore radio.</li>
+      <li>On the bridge's Settings page, under <b>Hub</b>, enter this hub's address and click <b>Request to join</b>.</li>
+      <li>The hub admin approves your bridge. Then add the <b>Global</b> channel on your radio
+        (Meshtastic: a secondary channel, MeshCore: a new channel) and link it on the bridge.</li>
+    </ol>
+    <p class="muted" style="font-size:13px">Only channels a bridge owner links are shared. Local public channels never leave their area.
+      Messages from other countries arrive as <code>[CC] Name: text</code>.</p>
+  </section>
+</div>
+<footer>Ura — Albanian for “bridge”. Locations are shown at city level.</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const flag = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : "🏳️";
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NET = { mt: "MT", mc: "MC" };
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago";
+  return Math.floor(s / 86400) + " d ago";
+}
+
+const map = L.map("map", { worldCopyJump: true }).setView([30, 10], 2);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 12, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+const bridgeLayer = L.layerGroup().addTo(map), nodeLayer = L.layerGroup().addTo(map), lineLayer = L.layerGroup().addTo(map);
+const markers = {};
+let fitted = false;
+
+function draw(d) {
+  document.title = d.name;
+  document.getElementById("title").textContent = "🌍 " + d.name;
+  document.getElementById("s-online").textContent = d.stats.online;
+  document.getElementById("s-bridges").textContent = d.stats.bridges;
+  document.getElementById("s-countries").textContent = d.stats.countries;
+  document.getElementById("s-msgs").textContent = d.stats.messages_24h;
+
+  bridgeLayer.clearLayers(); nodeLayer.clearLayers(); lineLayer.clearLayers();
+  const pts = [];
+  for (const n of d.nodes) {
+    L.circleMarker([n.lat, n.lon], { radius: 3, weight: 0, fillOpacity: .6, fillColor: cssVar(n.net === "mc" ? "--mc" : "--mt") })
+      .bindTooltip(esc(n.name)).addTo(nodeLayer);
+  }
+  const online = d.bridges.filter(b => b.online && b.lat != null);
+  // lines from every online bridge to the others: the "bridges" between places
+  for (let i = 0; i < online.length; i++) for (let j = i + 1; j < online.length; j++)
+    L.polyline([[online[i].lat, online[i].lon], [online[j].lat, online[j].lon]],
+      { color: cssVar("--accent"), weight: 1.5, opacity: .35, dashArray: "4 6" }).addTo(lineLayer);
+  for (const b of d.bridges) {
+    if (b.lat == null || b.lon == null) continue;
+    pts.push([b.lat, b.lon]);
+    const icon = L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15],
+      html: `<div style="font-size:24px;line-height:30px;text-align:center;filter:${b.online ? "none" : "grayscale(1) opacity(.6)"}">${flag(b.country)}</div>` });
+    markers[b.id] = L.marker([b.lat, b.lon], { icon }).addTo(bridgeLayer).bindPopup(
+      `<b>${esc(b.name)}</b><br>${esc(b.city)} ${flag(b.country)}<br>` +
+      `${b.networks.map(n => NET[n] === "MT" ? "Meshtastic" : "MeshCore").join(" + ") || "—"}<br>` +
+      `${b.online ? "🟢 online" : "⚪ last seen " + ago(b.last_seen)} · ${b.nodes || 0} nodes<br>` +
+      `Rooms: ${esc(b.rooms.join(", "))}`);
+  }
+  if (!fitted && pts.length) { fitted = true; if (pts.length === 1) map.setView(pts[0], 5); else map.fitBounds(pts, { padding: [40, 40], maxZoom: 6 }); }
+
+  const rows = document.getElementById("rows");
+  rows.innerHTML = d.bridges.length ? d.bridges
+    .sort((a, b) => (b.online - a.online) || a.country.localeCompare(b.country))
+    .map(b => `<div class="br" data-id="${esc(b.id)}"><span class="flag">${flag(b.country)}</span>
+      <span class="who"><b>${esc(b.name)}</b><small>${esc(b.city || b.country)} · ${b.nodes || 0} nodes</small></span>
+      <span>${b.networks.map(n => `<span class="net ${n}">${NET[n]}</span>`).join("")}</span>
+      <span class="dot ${b.online ? "on" : ""}" title="${b.online ? "online" : "last seen " + ago(b.last_seen)}"></span></div>`).join("")
+    : `<div class="empty">No bridges yet.</div>`;
+  rows.querySelectorAll(".br").forEach(r => r.onclick = () => {
+    const m = markers[r.dataset.id]; if (m) { map.setView(m.getLatLng(), 6); m.openPopup(); }
+  });
+
+  document.getElementById("feed-box").hidden = !d.feed.length;
+  document.getElementById("feed").innerHTML = d.feed.map(m =>
+    `<div class="m"><small>${flag(m.country)} ${esc(m.bridge)} · #${esc(m.room)} · ${ago(m.ts)}</small><br><b>${esc(m.sender)}:</b> ${esc(m.text)}</div>`).join("");
+}
+
+async function load() {
+  try { draw(await (await fetch("/api/public")).json()); } catch (e) { console.error(e); }
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
