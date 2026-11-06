@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -47,6 +48,8 @@ DEFAULT_SETTINGS = {
     "max_bytes": 200,
     "public_feed": False,      # show recent room messages on the public page
     "show_nodes": True,        # show nodes that bridges chose to share on the public map
+    "min_distance_km": 20,     # one bridge per area: approved bridges closer than this are flagged (0 = off)
+    "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
     "auth": {"password_hash": "", "session_secret": ""},
 }
 
@@ -89,6 +92,14 @@ def norm_text(text):
     if PREFIX_RE.match(text or ""):
         t = t.split(": ", 1)[-1]
     return " ".join(t.lower().split())
+
+
+def distance_km(a_lat, a_lon, b_lat, b_lon):
+    """Great-circle distance (haversine)."""
+    p1, p2 = math.radians(a_lat), math.radians(b_lat)
+    dp, dl = p2 - p1, math.radians(b_lon - a_lon)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 6371.0 * 2 * math.asin(math.sqrt(min(1.0, h)))
 
 
 def clean_info(raw):
@@ -237,6 +248,30 @@ class Hub:
     async def push_all_status(self):
         for bid in list(self.conns):
             await self.push_status(bid)
+
+    def nearby(self, lat, lon, exclude=None):
+        """Approved bridges inside the one-bridge-per-area radius around lat/lon, nearest first."""
+        limit = self.s.get("min_distance_km") or 0
+        if limit <= 0 or lat is None or lon is None:
+            return []
+        out = []
+        for b in self.db.q("SELECT id, name, country, city, lat, lon FROM bridges "
+                           "WHERE status='approved' AND lat IS NOT NULL AND lon IS NOT NULL"):
+            if b["id"] == exclude:
+                continue
+            km = distance_km(lat, lon, b["lat"], b["lon"])
+            if km < limit:
+                out.append({"id": b["id"], "name": b["name"], "country": b["country"], "city": b["city"],
+                            "km": round(km, 1)})
+        return sorted(out, key=lambda x: x["km"])
+
+    def area_check(self, b):
+        """Problems with the one-bridge-per-area rule for a bridge row (shown to the admin)."""
+        if not self.s.get("min_distance_km"):
+            return {"nearby": [], "no_location": False}
+        if b["lat"] is None or b["lon"] is None:
+            return {"nearby": [], "no_location": True}
+        return {"nearby": self.nearby(b["lat"], b["lon"], exclude=b["id"]), "no_location": False}
 
     def online(self, bid):
         return bid in self.conns or time.time() - self.dropped_at.get(bid, 0) < ONLINE_GRACE
@@ -434,6 +469,15 @@ class Hub:
         ip = request.remote
         if self.db.one("SELECT COUNT(*) n FROM bridges WHERE ip=? AND status='pending'", (ip,))["n"] >= 5:
             raise web.HTTPTooManyRequests(text="too many pending requests from your address")
+        if self.s.get("min_distance_km") and self.s.get("distance_strict"):
+            if info["lat"] is None or info["lon"] is None:
+                raise web.HTTPBadRequest(text="this hub allows one bridge per area: please enter your bridge location")
+            near = self.nearby(info["lat"], info["lon"])
+            if near:
+                n = near[0]
+                raise web.HTTPConflict(text=f"an approved bridge already serves this area: {n['name']} "
+                                            f"({n['city'] or n['country']}), {n['km']} km away. This hub allows one "
+                                            f"bridge per {self.s['min_distance_km']} km — contact the hub admin.")
         bid = "b_" + secrets.token_hex(6)
         key = secrets.token_urlsafe(24)
         self.db.run("""INSERT INTO bridges (id, key_hash, name, country, city, lat, lon, networks, contact,
@@ -537,6 +581,7 @@ class Hub:
             b.pop("key_hash", None)
             b["online"] = b["id"] in self.conns
             b["rooms"] = [r["name"] for r in self.rooms_for(b["id"])]
+            b["area"] = self.area_check(b)
         rooms = self.db.q("SELECT * FROM rooms ORDER BY name")
         for r in rooms:
             r["members"] = [m["bridge_id"] for m in self.db.q(
@@ -600,15 +645,16 @@ class Hub:
         s = self.s
         if "name" in body:
             s["name"] = str(body["name"]).strip()[:40] or "Ura Hub"
-        for k in ("default_per_min", "max_bytes"):
+        for k in ("default_per_min", "max_bytes", "min_distance_km"):
             if k in body:
                 try:
                     s[k] = int(body[k])
                 except (TypeError, ValueError):
                     raise web.HTTPBadRequest(text=f"{k} must be a number")
-        if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000:
+        if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000 \
+                or not 0 <= s["min_distance_km"] <= 1000:
             raise web.HTTPBadRequest(text="limits out of range")
-        for k in ("public_feed", "show_nodes"):
+        for k in ("public_feed", "show_nodes", "distance_strict"):
             if k in body:
                 s[k] = bool(body[k])
         save_settings(s)

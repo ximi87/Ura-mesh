@@ -24,6 +24,8 @@
   .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 12px; }
   .checks label { font-size: 13px; display: flex; gap: 5px; align-items: center; }
   .flag { font-size: 16px; }
+  .warn { font-size: 12px; color: #b45309; margin-top: 4px; }
+  @media (prefers-color-scheme: dark) { .warn { color: #f0b85a; } }
 </style>
 </head>
 <body>
@@ -75,6 +77,14 @@
       <div class="field"><label for="s-max">Max message size (bytes)</label><input type="number" id="s-max" min="20" max="1000">
         <div class="help">Meshtastic fits about 200 bytes, MeshCore about 130.</div></div>
     </div>
+    <h3 style="font-size:14px;margin:4px 0 4px">One bridge per area</h3>
+    <div class="grid2">
+      <div class="field"><label for="s-dist">Minimum distance between bridges (km)</label>
+        <input type="number" id="s-dist" min="0" max="1000">
+        <div class="help">0 = off. Bridges closer than this to an approved bridge are flagged.</div></div>
+    </div>
+    <div class="field"><label class="switch"><input type="checkbox" id="s-strict"> Strict: refuse join requests inside an existing bridge's area</label>
+      <div class="help">Off = such requests still arrive, with a warning, and you decide. On = they are refused automatically and the bridge owner is told why.</div></div>
     <div class="field"><label class="switch"><input type="checkbox" id="s-feed"> Show recent messages on the public page</label></div>
     <div class="field"><label class="switch"><input type="checkbox" id="s-nodes"> Show shared node positions on the public map</label>
       <div class="help">Only nodes whose bridge owner turned sharing on, rounded to about 2 km.</div></div>
@@ -105,7 +115,19 @@ async function api(method, url, body) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+function areaWarn(b) {
+  const a = b.area || {};
+  if (a.no_location) return `<div class="warn">⚠ No location given — the one-bridge-per-area rule can't check this bridge.</div>`;
+  if (a.nearby && a.nearby.length) return `<div class="warn">⚠ Inside the area of ${a.nearby.map(n =>
+    `${flag(n.country)} <b>${esc(n.name)}</b> (${n.km} km)`).join(", ")} — limit ${st.settings.min_distance_km} km.</div>`;
+  return "";
+}
 async function act(bid, action, extra = {}) {
+  if (action === "approve") {
+    const b = st.bridges.find(x => x.id === bid), a = (b && b.area) || {};
+    if (a.nearby && a.nearby.length && !confirm(`${b.name} is ${a.nearby[0].km} km from ${a.nearby[0].name}, inside the ` +
+        `${st.settings.min_distance_km} km one-bridge-per-area limit.\n\nApprove anyway?`)) return;
+  }
   if (action === "delete" && !confirm("Delete this bridge? Its key stops working; it would have to request to join again.")) return;
   if (action === "block" && !confirm("Block this bridge? It is disconnected and cannot send or receive.")) return;
   try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); await load(); }
@@ -119,7 +141,7 @@ function draw() {
       <b><span class="flag">${flag(b.country)}</span> ${esc(b.name)}</b> <span class="muted">${esc(b.city)}, ${esc(b.country)}</span>
       <div class="meta">${(b.networks || "").split(",").filter(Boolean).map(n => NETS[n]).join(" + ") || "no radio listed"}
         · requested ${when(b.created)} from ${esc(b.ip || "?")} · ${b.online ? "connected, waiting" : "not connected"}
-        ${b.contact ? `<br>Contact: <b>${esc(b.contact)}</b>` : ""}${b.note ? `<br>Note: ${esc(b.note)}` : ""}</div>
+        ${b.contact ? `<br>Contact: <b>${esc(b.contact)}</b>` : ""}${b.note ? `<br>Note: ${esc(b.note)}` : ""}${areaWarn(b)}</div>
       <div class="actions"><button class="primary" data-a="approve" data-id="${esc(b.id)}">Approve</button>
         <button data-a="block" data-id="${esc(b.id)}">Reject &amp; block</button>
         <button data-a="delete" data-id="${esc(b.id)}">Delete</button></div></div>`).join("")
@@ -129,7 +151,7 @@ function draw() {
   $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
     (others.length ? others.map(b => `<tr>
       <td class="flag">${flag(b.country)}</td>
-      <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.contact ? "<br>" + esc(b.contact) : ""}</span></td>
+      <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.contact ? "<br>" + esc(b.contact) : ""}</span>${b.status === "approved" ? areaWarn(b) : ""}</td>
       <td><span class="badge ${b.status}">${b.status}</span></td>
       <td><span class="dot ${b.online ? "on" : ""}"></span>${b.online ? "now" : when(b.last_seen)}</td>
       <td>${b.node_count || 0}</td>
@@ -190,7 +212,8 @@ $("r-save").onclick = async () => {
 $("s-save").onclick = async () => {
   try {
     await api("POST", "/api/admin/settings", { name: $("s-name").value, default_per_min: $("s-per").value, max_bytes: $("s-max").value,
-      public_feed: $("s-feed").checked, show_nodes: $("s-nodes").checked });
+      public_feed: $("s-feed").checked, show_nodes: $("s-nodes").checked,
+      min_distance_km: $("s-dist").value || 0, distance_strict: $("s-strict").checked });
     $("s-msg").className = "ok"; $("s-msg").textContent = "✓ Saved"; await load();
   } catch (e) { $("s-msg").className = "bad"; $("s-msg").textContent = e.message; }
 };
@@ -207,6 +230,7 @@ async function load() {
   draw();
   $("s-name").value = st.settings.name; $("s-per").value = st.settings.default_per_min; $("s-max").value = st.settings.max_bytes;
   $("s-feed").checked = st.settings.public_feed; $("s-nodes").checked = st.settings.show_nodes;
+  $("s-dist").value = st.settings.min_distance_km; $("s-strict").checked = st.settings.distance_strict;
 }
 function live() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/admin/ws");

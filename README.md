@@ -28,6 +28,8 @@ cities and countries over the internet, without flooding the local radio channel
 - **Protect the airwaves.** Each bridge owner sets how many linked messages may go out over their
   radio. Extra messages stay on the web/Telegram side.
 - **Control.** The Hub owner approves, limits and blocks bridges. Every bridge has its own key.
+- **One bridge per area.** The Hub flags (or, in strict mode, refuses) a new bridge closer than a set distance
+  (default 20 km) to an approved one, so one city is not connected twice.
 - **Privacy.** Bridge locations are shown at city level. Node positions are off by default and
   rounded when shared.
 - **Clearly labelled.** Messages that came over the internet are marked with where they came from.
