@@ -27,7 +27,7 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 3. The server log keeps only: time, from which point, which room, size, delivered to how many points, or
    refused and why.
 4. Only channels a point owner links are relayed. The local default channel (Meshtastic primary /
-   MeshCore Public, index 0) can never be linked.
+   MeshCore Public, index 0) is not linked — except under the public-channel rule below.
 5. Node positions are not shared (may become an opt-in option later, rounded to ~2 km).
 
 ## Statistics
@@ -43,6 +43,20 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 - every point: online / offline, last seen, version, messages in / out
 - **who talks to whom**: point A ↔ point B message counts
 - activity over time, refusals by reason (rate limit, duplicate, not approved, …)
+
+## Public-channel rule
+
+The public channel (index 0, created automatically on every radio) is where everyone in an area talks.
+Linking busy public channels (e.g. Germany ↔ USA ↔ China) would bring endless noise, so:
+
+1. Blocked by default.
+2. Each point **measures** traffic on its local public channel: messages per hour, counted, never read.
+3. The server owner sets a **limit** (e.g. ≤ 10 messages/hour, averaged over 24 h) and **grants permission per point**.
+4. A point may link its public channel only with permission **and** below the limit, after at least 24 h of
+   measurement.
+5. If it gets busier than the limit, the link is **paused automatically** and resumes when it is quiet again.
+
+*Status: measurement implemented; permission + auto-pause to do.*
 
 ## Security
 
