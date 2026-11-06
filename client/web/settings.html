@@ -89,7 +89,8 @@
 
       <h3 style="font-size:14px;margin:8px 0 4px">Linked channels</h3>
       <p class="help" style="margin:0 0 8px">For each room the server offers, pick the channel on your radio that carries it. Create the channel
-        on the radio first and tell local users to add it. Channel 0 (your local public channel) is never linked.</p>
+        on the radio first and tell local users to add it. Channel 0 (your local public channel) can only go to <b>#Public</b>,
+        and only while the server allows it and your area is quiet.</p>
       <div id="links"></div>
       <div class="grid2" style="margin-top:12px">
         <div class="field"><label for="server.rf_per_min">Radio limit (relayed messages per minute)</label>
@@ -176,10 +177,20 @@ function refresh() {
     el.hidden = !cur || cur.value !== val;
   });
 }
-function chanSelect(k, val) {
+function chanSelect(k, val, isPublic) {
   let o = `<option value="-1">off</option>`;
-  for (let i = 1; i <= 7; i++) o += `<option value="${i}" ${i === val ? "selected" : ""}>channel ${i}</option>`;
+  if (isPublic) o += `<option value="0" ${val === 0 ? "selected" : ""}>channel 0 (local public)</option>`;
+  else for (let i = 1; i <= 7; i++) o += `<option value="${i}" ${i === val ? "selected" : ""}>channel ${i}</option>`;
   return `<select data-k="${k}">${o}</select>`;
+}
+const PUBST = { "not allowed": "⚪ Not allowed by the server owner", "measuring": "⏳ Measuring your public channel",
+  "too busy": "🔴 Paused — your public channel is too busy", "active": "🟢 Active — linked to #Public" };
+function publicNote() {
+  const p = st.public || {}, pr = st.public_rate || {};
+  return `<tr><td colspan="3" class="help">${PUBST[p.status] || "Status unknown (not connected)"} ·
+    your public channel: ${pr.per_hour ?? "?"} msg/h over ${pr.measured_hours ?? 0} h
+    ${p.max_per_hour != null ? `· server limit ${p.max_per_hour}/h, at least ${p.min_hours} h measured` : ""}.
+    Only quiet places may link their public channel; it is paused automatically when it gets busy.</td></tr>`;
 }
 function drawServer() {
   const s = st.server || {}, joined = !!s.point_id, status = s.status || "off";
@@ -195,14 +206,18 @@ function drawServer() {
   $("srv-state").className = "note " + (s.cert_problem || (joined && !s.encrypted) ? "bad" : status === "approved" ? "ok" : status === "blocked" || status.startsWith("refused") ? "bad" : "");
   $("srv-url").value = $("srv-url").value || s.url || cfg.server.url || "";
   $("join-box").hidden = joined; $("leave-box").hidden = !joined;
-  const rooms = [...new Set([...(s.rooms || []), ...cfg.server.links.map(l => l.room)])];
+  const rooms = [...new Set([...(s.rooms || []).filter(r => r !== "Public"), ...cfg.server.links.map(l => l.room).filter(r => r !== "Public")])];
+  if (joined) rooms.push("Public");
   const mtOn = $("meshtastic.enabled").checked, mcOn = $("meshcore.enabled").checked;
   $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th></tr>` + rooms.map(r => {
       const l = cfg.server.links.find(x => x.room === r) || { mt_channel: -1, mc_channel: -1 };
-      const gone = status === "approved" && !(s.rooms || []).includes(r);
-      return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}</td>
-        <td>${mtOn ? chanSelect("mt", l.mt_channel) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
-        <td>${mcOn ? chanSelect("mc", l.mc_channel) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td></tr>`;
+      const pub = r === "Public";
+      const gone = !pub && status === "approved" && !(s.rooms || []).includes(r);
+      return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}
+          ${pub ? `<br><span class="help">your local public channel</span>` : ""}</td>
+        <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
+        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td></tr>`
+        + (pub ? publicNote() : "");
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
 }
 let checked = null;   // {url, encrypted, fingerprint} confirmed by the owner

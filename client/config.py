@@ -109,8 +109,11 @@ def _coerce(default, value, path):
     return "" if value is None else str(value).strip()
 
 
+PUBLIC_ROOM = "Public"   # the only room channel 0 may be linked to (public-channel rule, decided by the server)
+
+
 def _links(value):
-    """Which local channel carries which server room. Channel 0 can never be linked."""
+    """Which local channel carries which server room. Channel 0 only for #Public."""
     if not isinstance(value, list):
         raise ValueError("links: expected a list")
     out, used = [], set()
@@ -123,15 +126,18 @@ def _links(value):
                 ch = int(item.get(k, -1))
             except (TypeError, ValueError):
                 raise ValueError(f"{net} channel must be a number")
-            if ch == 0:
-                raise ValueError(f"{net} channel 0 is the local public channel and can never be linked")
+            if ch == 0 and row["room"] != PUBLIC_ROOM:
+                raise ValueError(f"{net} channel 0 is the local public channel: it can only be linked to "
+                                 f"#{PUBLIC_ROOM} (public-channel rule), never to #{row['room']}")
+            if row["room"] == PUBLIC_ROOM and ch > 0:
+                raise ValueError(f"#{PUBLIC_ROOM} is for the local public channel: use channel 0 (or off)")
             if not -1 <= ch <= 7:
                 raise ValueError(f"{net} channel must be 1-7 (or off)")
             if ch > 0 and (k, ch) in used:
                 raise ValueError(f"{net} channel {ch} is linked to two rooms")
             used.add((k, ch))
             row[k] = ch
-        if row["mt_channel"] > 0 or row["mc_channel"] > 0:
+        if row["mt_channel"] >= 0 or row["mc_channel"] >= 0:
             out.append(row)
     return out
 

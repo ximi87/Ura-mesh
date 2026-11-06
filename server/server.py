@@ -81,11 +81,15 @@ DEFAULT_SETTINGS = {
     "max_bytes": 200,
     "min_distance_km": 20,     # one bridge per area: approved bridges closer than this are flagged (0 = off)
     "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
+    "public_max_per_hour": 10, # public-channel rule: a point's local public channel must be this quiet …
+    "public_min_hours": 24,    # … measured over at least this long, before it may join the #Public room
     "auth": {"password_hash": "", "session_secret": ""},
 }
 
 CC_RE = re.compile(r"^[A-Z]{2}$")
 PREFIX_RE = re.compile(r"^\[[A-Z]{2}\]\s*")
+PUBLIC_ROOM = "Public"          # the only room a point's channel 0 (local public channel) may be linked to
+PUBLIC_RESUME = 0.8             # a paused point resumes at 80 % of the limit (no flip-flopping)
 
 
 def load_settings():
@@ -183,12 +187,15 @@ class DB:
         CREATE INDEX IF NOT EXISTS deliveries_ts ON deliveries(ts);
         """)
         have = {r[1] for r in self.con.execute("PRAGMA table_info(bridges)")}
-        for col, typ in (("public_rate", "REAL"), ("public_hours", "REAL"), ("client_version", "TEXT")):
+        for col, typ in (("public_rate", "REAL"), ("public_hours", "REAL"), ("client_version", "TEXT"),
+                         ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0")):
             if col not in have:
                 self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
         if not self.con.execute("SELECT 1 FROM rooms").fetchone():
             self.con.execute("INSERT INTO rooms VALUES ('Global', 'Worldwide chat for every bridge', 1, ?)",
                              (time.time(),))
+        self.con.execute("INSERT OR IGNORE INTO rooms VALUES (?, ?, 0, ?)",
+                         (PUBLIC_ROOM, "Public channels of quiet places (public-channel rule)", time.time()))
         self.con.commit()
 
     def q(self, sql, args=()):
@@ -248,11 +255,52 @@ class Hub:
         return self.db.one("SELECT * FROM bridges WHERE id=?", (bid,))
 
     def rooms_for(self, bid):
-        return self.db.q("""SELECT name, description FROM rooms
-                            WHERE open=1 OR name IN (SELECT room FROM room_members WHERE bridge_id=?)
-                            ORDER BY name""", (bid,))
+        rooms = self.db.q("""SELECT name, description FROM rooms WHERE name<>?
+                             AND (open=1 OR name IN (SELECT room FROM room_members WHERE bridge_id=?))
+                             ORDER BY name""", (PUBLIC_ROOM, bid))
+        b = self.bridge(bid)
+        if b and b["public_active"]:
+            rooms.append({"name": PUBLIC_ROOM, "description": "public channels of quiet places", "public": True})
+        return rooms
+
+    def public_status(self, b):
+        """Where a point stands with the public-channel rule."""
+        mx, need = self.s["public_max_per_hour"], self.s["public_min_hours"]
+        rate, hours = b["public_rate"], b["public_hours"] or 0
+        if not b["public_allowed"]:
+            st = "not allowed"
+        elif b["public_active"]:
+            st = "active"
+        elif rate is None or hours < need:
+            st = "measuring"
+        else:
+            st = "too busy"
+        return {"status": st, "rate": rate, "hours": hours, "max_per_hour": mx, "min_hours": need}
+
+    async def check_public(self, bid):
+        """Re-evaluate the public-channel rule for one point; pause / resume it and tell it."""
+        b = self.bridge(bid)
+        if not b:
+            return
+        mx, need = self.s["public_max_per_hour"], self.s["public_min_hours"]
+        rate, hours = b["public_rate"], b["public_hours"] or 0
+        ok_measured = rate is not None and hours >= need
+        if not b["public_allowed"] or b["status"] != "approved" or not ok_measured:
+            active = False
+        elif b["public_active"]:
+            active = rate <= mx                      # stay active until it goes over the limit
+        else:
+            active = rate <= mx * PUBLIC_RESUME      # resume only when clearly quiet again
+        if bool(b["public_active"]) != active:
+            self.db.run("UPDATE bridges SET public_active=? WHERE id=?", (1 if active else 0, bid))
+            log.info("public channel of %s: %s (%.1f/h, limit %s/h, %.0f h measured)", b["name"],
+                     "ACTIVE" if active else "paused/off", rate or 0, mx, hours)
+            await self.push_status(bid)
+            await self.admin_event({"kind": "bridges"})
 
     def room_bridges(self, room):
+        if room == PUBLIC_ROOM:
+            return {b["id"] for b in self.db.q("SELECT id FROM bridges WHERE status='approved' AND public_active=1")}
         r = self.db.one("SELECT open FROM rooms WHERE name=?", (room,))
         if not r:
             return set()
@@ -266,7 +314,8 @@ class Hub:
         per_min = b["per_min"] if b["per_min"] is not None else self.s["default_per_min"]
         return {"type": kind, "status": b["status"], "hub": self.s["name"],
                 "rooms": self.rooms_for(b["id"]) if b["status"] == "approved" else [],
-                "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]}}
+                "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]},
+                "public": self.public_status(b)}
 
     async def push_status(self, bid):
         b = self.bridge(bid)
@@ -446,6 +495,7 @@ class Hub:
                     await ws.send_json(await self.relay(bid, frame))
                 elif t == "nodes":
                     self.nodes_update(bid, frame)
+                    await self.check_public(bid)
         except (asyncio.TimeoutError, ValueError):
             pass
         finally:
@@ -618,6 +668,7 @@ class Hub:
             b["online"] = b["id"] in self.conns
             b["rooms"] = [r["name"] for r in self.rooms_for(b["id"])]
             b["area"] = self.area_check(b)
+            b["public"] = self.public_status(b)
         rooms = self.db.q("SELECT * FROM rooms ORDER BY name")
         for r in rooms:
             r["members"] = [m["bridge_id"] for m in self.db.q(
@@ -650,7 +701,8 @@ class Hub:
                                            "online": self.online(bid), "last_seen": b.get("last_seen"),
                                            "nodes": b.get("node_count"), "public_rate": b.get("public_rate"),
                                            "version": b.get("client_version"),
-                                           "sent": 0, "received": 0, "refused": 0, "last_activity": None})
+                                           "sent": 0, "received": 0, "refused": 0, "last_activity": None,
+                                           "public": self.public_status(self.bridge(bid)) if self.bridge(bid) else None})
         for r in q("SELECT bridge_id, rejected IS NOT NULL bad, COUNT(*) n, MAX(ts) last FROM relay_log "
                    "WHERE ts>=? GROUP BY 1, 2"):
             p = pt(r["bridge_id"])
@@ -701,6 +753,9 @@ class Hub:
         elif action == "delete":
             self.db.run("DELETE FROM bridges WHERE id=?", (bid,))
             self.db.run("DELETE FROM room_members WHERE bridge_id=?", (bid,))
+        elif action in ("public_allow", "public_deny"):
+            self.db.run("UPDATE bridges SET public_allowed=? WHERE id=?", (1 if action == "public_allow" else 0, bid))
+            await self.check_public(bid)
         elif action == "limit":
             v = body.get("per_min")
             per_min = None if v in (None, "") else int(v)
@@ -719,6 +774,8 @@ class Hub:
         action, name = body.get("action"), str(body.get("name") or "").strip()
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,29}$", name):
             raise web.HTTPBadRequest(text="room name: letters, digits, space, - or _ (max 30)")
+        if name == PUBLIC_ROOM:
+            raise web.HTTPBadRequest(text="#Public is managed by the public-channel rule (allow points in their row)")
         if action == "save":
             self.db.run("INSERT INTO rooms (name, description, open, created) VALUES (?,?,?,?) "
                         "ON CONFLICT(name) DO UPDATE SET description=excluded.description, open=excluded.open",
@@ -740,19 +797,22 @@ class Hub:
         s = self.s
         if "name" in body:
             s["name"] = str(body["name"]).strip()[:40] or "Ura Hub"
-        for k in ("default_per_min", "max_bytes", "min_distance_km"):
+        for k in ("default_per_min", "max_bytes", "min_distance_km", "public_max_per_hour", "public_min_hours"):
             if k in body:
                 try:
                     s[k] = int(body[k])
                 except (TypeError, ValueError):
                     raise web.HTTPBadRequest(text=f"{k} must be a number")
         if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000 \
-                or not 0 <= s["min_distance_km"] <= 1000:
+                or not 0 <= s["min_distance_km"] <= 1000 or not 0 <= s["public_max_per_hour"] <= 1000 \
+                or not 1 <= s["public_min_hours"] <= 24 * 30:
             raise web.HTTPBadRequest(text="limits out of range")
         for k in ("distance_strict",):
             if k in body:
                 s[k] = bool(body[k])
         save_settings(s)
+        for b in self.db.q("SELECT id FROM bridges"):
+            await self.check_public(b["id"])
         await self.push_all_status()
         return web.json_response({"ok": True})
 

@@ -139,8 +139,10 @@ function drawState(st) {
     <tr><td>Radio limit</td><td class="n">${st.rf.per_min} / min</td></tr>
     <tr><td>Waiting to be transmitted</td><td class="n">${st.rf.queued} / ${st.rf.queue_max}</td></tr>
     <tr><td>Local public channel traffic</td><td class="n">${pr.per_hour} / hour</td></tr>
-    <tr><td colspan="2" class="help">Public channel: average over the last ${pr.measured_hours} h (counted, never read). Used for the
-      public-channel rule: only quiet places may ever link it.</td></tr>`;
+    <tr><td>Public channel link</td><td class="n">${({ "not allowed": "⚪ not allowed", "measuring": "⏳ measuring", "too busy": "🔴 paused (busy)",
+      "active": "🟢 active" })[(st.public || {}).status] || "—"}${st.public && st.public.linked ? "" : " · not linked here"}</td></tr>
+    <tr><td colspan="2" class="help">Public channel: average over the last ${pr.measured_hours} h (counted, never read). Only quiet places
+      may link it to #Public, with the server owner's permission; it pauses automatically when busy.</td></tr>`;
 }
 
 function drawStats(d) {

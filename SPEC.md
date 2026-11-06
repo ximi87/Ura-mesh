@@ -56,7 +56,11 @@ Linking busy public channels (e.g. Germany ↔ USA ↔ China) would bring endles
    measurement.
 5. If it gets busier than the limit, the link is **paused automatically** and resumes when it is quiet again.
 
-*Status: measurement implemented; permission + auto-pause to do.*
+*Status: done.* Server: room **#Public** (managed by the rule, cannot be edited or deleted), per point
+**Allow / Deny** on *Manage points*, settings *maximum public traffic* (default 10/h) and *minimum measuring
+time* (default 24 h); a paused point resumes below 80 % of the limit. Point: channel 0 may only be linked to
+#Public and is relayed only while the server reports the point as active; text that Ura itself put on the air is
+not counted as local traffic; measuring time runs from when measuring began (a silent channel counts too).
 
 ## Security
 

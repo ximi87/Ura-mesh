@@ -50,6 +50,7 @@ LIMITS = {"mt": 200, "mc": 130}            # bytes on air
 NET_NAMES = {"mt": "Meshtastic", "mc": "MeshCore"}
 URA_PREFIX = re.compile(r"^\[[A-Z]{2}\] ")  # text another Ura point put on the air
 RF_QUEUE_MAX = 20
+PUBLIC_ROOM = config.PUBLIC_ROOM
 KEEP_DAYS = 90
 
 
@@ -120,6 +121,9 @@ class Stats:
         self.con.execute("""CREATE TABLE IF NOT EXISTS events (
             ts REAL, kind TEXT, net TEXT, room TEXT, point_id TEXT, point_name TEXT, cc TEXT, info TEXT)""")
         self.con.execute("CREATE INDEX IF NOT EXISTS events_ts ON events(ts)")
+        self.con.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        # when public-channel measuring began (a silent channel must still count as measured time)
+        self.con.execute("INSERT OR IGNORE INTO meta VALUES ('public_measure_since', ?)", (str(time.time()),))
         self.con.commit()
 
     def add(self, kind, net=None, room=None, point_id=None, point_name=None, cc=None, info=None):
@@ -134,9 +138,11 @@ class Stats:
     def public_rate(self, hours=24):
         """Average messages per hour heard on the local public channel(s) — no text, just a count."""
         since = time.time() - hours * 3600
+        began = float(self.con.execute("SELECT value FROM meta WHERE key='public_measure_since'").fetchone()[0])
         first = self.con.execute("SELECT MIN(ts) FROM events WHERE kind='public_heard'").fetchone()[0]
+        began = min(began, first) if first else began
         n = self.con.execute("SELECT COUNT(*) FROM events WHERE kind='public_heard' AND ts>=?", (since,)).fetchone()[0]
-        measured = min(hours, (time.time() - first) / 3600) if first else 0
+        measured = min(hours, (time.time() - began) / 3600)
         return {"per_hour": round(n / max(measured, 1), 2), "measured_hours": round(measured, 1), "count": n}
 
     def prune(self):
@@ -188,6 +194,7 @@ class Client:
         self.limits = {}
         self.connected_since = None
         self.cert_problem = None
+        self.public = {}
         self.backoff = 5
         self.pending = {}              # message id -> (room, net) for acks
         self.rf_queue = deque(maxlen=RF_QUEUE_MAX)
@@ -210,16 +217,22 @@ class Client:
     def room_for(self, net, channel):
         key = "mt_channel" if net == "mt" else "mc_channel"
         for row in self.sc["links"]:
-            if channel and channel > 0 and row.get(key) == channel:
+            if channel is not None and channel >= 0 and row.get(key) == channel:
                 return row["room"]
         return None
+
+    def public_active(self):
+        """The server decides (allowed + quiet enough); #Public is only offered while active."""
+        return any(r["name"] == PUBLIC_ROOM for r in self.rooms) and self.server_ready()
 
     def room_channel(self, room, net):
         if not self.cfg["meshtastic" if net == "mt" else "meshcore"]["enabled"]:
             return None
+        if room == PUBLIC_ROOM and not self.public_active():
+            return None   # paused / not allowed: nothing goes onto the local public channel
         key = "mt_channel" if net == "mt" else "mc_channel"
         for row in self.sc["links"]:
-            if row["room"] == room and row.get(key, -1) > 0:
+            if row["room"] == room and row.get(key, -1) >= 0:
                 return row[key]
         return None
 
@@ -319,15 +332,15 @@ class Client:
             if packet.get("fromId") == self.mt_id or packet.get("to") != 0xFFFFFFFF:
                 return   # our own packets and direct messages are never relayed
             channel = packet.get("channel", 0)
-            if channel == 0:
-                self.stats.add_threadsafe(self.loop, "public_heard", net="mt")   # count only (public-channel rule)
-                return
+            text = packet.get("decoded", {}).get("text", "")
+            if channel == 0 and not URA_PREFIX.match(text):
+                # count only (public-channel rule); text relayed by Ura itself is not local traffic
+                self.stats.add_threadsafe(self.loop, "public_heard", net="mt")
             room = self.room_for("mt", channel)
-            if room is None:
-                return   # not a linked channel
+            if room is None or (room == PUBLIC_ROOM and not self.public_active()):
+                return   # not linked, or the public channel is not active right now
             node = interface.nodes.get(packet.get("fromId") or "", {}) if interface.nodes else {}
             sender = node.get("user", {}).get("longName") or packet.get("fromId") or "?"
-            text = packet.get("decoded", {}).get("text", "")
             if text:
                 asyncio.run_coroutine_threadsafe(self.heard("mt", room, sender, text), self.loop)
         except Exception:
@@ -362,13 +375,12 @@ class Client:
     # ── MeshCore ─────────────────────────────────────────────────
     async def mc_on_chan(self, event):
         p = event.payload
-        if p.get("channel_idx") == 0:
-            self.stats.add("public_heard", net="mc")   # count only (public-channel rule)
-            return
-        room = self.room_for("mc", p.get("channel_idx"))
-        if room is None:
-            return
         raw = p.get("text", "")
+        if p.get("channel_idx") == 0 and not URA_PREFIX.match(raw.partition(": ")[2] or raw):
+            self.stats.add("public_heard", net="mc")   # count only (public-channel rule)
+        room = self.room_for("mc", p.get("channel_idx"))
+        if room is None or (room == PUBLIC_ROOM and not self.public_active()):
+            return
         sender, _, text = raw.partition(": ")   # channel text arrives as "Name: msg"
         if not text:
             sender, text = "?", raw
@@ -392,7 +404,7 @@ class Client:
                         raise RuntimeError("no response")
                     mc.subscribe(EventType.CHANNEL_MSG_RECV, self.mc_on_chan)
                     for row in self.sc["links"]:
-                        if row.get("mc_channel", -1) > 0:
+                        if row.get("mc_channel", -1) >= 0:
                             await mc.commands.get_channel(row["mc_channel"])
                     await mc.start_auto_message_fetching()
                     self.mc = mc
@@ -430,6 +442,7 @@ class Client:
             self.server_name = f.get("hub")
             self.rooms = f.get("rooms") or []
             self.limits = f.get("limits") or {}
+            self.public = f.get("public") or {}
             self.backoff = 5
             if prev != self.status:
                 log.info("server %s: this point is %s", self.server_name, self.status)
@@ -620,6 +633,8 @@ class Client:
             },
             "nodes_heard": self.node_count(),
             "public_rate": self.stats.public_rate(),
+            "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
+                           active=self.public_active()),
             "rf": {"per_min": self.sc["rf_per_min"], "queued": len(self.rf_queue), "queue_max": RF_QUEUE_MAX},
         }
 

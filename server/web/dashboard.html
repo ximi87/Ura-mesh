@@ -128,7 +128,8 @@ function draw(d) {
   const pairs = {};
   for (const r of d.pairs) {
     const k = key(r.src, r.dst);
-    const p = pairs[k] ||= { a: r.src < r.dst ? r : null, items: {}, total: 0 };
+    if (!pairs[k]) pairs[k] = { items: {}, total: 0 };
+    const p = pairs[k];
     p.items[r.src] = r; p.total += r.n;
   }
   const list = Object.values(pairs).sort((x, y) => y.total - x.total);
@@ -164,7 +165,7 @@ function draw(d) {
     (d.points.length ? d.points.map(p => `<tr><td class="flag">${flag(p.country)}</td><td><b>${esc(p.name)}</b><br><span class="muted">${esc(p.city || "")}</span></td>
       <td><span class="dot ${p.online ? "on" : ""}"></span>${p.status === "approved" ? (p.online ? "online" : "offline · " + ago(p.last_seen)) : esc(p.status)}</td>
       <td class="n">${fmt(p.sent)}</td><td class="n">${fmt(p.received)}</td><td class="n">${fmt(p.refused)}</td>
-      <td class="n">${p.nodes ?? "—"}</td><td class="n">${p.public_rate == null ? "—" : p.public_rate + "/h"}</td>
+      <td class="n">${p.nodes ?? "—"}</td><td class="n">${p.public_rate == null ? "—" : p.public_rate + "/h"}${p.public && p.public.status === "active" ? " 🟢" : p.public && p.public.status === "too busy" ? " 🔴" : ""}</td>
       <td>${esc(p.version || "—")}</td><td>${ago(p.last_activity)}</td></tr>`).join("")
     : `<tr><td colspan="10" class="muted">No points yet.</td></tr>`);
 
