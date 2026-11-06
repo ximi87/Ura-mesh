@@ -21,6 +21,8 @@ cities and countries over the internet, without flooding the local radio channel
 - **Ura Hub** is the central server: it passes messages between bridges and shows a public
   directory and world map of all bridges.
 
+> The agreed specification is in [SPEC.md](SPEC.md).
+
 ## Principles
 
 - **Opt-in channels.** Only a dedicated channel such as "Global" is linked. The default local
