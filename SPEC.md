@@ -20,10 +20,28 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 | Dashboard | Statistics only (see below) | Statistics only (see below) |
 | Menu | The same full menu on every page, server and point alike: 🗺️ Map · 📊 Dashboard · ⚙️ Manage points (server) · 📡 Points ▾ (every approved point, online dot, opens its page) · and on a point also 📊 Status · ⚙️ Admin of that point | (same menu) |
 
-Each point may give its **page address** (Admin → This point, e.g. `http://192.168.99.165:8091/`); it is
+Each point may give its **page address** (Admin → This point, e.g. `https://192.168.99.165:8091/`); it is
 sent to the server with the point's info. The server passes the list of approved points (name, country,
 online, page address) to every approved point for its menu — never to the public map. Each page still
 needs its own login.
+
+## Independence — nobody controls anybody (decided 2026-11-07)
+
+Every point and the server are **separate, self-governed machines**. They only exchange relayed messages and
+the rules that apply to them; they monitor what crosses, they never manage each other.
+
+- **The server cannot control a point.** It cannot change a point's settings, switches, checklist, radio or
+  password, cannot restart it, cannot read its pages and has no login on it. What the server sends is only:
+  its own rules (which rooms exist, what it accepts from that point, whether #Public is open), relayed
+  messages and results. A point applies them only where its own owner agreed (channel links, send / receive
+  switches, checklist — "both owners" rule) and can leave at any time.
+- **A point cannot control the server or other points.** It can only offer messages and its own info; the
+  server checks everything against its own rules and may refuse. A point never gets the server's admin data,
+  other points' settings, keys or statistics beyond its own deliveries.
+- **Each side has its own login, keys and certificate.** Point pages and server pages run over HTTPS, each
+  with its own self-signed certificate (fingerprint shown on its own page). Links in the menu are only links:
+  opening another page still needs that page's own login.
+- Sharing a page address in the Points menu is the point owner's choice (empty = not listed as a link).
 
 ## Privacy rules
 
@@ -135,6 +153,9 @@ Goal: a busy group in one place must never flood a group in another place. Quiet
   admin page, then the client pins it (refuses any other certificate). With a domain later: Let's Encrypt.
   *(done: server creates `tls.crt`/`tls.key` with openssl on first start, shows the fingerprint on the admin
   and public pages; client "Check certificate" → confirm → pin; mismatch = refuse to connect + warning.)*
+- **Point pages over HTTPS (2026-11-07):** each point creates its own self-signed certificate on first start
+  (`DATA_DIR/tls.crt` + `tls.key`), serves its Status/Admin pages only over https on WEB_PORT, and shows the
+  fingerprint on its Admin page and in its log. `WEB_TLS=0` only behind a reverse proxy that does TLS.
 
 ## Not part of Ura
 

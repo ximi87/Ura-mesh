@@ -75,6 +75,26 @@ def norm_fp(fp):
     return h if len(h) == 64 else ""
 
 
+TLS_CERT = os.path.join(config.DATA_DIR, "tls.crt")
+TLS_KEY = os.path.join(config.DATA_DIR, "tls.key")
+
+
+def ensure_certificate():
+    """This point's own self-signed certificate for its pages (created on first start). Returns the fingerprint."""
+    if not (os.path.exists(TLS_CERT) and os.path.exists(TLS_KEY)):
+        import subprocess
+        log.warning("creating a new TLS certificate for this point's pages in %s", config.DATA_DIR)
+        old = os.umask(0o077)
+        try:
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                            "-nodes", "-keyout", TLS_KEY, "-out", TLS_CERT, "-days", "3650",
+                            "-subj", "/CN=ura-mesh-point"], check=True, capture_output=True)
+        finally:
+            os.umask(old)
+    with open(TLS_CERT) as f:
+        return hashlib.sha256(ssl.PEM_cert_to_DER_cert(f.read())).hexdigest()
+
+
 def pretty_fp(fp):
     h = norm_fp(fp)
     return ":".join(h[i:i + 2] for i in range(0, 64, 2)).upper() if h else ""
@@ -211,6 +231,7 @@ class Client:
         self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
         self.inbound = {}              # message id -> outcome of putting a remote message on the air here
         self.points = []               # approved points, from the server (for the menu)
+        self.web_fp = ""               # fingerprint of this point's own page certificate
         self.mc_echo = {}              # message id -> what we sent on MeshCore + repeaters heard re-sending it
         self.mc_rx = {"since": time.time(), "packets": 0, "last": None, "hops": {}}   # MeshCore radio check
         self.noticed = {}              # (who, reason) -> time of the last notice
@@ -1154,6 +1175,7 @@ class Client:
         return {
             "version": VERSION,
             "point": {k: self.pc[k] for k in ("name", "country", "city")},
+            "page_tls": {"on": bool(self.web_fp), "fingerprint": pretty_fp(self.web_fp)},
             "server": {"enabled": self.sc["enabled"], "status": self.status, "name": self.server_name,
                        "url": self.sc["url"], "encrypted": self.sc["url"].startswith("https://"),
                        "fingerprint": pretty_fp(self.sc["fingerprint"]), "cert_problem": self.cert_problem,
@@ -1359,8 +1381,18 @@ class Client:
         r.add_post("/api/restart", self.web_restart)
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
-        await web.TCPSite(runner, config.WEB_HOST, config.WEB_PORT).start()
-        log.info("admin page on http://%s:%s/", config.WEB_HOST, config.WEB_PORT)
+        ctx = None
+        if config.WEB_TLS:
+            self.web_fp = ensure_certificate()
+            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.load_cert_chain(TLS_CERT, TLS_KEY)
+        await web.TCPSite(runner, config.WEB_HOST, config.WEB_PORT, ssl_context=ctx).start()
+        log.info("admin page on %s://%s:%s/", "https" if ctx else "http", config.WEB_HOST, config.WEB_PORT)
+        if ctx:
+            log.info("this point's page certificate (SHA-256): %s", pretty_fp(self.web_fp))
+        else:
+            log.warning("point pages are NOT encrypted (WEB_TLS=0): only behind a reverse proxy that does TLS")
 
     async def main(self):
         self.loop = asyncio.get_running_loop()
@@ -1368,8 +1400,8 @@ class Client:
             self.setup_code = secrets.token_hex(3).upper()
             with open(SETUP_CODE_PATH, "w") as f:
                 f.write(self.setup_code + "\n")
-            log.warning("FIRST RUN — open http://<this-host>:%s/setup  · setup code: %s (also in %s)",
-                        config.WEB_PORT, self.setup_code, SETUP_CODE_PATH)
+            log.warning("FIRST RUN — open %s://<this-host>:%s/setup  · setup code: %s (also in %s)",
+                        "https" if config.WEB_TLS else "http", config.WEB_PORT, self.setup_code, SETUP_CODE_PATH)
         await self.start_web()
         for task in (self.mt_keepalive, self.mc_keepalive, self.rf_worker, self.server_loop, self.report_loop,
                      self.positions_loop):

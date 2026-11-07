@@ -13,6 +13,7 @@ DATA_DIR = os.path.abspath(os.environ.get("DATA_DIR", "data"))
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 WEB_HOST = os.environ.get("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("WEB_PORT", "8091"))
+WEB_TLS = os.environ.get("WEB_TLS", "1") not in ("0", "no", "false")   # point pages over HTTPS (own certificate)
 
 DEFAULTS = {
     "point": {
