@@ -140,7 +140,7 @@ function draw(d) {
     list.map(p => {
       const [x, y] = Object.values(p.items).length === 2 ? Object.values(p.items) : [Object.values(p.items)[0], null];
       const A = { id: x.src, name: x.src_name, cc: x.src_cc }, B = { id: x.dst, name: x.dst_name, cc: x.dst_cc };
-      const ab = x.n, ba = y ? y.n : 0, hd = r => r && r.heard ? ` <span class="muted" title="heard by a radio there">(${fmt(r.heard)} ✅)</span>` : "";
+      const ab = x.n, ba = y ? y.n : 0, hd = r => r && r.heard ? ` <span class="muted" title="heard by a radio there${r.repeats ? `; up to ${r.repeats} MeshCore repeaters re-sent one message` : ""}">(${fmt(r.heard)} ✅${r.repeats ? ` · up to ${r.repeats}× repeated` : ""})</span>` : "";
       return `<tr><td>${label(A.cc, A.name)} ↔ ${label(B.cc, B.name)}</td><td class="n" title="${esc(A.name)} → ${esc(B.name)}">${fmt(ab)}${hd(x)}</td>
         <td class="n" title="${esc(B.name)} → ${esc(A.name)}">${fmt(ba)}${hd(y)}</td><td class="n"><b>${fmt(p.total)}</b></td>
         <td><div class="pairbar" style="width:${Math.max(3, 100 * p.total / maxP)}%"></div></td></tr>`;

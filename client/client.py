@@ -41,7 +41,7 @@ import config
 
 log = logging.getLogger("ura-client")
 
-VERSION = "0.4"
+VERSION = "0.5"
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 STATS_DB = os.path.join(config.DATA_DIR, "stats.db")
 SETUP_CODE_PATH = os.path.join(config.DATA_DIR, "setup-code.txt")
@@ -52,6 +52,7 @@ URA_PREFIX = re.compile(r"^\[(?:[A-Z]{2}|Ura)\] ")  # text a Ura point put on th
 RF_QUEUE_MAX = 20
 FEEDBACK_WAIT = 600        # seconds to wait for "heard" reports from other points
 ACK_WAIT = 120             # seconds to wait for the radio to report an implicit ACK
+MC_ECHO_WAIT = 30          # seconds a MeshCore point listens for repeaters re-sending its message
 NOTICE_EVERY = 600         # same notice to the same person / channel at most every 10 min
 DM_WAIT = 300              # seconds to wait for the other places to answer a private message
 POS_EVERY = 300            # send rounded positions every 5 min (if the checklist allows it)
@@ -209,6 +210,7 @@ class Client:
         self.pending = {}              # message id -> (room, net) for acks
         self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
         self.inbound = {}              # message id -> outcome of putting a remote message on the air here
+        self.mc_echo = {}              # message id -> what we sent on MeshCore + repeaters heard re-sending it
         self.noticed = {}              # (who, reason) -> time of the last notice
         self.allowed = {}              # server owner's side of the checklist
         self.dmtrack = {}              # private message id -> who wrote it here (to answer them)
@@ -322,12 +324,14 @@ class Client:
         for net, ch in chans:
             self.rf_enqueue(net, ch, line, mid=mid)
 
-    def inbound_done(self, mid, outcome, reason=None):
+    def inbound_done(self, mid, outcome, reason=None, repeats=None):
         """One network finished with a remote message: heard / unheard / unknown / held."""
         e = self.inbound.get(mid)
         if not e:
             return
         e["outcomes"].append((outcome, reason))
+        if repeats is not None:
+            e["repeats"] = (e.get("repeats") or 0) + repeats
         e["left"] -= 1
         if e["left"] > 0:
             return
@@ -335,15 +339,18 @@ class Client:
         kinds = [o for o, _ in e["outcomes"]]
         for best in ("heard", "unheard", "unknown"):
             if best in kinds:
-                asyncio.ensure_future(self.report(mid, best))
+                asyncio.ensure_future(self.report(mid, best, repeats=e.get("repeats")))
                 return
         reasons = "; ".join(sorted({r for o, r in e["outcomes"] if r}))
         asyncio.ensure_future(self.report(mid, "held", reasons or "held back"))
 
-    async def report(self, mid, outcome, reason=None):
+    async def report(self, mid, outcome, reason=None, repeats=None):
         if mid and self.server_ready():
+            f = {"type": "result", "id": mid, "outcome": outcome, "reason": reason}
+            if repeats is not None:
+                f["repeats"] = repeats
             try:
-                await self.ws.send_json({"type": "result", "id": mid, "outcome": outcome, "reason": reason})
+                await self.ws.send_json(f)
             except Exception:
                 pass
 
@@ -377,10 +384,13 @@ class Client:
         t = self.track.get(mid)
         p = f.get("point") or {}
         outcome = f.get("outcome")
+        rep = f.get("repeats")
+        rep = int(rep) if isinstance(rep, int) and 0 <= rep < 1000 else None
         if outcome == "heard":
             self.stats.add("heard_remote", net=t["origin"]["net"] if t else None,
                            room=t["origin"]["room"] if t else None,
-                           point_id=p.get("id"), point_name=p.get("name"), cc=p.get("country"))
+                           point_id=p.get("id"), point_name=p.get("name"), cc=p.get("country"),
+                           info=f"MeshCore repeated {rep}x" if rep else None)
         if not t or t["done"]:
             return
         t["results"][p.get("id")] = (outcome, f.get("reason"), p.get("name") or "?")
@@ -736,11 +746,17 @@ class Client:
                     else:
                         await self.mc.commands.send_msg(contact, item["text"])
                 elif net == "mc" and self.mc is not None and self.mc.is_connected:
+                    if mid and kind == "relay":   # listen for repeaters re-sending it ("repeated N×")
+                        me = (self.mc.self_info or {}).get("name") or ""
+                        self.mc_echo[mid] = {"text": f"{me}: {item['text']}", "body": item["text"], "hops": set()}
                     r = await self.mc.commands.send_chan_msg(channel, item["text"])
                     if r.type == EventType.ERROR:
+                        self.mc_echo.pop(mid, None)
                         raise RuntimeError(r.payload)
-                    if mid:
-                        self.inbound_done(mid, "unknown")   # MeshCore cannot tell whether anyone heard it
+                    if mid and kind == "relay":
+                        self.loop.call_later(MC_ECHO_WAIT, self.mc_echo_done, mid)
+                    elif mid:
+                        self.inbound_done(mid, "unknown")
                 else:
                     self.stats.add("rf_drop", net=net, info="radio not connected")
                     if mid and kind == "pm":
@@ -838,6 +854,33 @@ class Client:
         if text:
             await self.heard("mc", room, sender, text, {"channel": p.get("channel_idx")})
 
+    async def mc_on_rx(self, event):
+        """Raw packet heard by our MeshCore radio. Only used to count repeaters re-sending a message we just put
+        on a channel. The library decrypts channel packets in memory; we compare and forget (never stored)."""
+        if not self.mc_echo:
+            return
+        p = event.payload or {}
+        msg = p.get("message")
+        if p.get("payload_type") != 5 or not msg:
+            return
+        msg = msg.strip("\x00").strip()
+        size = max(1, int(p.get("path_hash_size") or 1)) * 2
+        path = p.get("path") or ""
+        hops = {path[i:i + size] for i in range(0, len(path) - size + 1, size)}
+        if not hops:
+            return   # no repeater in the path: not a re-sent copy
+        for e in self.mc_echo.values():
+            if msg == e["text"] or msg.endswith(": " + e["body"]):
+                e["hops"] |= hops
+
+    def mc_echo_done(self, mid):
+        e = self.mc_echo.pop(mid, None)
+        if e is None:
+            return
+        n = len(e["hops"])
+        self.stats.add("rf_heard" if n else "rf_unheard", net="mc")
+        self.inbound_done(mid, "heard" if n else "unheard", repeats=n)
+
     async def mc_on_dm(self, event):
         p = event.payload
         prefix, text = p.get("pubkey_prefix"), p.get("text", "")
@@ -863,6 +906,8 @@ class Client:
                         raise RuntimeError("no response")
                     mc.subscribe(EventType.CHANNEL_MSG_RECV, self.mc_on_chan)
                     mc.subscribe(EventType.CONTACT_MSG_RECV, self.mc_on_dm)
+                    mc.subscribe(EventType.RX_LOG_DATA, self.mc_on_rx)
+                    mc.set_decrypt_channel_logs(True)   # needed to recognise our own message re-sent by repeaters
                     for row in self.sc["links"]:
                         if row.get("mc_channel", -1) >= 0:
                             await mc.commands.get_channel(row["mc_channel"])

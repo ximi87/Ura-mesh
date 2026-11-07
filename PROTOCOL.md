@@ -30,8 +30,8 @@ The hub admin then approves or rejects the bridge.
 | bridge → hub | `{"type":"msg","id","room","net","sender","text"}` | A message heard on a linked channel. `id` is a random id (dedupe). |
 | hub → bridge | `{"type":"msg","id","room","net","sender","text","ts","from":{"bridge_id","name","country","city"}}` | A message from another bridge. |
 | hub → bridge | `{"type":"ack","id","ok","to":N,"to_points":[{"id","name","country"}],"reason"}` | Result for a `msg` the bridge sent: which points received it, or why it was refused (rate limit, duplicate, not approved, too long). |
-| bridge → hub | `{"type":"result","id","outcome","reason"}` | After putting a relayed message on the air: `heard` (a neighbour repeated it — Meshtastic implicit ACK), `unheard`, `unknown` (MeshCore cannot tell) or `held` (busy channel, queue full, not open for receiving; `reason` says which). |
-| hub → bridge | `{"type":"result","id","outcome","reason","point":{"id","name","country"}}` | The same report, passed to the point that sent the message, so it can tell the sender (✅ / 📡 / ❌). |
+| bridge → hub | `{"type":"result","id","outcome","reason","repeats"}` | After putting a relayed message on the air: `heard` (a neighbour repeated it — Meshtastic implicit ACK, or MeshCore repeaters re-sent it), `unheard`, `unknown` or `held` (busy channel, queue full, not open for receiving; `reason` says which). `repeats` (optional): how many different MeshCore repeaters were heard re-sending it. |
+| hub → bridge | `{"type":"result","id","outcome","reason","repeats","point":{"id","name","country"}}` | The same report, passed to the point that sent the message, so it can tell the sender (✅ / 📡 / ❌). |
 | bridge → hub | `{"type":"nodes","count":N,"shared":[],"public_rate":{"per_hour","measured_hours","count"}}` | Every few minutes: how many nodes the point hears, and how busy its local public channel is (messages counted, never read), and `air`: `{"ch_util","air_tx","busy"}` (Meshtastic channel utilisation %, own transmit airtime %, reason it holds messages back). `shared` stays empty (no positions are shared). |
 
 ## Rules the hub enforces

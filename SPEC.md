@@ -110,8 +110,13 @@ Goal: a busy group in one place must never flood a group in another place. Quiet
      ❌ not sent — plus a short direct message saying why (paused, busy, no point online, …).
    - MeshCore: a short notice on the channel when a message was not sent (at most one per reason per 10 min).
    The owner can switch feedback off. Reactions and Ura notices are never relayed.
-5. Statistics show, per point pair, how many messages were heard on the other side, and each point's
-   channel busy % / transmit %.
+   - **MeshCore "repeated N×".** After a point puts a message on a MeshCore channel, its radio listens for
+     30 s for copies of that same message re-sent by repeaters (MeshCore repeaters add their short id to the
+     packet's path). Each different repeater counts once. N ≥ 1 = *heard* (✅ for the sender), 0 = *unheard*
+     (📡). To recognise its own copy the point decrypts the channel packet in memory and compares it with what
+     it sent; nothing is stored or logged. The number N travels with the result, never the text.
+5. Statistics show, per point pair, how many messages were heard on the other side (and the most MeshCore
+   repeaters seen for one message), and each point's channel busy % / transmit %.
 
 ## Security
 
@@ -133,5 +138,4 @@ separate project *mesh-bridge*. In Ura, messages come only from the radios.
 ## Later options (to be specified)
 
 - end-to-end encryption (option B)
-- MeshCore: "repeated N×" (count echoes of our own transmission)
 - …

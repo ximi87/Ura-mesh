@@ -163,9 +163,9 @@ function drawStats(d) {
 
   const NN = { mt: "Meshtastic", mc: "MeshCore" };
   const nets = Object.keys(NN).filter(k => d.nets[k]);
-  $("nets").innerHTML = `<tr><th>Network</th><th class="n">Heard (linked)</th><th class="n">Transmitted</th><th class="n" title="a neighbour repeated it (Meshtastic implicit ACK)">Heard by a radio</th><th class="n">Dropped</th></tr>` +
+  $("nets").innerHTML = `<tr><th>Network</th><th class="n">Heard (linked)</th><th class="n">Transmitted</th><th class="n" title="a neighbour repeated it (Meshtastic implicit ACK, or MeshCore repeaters re-sent it)">Heard by a radio</th><th class="n">Dropped</th></tr>` +
     (nets.length ? nets.map(k => { const n = d.nets[k];
-      return `<tr><td>${NN[k]}</td><td class="n">${fmt(n.local_in)}</td><td class="n">${fmt(n.rf_tx)}</td><td class="n">${k === "mt" ? fmt(n.rf_heard) : "—"}</td><td class="n">${fmt(n.rf_drop)}</td></tr>`; }).join("")
+      return `<tr><td>${NN[k]}</td><td class="n">${fmt(n.local_in)}</td><td class="n">${fmt(n.rf_tx)}</td><td class="n">${fmt(n.rf_heard)}</td><td class="n">${fmt(n.rf_drop)}</td></tr>`; }).join("")
     : `<tr><td colspan="5" class="muted">No radio activity in this period.</td></tr>`);
 
   drawChart(d);

@@ -204,6 +204,8 @@ class DB:
         for col in ("mid", "outcome"):   # outcome: heard / unheard / unknown / held (no text, ever)
             if col not in have:
                 self.con.execute(f"ALTER TABLE deliveries ADD COLUMN {col} TEXT")
+        if "repeats" not in have:   # MeshCore repeaters heard re-sending it
+            self.con.execute("ALTER TABLE deliveries ADD COLUMN repeats INTEGER")
         if not self.con.execute("SELECT 1 FROM rooms").fetchone():
             self.con.execute("INSERT INTO rooms VALUES ('Global', 'Worldwide chat for every bridge', 1, ?)",
                              (time.time(),))
@@ -696,12 +698,14 @@ class Hub:
         route = self.routes.get(mid)
         if not route or bid not in route[2] or outcome not in OUTCOMES:
             return
-        self.db.run("UPDATE deliveries SET outcome=? WHERE mid=? AND dst=?", (outcome, mid, bid))
+        rep = frame.get("repeats")
+        rep = rep if isinstance(rep, int) and 0 <= rep < 1000 else None
+        self.db.run("UPDATE deliveries SET outcome=?, repeats=? WHERE mid=? AND dst=?", (outcome, rep, mid, bid))
         b = self.bridge(bid)
         ws = self.conns.get(route[0])
         if ws is not None and b is not None:
             try:
-                await ws.send_json({"type": "result", "id": mid, "outcome": outcome,
+                await ws.send_json({"type": "result", "id": mid, "outcome": outcome, "repeats": rep,
                                     "reason": str(frame.get("reason") or "")[:120] or None,
                                     "point": {"id": bid, "name": b["name"], "country": b["country"]}})
             except Exception:
@@ -932,7 +936,7 @@ class Hub:
         for bid, b in names.items():      # approved points without traffic are listed too
             if b["status"] == "approved":
                 pt(bid)
-        pairs = q("SELECT src, dst, COUNT(*) n, SUM(outcome='heard') heard, SUM(outcome='held') held, MAX(ts) last "
+        pairs = q("SELECT src, dst, COUNT(*) n, SUM(outcome='heard') heard, SUM(outcome='held') held, MAX(repeats) repeats, MAX(ts) last "
                   "FROM deliveries WHERE ts>=? GROUP BY src, dst")
         for r in pairs:
             r["src_name"], r["dst_name"] = pt(r["src"])["name"], pt(r["dst"])["name"]
