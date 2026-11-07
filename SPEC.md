@@ -18,10 +18,12 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 | Used by | The person responsible for that point | The server owner |
 | Admin page | Connection to the server, radio settings, linked channel(s), radio limits | All points: approve / block / delete, limits, rooms, one-point-per-area rule |
 | Dashboard | Statistics only (see below) | Statistics only (see below) |
-| Menu | One menu on every page: Status · Admin · Ura server ↗ | One menu on every page: Map · Dashboard · Manage points · Points ▾ (each approved point, online dot, opens that point's own page) |
+| Menu | The same full menu on every page, server and point alike: 🗺️ Map · 📊 Dashboard · ⚙️ Manage points (server) · 📡 Points ▾ (every approved point, online dot, opens its page) · and on a point also 📊 Status · ⚙️ Admin of that point | (same menu) |
 
 Each point may give its **page address** (Admin → This point, e.g. `http://192.168.99.165:8091/`); it is
-sent to the server with the point's info and shown only in the server owner's Points menu.
+sent to the server with the point's info. The server passes the list of approved points (name, country,
+online, page address) to every approved point for its menu — never to the public map. Each page still
+needs its own login.
 
 ## Privacy rules
 

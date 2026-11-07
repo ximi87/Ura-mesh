@@ -79,3 +79,4 @@ nav.menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m
 nav.menu .dot.on { background: var(--ok); }
 nav.menu .muted { color: var(--muted); }
 @media (max-width: 640px) { header.top { flex-wrap: wrap; } header.top .spacer { display: none; } nav.menu { order: 3; width: 100%; } }
+nav.menu .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }

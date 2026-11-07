@@ -210,6 +210,7 @@ class Client:
         self.pending = {}              # message id -> (room, net) for acks
         self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
         self.inbound = {}              # message id -> outcome of putting a remote message on the air here
+        self.points = []               # approved points, from the server (for the menu)
         self.mc_echo = {}              # message id -> what we sent on MeshCore + repeaters heard re-sending it
         self.mc_rx = {"since": time.time(), "packets": 0, "last": None, "hops": {}}   # MeshCore radio check
         self.noticed = {}              # (who, reason) -> time of the last notice
@@ -957,6 +958,7 @@ class Client:
             self.rooms = f.get("rooms") or []
             self.limits = f.get("limits") or {}
             self.public = f.get("public") or {}
+            self.points = [p for p in (f.get("points") or []) if isinstance(p, dict)][:200]
             self.backoff = 5
             if prev != self.status:
                 log.info("server %s: this point is %s", self.server_name, self.status)
@@ -1167,6 +1169,9 @@ class Client:
             "public_rate": self.stats.public_rate(1),
             "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
                            active=self.public_active()),
+            "menu": {"server_url": self.sc["url"] if self.sc["enabled"] else "", "me": self.sc["point_id"],
+                     "points": [{k: str(p.get(k) or "")[:200] for k in ("id", "name", "country", "page_url")}
+                                | {"online": bool(p.get("online"))} for p in self.points]},
             "mc_rx": {"since": self.mc_rx["since"], "packets": self.mc_rx["packets"], "last": self.mc_rx["last"],
                       "repeaters": len([1 for t in self.mc_rx["hops"].values() if time.time() - t <= 3600])},
             "rf": {"per_min": self.sc["rf_per_min"], "queued": len(self.rf_queue), "queue_max": RF_QUEUE_MAX},

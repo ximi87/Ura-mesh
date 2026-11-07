@@ -360,7 +360,15 @@ class Hub:
         return {"type": kind, "status": b["status"], "hub": self.s["name"],
                 "rooms": self.rooms_for(b["id"]) if b["status"] == "approved" else [],
                 "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]},
-                "public": self.public_status(b), "allow": self.allow(b)}
+                "public": self.public_status(b), "allow": self.allow(b),
+                "points": self.menu_points() if b["status"] == "approved" else []}
+
+    def menu_points(self):
+        """Approved points for the menu on every page (name, country, online, page address)."""
+        return [{"id": x["id"], "name": x["name"], "country": x["country"], "online": self.online(x["id"]),
+                 "page_url": x["page_url"] or ""}
+                for x in self.db.q("SELECT id, name, country, page_url FROM bridges WHERE status='approved' "
+                                   "ORDER BY country, name")]
 
     async def push_status(self, bid):
         b = self.bridge(bid)
@@ -558,6 +566,7 @@ class Hub:
             self.db.run("UPDATE bridges SET last_seen=?, ip=? WHERE id=?", (time.time(), request.remote, bid))
             b = self.bridge(bid)
             await ws.send_json(self.status_frame(b, "welcome"))
+            asyncio.ensure_future(self.push_all_status())   # other points' menus: this one is online now
             log.info("bridge connected: %s (%s, %s) status=%s", b["name"], b["country"], bid, b["status"])
             await self.admin_event({"kind": "bridges"})
             async for m in ws:
@@ -591,6 +600,7 @@ class Hub:
                 del self.conns[bid]
                 self.dropped_at[bid] = time.time()
                 log.info("bridge disconnected: %s", bid)
+                asyncio.ensure_future(self.push_all_status())
                 await self.admin_event({"kind": "bridges"})
         return ws
 

@@ -14,6 +14,7 @@
   document.addEventListener("click", e => { const d = nav.querySelector("details.dd"); if (d && !d.contains(e.target)) d.open = false; });
   fetch("/api/admin/state").then(r => r.ok ? r.json() : null).then(st => {
     const box = document.getElementById("menu-points");
+    if (!st) { box.innerHTML = `<a href="/admin/login">🔐 Log in to see the points</a>`; return; }
     const list = ((st && st.bridges) || []).filter(b => b.status === "approved");
     box.innerHTML = list.length ? list.map(b => {
       const dot = `<i class="dot ${b.online ? "on" : ""}"></i>`;
