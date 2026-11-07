@@ -211,6 +211,7 @@ class Client:
         self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
         self.inbound = {}              # message id -> outcome of putting a remote message on the air here
         self.mc_echo = {}              # message id -> what we sent on MeshCore + repeaters heard re-sending it
+        self.mc_rx = {"since": time.time(), "packets": 0, "last": None, "hops": {}}   # MeshCore radio check
         self.noticed = {}              # (who, reason) -> time of the last notice
         self.allowed = {}              # server owner's side of the checklist
         self.dmtrack = {}              # private message id -> who wrote it here (to answer them)
@@ -857,16 +858,22 @@ class Client:
     async def mc_on_rx(self, event):
         """Raw packet heard by our MeshCore radio. Only used to count repeaters re-sending a message we just put
         on a channel. The library decrypts channel packets in memory; we compare and forget (never stored)."""
-        if not self.mc_echo:
-            return
         p = event.payload or {}
-        msg = p.get("message")
-        if p.get("payload_type") != 5 or not msg:
-            return
-        msg = msg.strip("\x00").strip()
+        now = time.time()
         size = max(1, int(p.get("path_hash_size") or 1)) * 2
         path = p.get("path") or ""
         hops = {path[i:i + size] for i in range(0, len(path) - size + 1, size)}
+        r = self.mc_rx   # counts only: proves the radio passes what it hears to us, and which repeaters are near
+        r["packets"] += 1
+        r["last"] = now
+        if p.get("route_type") in (0, 1) and path:   # flood packet: the last id in the path = repeater we heard
+            r["hops"][path[-size:]] = now
+        for h in [h for h, t in r["hops"].items() if now - t > 3600]:
+            del r["hops"][h]
+        msg = p.get("message")
+        if not self.mc_echo or p.get("payload_type") != 5 or not msg:
+            return
+        msg = msg.strip("\x00").strip()
         if not hops:
             return   # no repeater in the path: not a re-sent copy
         for e in self.mc_echo.values():
@@ -1160,6 +1167,8 @@ class Client:
             "public_rate": self.stats.public_rate(1),
             "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
                            active=self.public_active()),
+            "mc_rx": {"since": self.mc_rx["since"], "packets": self.mc_rx["packets"], "last": self.mc_rx["last"],
+                      "repeaters": len([1 for t in self.mc_rx["hops"].values() if time.time() - t <= 3600])},
             "rf": {"per_min": self.sc["rf_per_min"], "queued": len(self.rf_queue), "queue_max": RF_QUEUE_MAX},
             "air": dict(self.air(), busy=self.busy("mt"), max_busy_pct=self.sc["max_busy_pct"],
                         max_tx_pct=self.sc["max_tx_pct"]),
