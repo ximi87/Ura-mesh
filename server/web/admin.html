@@ -91,7 +91,6 @@
       automatically and resumes when it is back under 80 % of the limit.</p>
     <div class="grid2">
       <div class="field"><label for="s-pmax">Maximum public traffic (messages / hour)</label><input type="number" id="s-pmax" min="0" max="1000"></div>
-      <div class="field"><label for="s-pmin">Minimum measuring time (hours)</label><input type="number" id="s-pmin" min="1" max="720"></div>
       <div class="field"><label for="s-smax">Busy-sender rule: max messages per channel per hour</label><input type="number" id="s-smax" min="0" max="10000">
         <div class="help">A point's channel that sends more than this to a room in one hour is paused (the sender is told) and resumes
           below 80 %. Quiet channels never reach it. 0 = off.</div></div>
@@ -132,14 +131,22 @@ async function api(method, url, body) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
-const PUB = { "not allowed": "⚪ not allowed", "measuring": "⏳ measuring", "too busy": "🔴 too busy — paused", "active": "🟢 linked to #Public" };
+const ITEM_NAMES = { group: "Group messages", public: "Public channel", private: "Private messages", positions: "Positions" };
+function checklistCell(b) {
+  if (b.status !== "approved") return "—";
+  const a = b.allow || {}, sh = b.shared || {};
+  return Object.keys(ITEM_NAMES).map(k => {
+    const btn = k === "public"
+      ? `<button class="small" data-a="${a[k] ? "public_deny" : "public_allow"}" data-id="${esc(b.id)}">${a[k] ? "Deny" : "Allow"}</button>`
+      : `<button class="small" data-a="${a[k] ? "deny" : "allow"}" data-item="${k}" data-id="${esc(b.id)}">${a[k] ? "Deny" : "Allow"}</button>`;
+    return `<div style="white-space:nowrap">${a[k] && sh[k] ? "🟢" : "⚪"} ${ITEM_NAMES[k]} <span class="muted">· you ${a[k] ? "✅" : "—"} · point ${sh[k] ? "✅" : "—"}</span> ${btn}</div>`;
+  }).join("");
+}
+const PUB = { "not allowed": "⚪ not allowed", "off at the point": "⚪ off at the point", "measuring": "⏳ measuring", "too busy": "🔴 too busy — paused", "active": "🟢 linked to #Public" };
 function publicCell(b) {
   const p = b.public || {};
-  const rate = b.public_rate == null ? "no data yet" : `${b.public_rate}/h · ${b.public_hours} h measured`;
-  const btn = b.status !== "approved" ? "" : b.public_allowed
-    ? `<button class="small" data-a="public_deny" data-id="${esc(b.id)}">Deny</button>`
-    : `<button class="small" data-a="public_allow" data-id="${esc(b.id)}">Allow</button>`;
-  return `${PUB[p.status] || "—"}<br><span class="muted">${rate}</span><div class="actions" style="margin-top:3px">${btn}</div>`;
+  const rate = b.public_rate == null ? "no data yet" : `${b.public_rate} msgs in the last hour`;
+  return `${PUB[p.status] || "—"}<br><span class="muted">${rate}</span>`;
 }
 function areaWarn(b) {
   const a = b.area || {};
@@ -156,7 +163,7 @@ async function act(bid, action, extra = {}) {
   }
   if (action === "delete" && !confirm("Delete this point? Its key stops working; it would have to request to join again.")) return;
   if (action === "block" && !confirm("Block this point? It is disconnected and cannot send or receive.")) return;
-  if (action === "public_allow" && !confirm("Allow this point's LOCAL PUBLIC CHANNEL to join #Public?\n\nIt only becomes active while the place is quiet enough (see settings → Public-channel rule).")) return;
+  if (action === "public_allow" && !confirm("Allow this point's LOCAL PUBLIC CHANNEL to join #Public?\n\nIt becomes active only if the point owner also switches it on, and only while the place is quiet enough (see settings → Public-channel rule).")) return;
   try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); await load(); }
   catch (e) { alert(e.message); }
 }
@@ -175,13 +182,14 @@ function draw() {
     : `<p class="muted">No requests waiting.</p>`;
 
   const others = st.bridges.filter(b => b.status !== "pending");
-  $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>Public ch.</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
+  $("bridges").innerHTML = `<tr><th></th><th>Bridge</th><th>Status</th><th>Online</th><th>Nodes</th><th>What may cross</th><th>Public ch.</th><th>Sent / received</th><th>Limit</th><th>Rooms</th><th></th></tr>` +
     (others.length ? others.map(b => `<tr>
       <td class="flag">${flag(b.country)}</td>
       <td><b>${esc(b.name)}</b><br><span class="muted">${esc(b.city)} · ${esc(b.id)}${b.client_version ? " · v" + esc(b.client_version) : ""}${b.contact ? "<br>" + esc(b.contact) : ""}</span>${b.status === "approved" ? areaWarn(b) : ""}</td>
       <td><span class="badge ${b.status}">${b.status}</span></td>
       <td><span class="dot ${b.online ? "on" : ""}"></span>${b.online ? "now" : when(b.last_seen)}</td>
       <td>${b.node_count || 0}</td>
+      <td>${checklistCell(b)}</td>
       <td>${publicCell(b)}</td>
       <td>${b.msgs_in} / ${b.msgs_out}</td>
       <td><input class="limit" type="number" min="0" max="600" value="${b.per_min ?? ""}" placeholder="${st.settings.default_per_min}" data-limit="${esc(b.id)}"></td>
@@ -190,7 +198,7 @@ function draw() {
         ? `<button data-a="unblock" data-id="${esc(b.id)}">Unblock</button>`
         : `<button data-a="block" data-id="${esc(b.id)}">Block</button>`}
         <button data-a="delete" data-id="${esc(b.id)}">Delete</button></div></td></tr>`).join("")
-    : `<tr><td colspan="10" class="muted">No approved points yet.</td></tr>`);
+    : `<tr><td colspan="11" class="muted">No approved points yet.</td></tr>`);
 
   $("rooms").innerHTML = `<tr><th>Room</th><th>Description</th><th>Who</th><th></th></tr>` + st.rooms.map(r => `<tr>
       <td><b>#${esc(r.name)}</b></td><td>${esc(r.description)}</td>
@@ -204,7 +212,7 @@ function draw() {
   $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From point</th><th>Size</th><th>Result</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
     : `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`);
 
-  document.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.id, b.dataset.a));
+  document.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.id, b.dataset.a, b.dataset.item ? { item: b.dataset.item } : {}));
   document.querySelectorAll("[data-limit]").forEach(i => i.onchange = () => act(i.dataset.limit, "limit", { per_min: i.value }));
   document.querySelectorAll("[data-edit-room]").forEach(b => b.onclick = () => editRoom(b.dataset.editRoom));
   document.querySelectorAll("[data-del-room]").forEach(b => b.onclick = async () => {
@@ -243,7 +251,7 @@ $("s-save").onclick = async () => {
   try {
     await api("POST", "/api/admin/settings", { name: $("s-name").value, default_per_min: $("s-per").value, max_bytes: $("s-max").value,
       min_distance_km: $("s-dist").value || 0, distance_strict: $("s-strict").checked,
-      public_max_per_hour: $("s-pmax").value, public_min_hours: $("s-pmin").value, source_max_per_hour: $("s-smax").value });
+      public_max_per_hour: $("s-pmax").value, source_max_per_hour: $("s-smax").value });
     $("s-msg").className = "ok"; $("s-msg").textContent = "✓ Saved"; await load();
   } catch (e) { $("s-msg").className = "bad"; $("s-msg").textContent = e.message; }
 };
@@ -261,7 +269,7 @@ async function load() {
   $("s-name").value = st.settings.name; $("s-per").value = st.settings.default_per_min; $("s-max").value = st.settings.max_bytes;
   $("fp").innerHTML = st.settings.tls ? esc(st.settings.fingerprint)
     : `<span class="bad">TLS is off on this server (WEB_TLS=0). Only acceptable behind a reverse proxy that does TLS.</span>`;
-  $("s-pmax").value = st.settings.public_max_per_hour; $("s-pmin").value = st.settings.public_min_hours;
+  $("s-pmax").value = st.settings.public_max_per_hour;
   $("s-smax").value = st.settings.source_max_per_hour ?? 30;
   $("s-dist").value = st.settings.min_distance_km; $("s-strict").checked = st.settings.distance_strict;
 }

@@ -91,8 +91,8 @@
       <p class="help" style="margin:0 0 8px">For each room the server offers, pick the channel on your radio that carries it.
         <b>Send</b> = what is written on that channel goes to the other points; <b>Receive</b> = messages from the other
         points are put on the air on that channel. Create the channel
-        on the radio first and tell local users to add it. Channel 0 (your local public channel) can only go to <b>#Public</b>,
-        and only while the server allows it and your area is quiet.</p>
+        on the radio first and tell local users to add it. Channel 0 (your local public channel) is not linked here — use
+        <b>Public channel</b> in the checklist.</p>
       <div id="links"></div>
       <div class="grid2" style="margin-top:12px">
         <div class="field"><label for="server.rf_per_min">Radio limit (relayed messages per minute)</label>
@@ -113,6 +113,13 @@
       </div>
       <div class="field" id="leave-box" hidden><button type="button" id="leave">Leave the server</button>
         <span class="help">Forgets this point's key; you'd have to ask to join again.</span></div>
+    </section>
+
+    <section class="card">
+      <h2>✅ What may cross (checklist)</h2>
+      <p class="help" style="margin:0 0 8px">Each item crosses only if <b>you</b> switch it on here <b>and</b> the server owner allows it
+        for this point. Save at the bottom of the page.</p>
+      <div id="checklist"></div>
     </section>
 
     <section class="card">
@@ -178,6 +185,7 @@ function collect() {
       if (el) out[sec][key] = el.type === "checkbox" ? el.checked : el.value;
     }
   }
+  out.server.share = Object.fromEntries([...document.querySelectorAll("#checklist [data-item]")].map(el => [el.dataset.item, el.checked]));
   out.server.links = [...document.querySelectorAll("#links [data-room]")].map(row => ({ room: row.dataset.room,
     mt_channel: +row.querySelector("[data-k=mt]").value, mc_channel: +row.querySelector("[data-k=mc]").value,
     send: row.querySelector("[data-k=send]").checked, receive: row.querySelector("[data-k=receive]").checked }));
@@ -199,7 +207,27 @@ function chanSelect(k, val, isPublic) {
   return `<select data-k="${k}">${o}</select>`;
 }
 const PUBST = { "not allowed": "⚪ Not allowed by the server owner", "measuring": "⏳ Measuring your public channel",
-  "too busy": "🔴 Paused — your public channel is too busy", "active": "🟢 Active — linked to #Public" };
+  "too busy": "🔴 Paused — your public channel is too busy", "active": "🟢 Active — linked to #Public",
+  "off at the point": "⚪ Off here" };
+const ITEMS = [
+  ["group", "Group messages", "Messages on the linked Ura channel(s) below."],
+  ["public", "Public channel", "Your local public channel (channel 0) is linked to the public channels of the other places (#Public). Paused automatically when it gets busy; private messages still work then."],
+  ["private", "Private messages", "Someone here sends a direct message to this point's radio: <code>@Name text</code> (or <code>@Name/Place text</code>). The other place delivers it as a direct message to the radio with that name. Answers come back the same way."],
+  ["positions", "Positions", "Positions that radios here already share openly, from the last 2 hours, rounded to ~2 km, without names — shown on the server map only."]];
+function drawChecklist() {
+  const share = cfg.server.share || {}, cl = st.checklist || {};
+  $("checklist").innerHTML = `<table class="seen"><tr><th>Item</th><th>Here</th><th>Server owner</th><th>Result</th></tr>` + ITEMS.map(([k, name, help]) => {
+    const c = cl[k] || {};
+    return `<tr><td><b>${name}</b><br><span class="help">${help}</span>${k === "public" ? `<br><span class="help">${publicText()}</span>` : ""}</td>
+      <td><label class="sw"><input type="checkbox" data-item="${k}" ${share[k] ? "checked" : ""}> on</label></td>
+      <td>${c.server ? "✅ allowed" : "⚪ not allowed"}</td><td>${c.on ? "🟢 crosses" : "—"}</td></tr>`;
+  }).join("") + `</table>`;
+}
+function publicText() {
+  const p = st.public || {}, pr = st.public_rate || {};
+  return `${PUBST[p.status] || "Status unknown (not connected)"} · your public channel: ${pr.per_hour ?? "?"} messages in the last hour` +
+    (p.max_per_hour != null ? ` · limit ${p.max_per_hour}/h` : "");
+}
 function publicNote() {
   const p = st.public || {}, pr = st.public_rate || {};
   return `<tr><td colspan="5" class="help">${PUBST[p.status] || "Status unknown (not connected)"} ·
@@ -222,7 +250,7 @@ function drawServer() {
   $("srv-url").value = $("srv-url").value || s.url || cfg.server.url || "";
   $("join-box").hidden = joined; $("leave-box").hidden = !joined;
   const rooms = [...new Set([...(s.rooms || []).filter(r => r !== "Public"), ...cfg.server.links.map(l => l.room).filter(r => r !== "Public")])];
-  if (joined) rooms.push("Public");
+  drawChecklist();
   const mtOn = $("meshtastic.enabled").checked, mcOn = $("meshcore.enabled").checked;
   $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th><th title="messages written here go to the other points">Send</th><th title="messages from other points are put on the air here">Receive</th></tr>` + rooms.map(r => {
       const l = cfg.server.links.find(x => x.room === r) || { mt_channel: -1, mc_channel: -1 };
@@ -234,7 +262,7 @@ function drawServer() {
         <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
         <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td>
         <td>${sw("send")}</td><td>${sw("receive")}</td></tr>`
-        + (pub ? publicNote() : "");
+        ;
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
 }
 let checked = null;   // {url, encrypted, fingerprint} confirmed by the owner
@@ -314,7 +342,7 @@ document.querySelectorAll("[data-refresh-ports]").forEach(b => b.onclick = async
 $("f").addEventListener("input", e => { if (e.target.id === "srv-url") { checked = null; $("join").disabled = true; return; }
   if (!e.target.id.startsWith("pw-") && e.target.id !== "join-note") dirty(); refresh(); });
 $("f").addEventListener("change", e => { refresh();
-  if (e.target.id === "meshtastic.enabled" || e.target.id === "meshcore.enabled") { cfg.server.links = collect().server.links; drawServer(); } });
+  if (e.target.id === "meshtastic.enabled" || e.target.id === "meshcore.enabled") { const c = collect().server; cfg.server.links = c.links; cfg.server.share = c.share; drawServer(); } });
 $("f").onsubmit = e => e.preventDefault();
 
 async function load() {

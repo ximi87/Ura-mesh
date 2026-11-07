@@ -28,7 +28,7 @@ each group. It is a **private relay between radio groups**, not a chat applicati
    refused and why.
 4. Only channels a point owner links are relayed. The local default channel (Meshtastic primary /
    MeshCore Public, index 0) is not linked — except under the public-channel rule below.
-5. Node positions are not shared (may become an opt-in option later, rounded to ~2 km).
+5. Only what the checklist allows crosses (below). Positions: rounded to ~2 km, no names, server map only.
 
 ## Statistics
 
@@ -44,23 +44,51 @@ each group. It is a **private relay between radio groups**, not a chat applicati
 - **who talks to whom**: point A ↔ point B message counts (list + matrix)
 - activity over time, refusals by reason (rate limit, duplicate, not approved, …)
 
+## Who may connect
+
+Not every repeater may connect: **one point per city, or per place the others cannot reach by radio**
+(one-point-per-area rule, server owner approves every point). So a group is represented by one point.
+
+## What may cross — the checklist (decided 2026-11-07)
+
+Every item crosses only if **both** the point owner **and** the server owner allow it. All start **off**,
+except group messages on the dedicated Ura channel.
+
+| Item | What it means |
+|---|---|
+| Group messages | Messages on the linked Ura channel(s) (e.g. channel 1 "Ura") |
+| Public channel | The local public channel (channel 0) is linked to the other places' public channels (room #Public) |
+| Private messages | Person-to-person messages through the point: `@Name text` to the point's radio |
+| Positions | Positions people already share openly on the mesh, rounded to ~2 km, shown on the server map only |
+
 ## Public-channel rule
 
-The public channel (index 0, created automatically on every radio) is where everyone in an area talks.
-Linking busy public channels (e.g. Germany ↔ USA ↔ China) would bring endless noise, so:
+1. **Off until the point owner turns it on** (and the server owner allows the item).
+2. Each point counts messages on its local public channel (counted, never read): messages in the last hour.
+3. If a group's public channel is **busier than the limit** (server owner sets it, default 10 messages/hour),
+   group messages stop crossing for that group — **private messages still work**. It opens again by itself
+   below 80 % of the limit.
+4. When it pauses / opens again, the group gets **one** short notice on its public channel, e.g.
+   `[Ura] Link to other places paused – channel too busy. Private messages still work.` Someone who writes
+   while it is paused gets a direct message (at most once per hour).
 
-1. Blocked by default.
-2. Each point **measures** traffic on its local public channel: messages per hour, counted, never read.
-3. The server owner sets a **limit** (e.g. ≤ 10 messages/hour, averaged over 24 h) and **grants permission per point**.
-4. A point may link its public channel only with permission **and** below the limit, after at least 24 h of
-   measurement.
-5. If it gets busier than the limit, the link is **paused automatically** and resumes when it is quiet again.
+## Private messages
 
-*Status: done.* Server: room **#Public** (managed by the rule, cannot be edited or deleted), per point
-**Allow / Deny** on *Manage points*, settings *maximum public traffic* (default 10/h) and *minimum measuring
-time* (default 24 h); a paused point resumes below 80 % of the limit. Point: channel 0 may only be linked to
-#Public and is relayed only while the server reports the point as active; text that Ura itself put on the air is
-not counted as local traffic; measuring time runs from when measuring began (a silent channel counts too).
+- Meshtastic private messages are encrypted for one radio, so the point cannot read or forward a normal DM.
+  To write to someone at another place, send a **direct message to the point's radio**:
+  `@Name text` (or `@Name/Place text` if the name exists at several places).
+- The other place's point looks the name up among the radios it hears (Meshtastic long/short name or
+  node id, MeshCore contact name) and sends it as a direct message: `[DE] Sender: text`. The person answers
+  the same way, with a direct message to their point: `@Sender text`.
+- The writer gets the result as a direct message: delivered (the receiving radio acknowledged it),
+  sent but not confirmed, or not found. Names pass through the server in memory only, never stored.
+- If the public channel is paused, private messages still work (busy-sender and airtime rules still apply).
+
+## Positions
+
+Positions the radios already broadcast openly (Meshtastic node position, MeshCore advert), from radios heard
+in the last 2 hours, rounded to ~2 km, without names. They go only to the server map, kept in memory for
+1 hour. A foreign node is **never** made to appear inside another mesh (that would fake a radio's identity).
 
 ## Traffic rules and feedback
 
@@ -105,5 +133,5 @@ separate project *mesh-bridge*. In Ura, messages come only from the radios.
 ## Later options (to be specified)
 
 - end-to-end encryption (option B)
-- opt-in node map
+- MeshCore: "repeated N×" (count echoes of our own transmission)
 - …

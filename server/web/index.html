@@ -98,6 +98,7 @@ function ago(ts) {
 const map = L.map("map", { worldCopyJump: true }).setView([30, 10], 2);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 12, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
 const bridgeLayer = L.layerGroup().addTo(map), lineLayer = L.layerGroup().addTo(map);
+const posLayer = L.layerGroup().addTo(map);
 const markers = {};
 let fitted = false;
 
@@ -129,6 +130,10 @@ function draw(d) {
       `${b.online ? "🟢 online" : "⚪ last seen " + ago(b.last_seen)} · ${b.nodes || 0} nodes<br>` +
       `Rooms: ${esc(b.rooms.join(", "))}`);
   }
+  posLayer.clearLayers();   // positions people share openly: rounded to ~2 km, no names
+  for (const b of d.bridges) for (const [la, lo, n] of b.positions || [])
+    L.circleMarker([la, lo], { radius: 4, weight: 1, color: cssVar(n === "mc" ? "--mc" : "--mt") || cssVar("--accent"),
+      fillOpacity: .6 }).addTo(posLayer).bindTooltip(`a radio near ${esc(b.name)} (~2 km)`);
   if (!fitted && pts.length) { fitted = true; if (pts.length === 1) map.setView(pts[0], 5); else map.fitBounds(pts, { padding: [40, 40], maxZoom: 6 }); }
 
   const rows = document.getElementById("rows");

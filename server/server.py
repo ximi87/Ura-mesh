@@ -82,7 +82,7 @@ DEFAULT_SETTINGS = {
     "min_distance_km": 20,     # one bridge per area: approved bridges closer than this are flagged (0 = off)
     "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
     "public_max_per_hour": 10, # public-channel rule: a point's local public channel must be this quiet …
-    "public_min_hours": 24,    # … measured over at least this long, before it may join the #Public room
+    "public_min_hours": 1,     # … measured over at least this long (rolling hour), before it may join #Public
     "source_max_per_hour": 30, # busy-sender rule: one point's channel may send this many per room per hour (0 = off)
     "auth": {"password_hash": "", "session_secret": ""},
 }
@@ -91,6 +91,9 @@ CC_RE = re.compile(r"^[A-Z]{2}$")
 PREFIX_RE = re.compile(r"^\[[A-Z]{2}\]\s*")
 PUBLIC_ROOM = "Public"          # the only room a point's channel 0 (local public channel) may be linked to
 PUBLIC_RESUME = 0.8             # a paused point resumes at 80 % of the limit (no flip-flopping)
+PRIVATE_ROOM = "(private)"      # relay_log / deliveries label for person-to-person messages (no names stored)
+ITEMS = ("group", "public", "private", "positions")   # checklist: crosses only if point owner AND server owner allow
+POS_SECS = 3600                 # positions are kept in memory this long
 ROUTE_SECS = 1800               # how long a message id is remembered to route "heard" reports back
 OUTCOMES = ("heard", "unheard", "unknown", "held")
 
@@ -192,7 +195,9 @@ class DB:
         have = {r[1] for r in self.con.execute("PRAGMA table_info(bridges)")}
         for col, typ in (("public_rate", "REAL"), ("public_hours", "REAL"), ("client_version", "TEXT"),
                          ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0"),
-                         ("ch_util", "REAL"), ("air_tx", "REAL"), ("air_busy", "TEXT")):
+                         ("ch_util", "REAL"), ("air_tx", "REAL"), ("air_busy", "TEXT"),
+                         ("allow_group", "INTEGER DEFAULT 1"), ("allow_private", "INTEGER DEFAULT 0"),
+                         ("allow_positions", "INTEGER DEFAULT 0"), ("share", "TEXT")):
             if col not in have:
                 self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
         have = {r[1] for r in self.con.execute("PRAGMA table_info(deliveries)")}
@@ -227,14 +232,18 @@ class Bucket:
         self.tokens = self.cap
 
     def set(self, per_min):
+        if hasattr(self, "tokens"):
+            self.take(spend=False)   # keep what was earned at the old rate
         self.rate = max(per_min, 0) / 60.0
         self.cap = max(3.0, per_min / 2)
         self.last = time.monotonic()
 
-    def take(self):
+    def take(self, spend=True):
         now = time.monotonic()
         self.tokens = min(self.cap, getattr(self, "tokens", self.cap) + (now - self.last) * self.rate)
         self.last = now
+        if not spend:
+            return False
         if self.tokens >= 1:
             self.tokens -= 1
             return True
@@ -256,6 +265,8 @@ class Hub:
         self.src_hist = {}       # (bridge_id, room) -> recent message times (busy-sender rule)
         self.src_paused = set()  # (bridge_id, room) currently paused
         self.routes = {}         # message id -> (origin bridge_id, ts, target ids) for "heard" reports
+        self.dm_routes = {}      # private message id -> {"origin", "ts", "targets", "answers", "done"}
+        self.positions = {}      # bridge_id -> (ts, [[lat, lon, net], …])  memory only, rounded, no names
         self.setup_code = None
         self.fingerprint = ensure_certificate() if WEB_TLS else ""
         self.login_fail = {}
@@ -265,21 +276,41 @@ class Hub:
     def bridge(self, bid):
         return self.db.one("SELECT * FROM bridges WHERE id=?", (bid,))
 
+    def allow(self, b):
+        """Server owner's side of the checklist for one point."""
+        return {"group": bool(b["allow_group"]), "public": bool(b["public_allowed"]),
+                "private": bool(b["allow_private"]), "positions": bool(b["allow_positions"])}
+
+    def shared(self, b):
+        """Point owner's side of the checklist (reported by the point)."""
+        try:
+            d = json.loads(b["share"] or "{}")
+        except ValueError:
+            d = {}
+        return {k: bool(d.get(k)) for k in ITEMS}
+
+    def both(self, b, item):
+        return b is not None and b["status"] == "approved" and self.allow(b)[item] and self.shared(b)[item]
+
     def rooms_for(self, bid):
         rooms = self.db.q("""SELECT name, description FROM rooms WHERE name<>?
                              AND (open=1 OR name IN (SELECT room FROM room_members WHERE bridge_id=?))
                              ORDER BY name""", (PUBLIC_ROOM, bid))
         b = self.bridge(bid)
+        if b and not b["allow_group"]:
+            rooms = []
         if b and b["public_active"]:
             rooms.append({"name": PUBLIC_ROOM, "description": "public channels of quiet places", "public": True})
         return rooms
 
     def public_status(self, b):
         """Where a point stands with the public-channel rule."""
-        mx, need = self.s["public_max_per_hour"], self.s["public_min_hours"]
+        mx, need = self.s["public_max_per_hour"], 1   # points measure a rolling hour
         rate, hours = b["public_rate"], b["public_hours"] or 0
         if not b["public_allowed"]:
             st = "not allowed"
+        elif not self.shared(b)["public"]:
+            st = "off at the point"
         elif b["public_active"]:
             st = "active"
         elif rate is None or hours < need:
@@ -293,10 +324,10 @@ class Hub:
         b = self.bridge(bid)
         if not b:
             return
-        mx, need = self.s["public_max_per_hour"], self.s["public_min_hours"]
+        mx, need = self.s["public_max_per_hour"], 1   # points measure a rolling hour
         rate, hours = b["public_rate"], b["public_hours"] or 0
         ok_measured = rate is not None and hours >= need
-        if not b["public_allowed"] or b["status"] != "approved" or not ok_measured:
+        if not self.both(b, "public") or not ok_measured:
             active = False
         elif b["public_active"]:
             active = rate <= mx                      # stay active until it goes over the limit
@@ -316,17 +347,17 @@ class Hub:
         if not r:
             return set()
         if r["open"]:
-            return {b["id"] for b in self.db.q("SELECT id FROM bridges WHERE status='approved'")}
+            return {b["id"] for b in self.db.q("SELECT id FROM bridges WHERE status='approved' AND allow_group=1")}
         return {m["bridge_id"] for m in self.db.q(
             "SELECT m.bridge_id FROM room_members m JOIN bridges b ON b.id=m.bridge_id "
-            "WHERE m.room=? AND b.status='approved'", (room,))}
+            "WHERE m.room=? AND b.status='approved' AND b.allow_group=1", (room,))}
 
     def status_frame(self, b, kind="status"):
         per_min = b["per_min"] if b["per_min"] is not None else self.s["default_per_min"]
         return {"type": kind, "status": b["status"], "hub": self.s["name"],
                 "rooms": self.rooms_for(b["id"]) if b["status"] == "approved" else [],
                 "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]},
-                "public": self.public_status(b)}
+                "public": self.public_status(b), "allow": self.allow(b)}
 
     async def push_status(self, bid):
         b = self.bridge(bid)
@@ -384,6 +415,10 @@ class Hub:
                 d.pop(k, None)
         for k in [k for k, v in self.routes.items() if v[1] < time.time() - ROUTE_SECS]:
             self.routes.pop(k, None)
+        for k in [k for k, v in self.dm_routes.items() if v["ts"] < time.time() - ROUTE_SECS]:
+            self.dm_routes.pop(k, None)
+        for k in [k for k, v in self.positions.items() if v[0] < time.time() - POS_SECS]:
+            self.positions.pop(k, None)
 
     def source_check(self, bid, room):
         """Busy-sender rule: a channel that sends more than N per hour is paused until it is quieter.
@@ -507,6 +542,9 @@ class Hub:
                              info["networks"], info["contact"] or b["contact"], hello.get("version"), bid))
                 self.db.run("UPDATE bridges SET client_version=? WHERE id=?",
                             (str(hello.get("client") or "")[:20], bid))
+                if isinstance(hello.get("share"), dict):
+                    self.db.run("UPDATE bridges SET share=? WHERE id=?",
+                                (json.dumps({k: bool(hello["share"].get(k)) for k in ITEMS}), bid))
             except ValueError as e:
                 log.info("bridge %s sent bad info: %s", bid, e)
             old = self.conns.get(bid)
@@ -534,6 +572,12 @@ class Hub:
                     await ws.send_json(await self.relay(bid, frame))
                 elif t == "result":
                     await self.result(bid, frame)
+                elif t == "dm":
+                    await ws.send_json(await self.dm(bid, frame))
+                elif t == "dm_result":
+                    await self.dm_result(bid, frame)
+                elif t == "positions":
+                    self.positions_update(bid, frame)
                 elif t == "nodes":
                     self.nodes_update(bid, frame)
                     await self.check_public(bid)
@@ -546,6 +590,104 @@ class Hub:
                 log.info("bridge disconnected: %s", bid)
                 await self.admin_event({"kind": "bridges"})
         return ws
+
+    async def dm(self, bid, frame):
+        """Person-to-person message: offered to every other point that allows private messages; the point that
+        hears a radio with that name delivers it. Names and text stay in memory only."""
+        b = self.bridge(bid)
+        mid = str(frame.get("id") or "")[:64]
+        to = str(frame.get("to") or "").strip()[:40]
+        place = str(frame.get("place") or "").strip().lower()[:40]
+        text = str(frame.get("text") or "").strip()
+        sender = str(frame.get("sender") or "?").strip()[:40]
+        size = len(text.encode())
+
+        def reject(reason):
+            if mid:
+                self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
+                            (mid, time.time(), PRIVATE_ROOM, bid, frame.get("net"), size, 0, reason))
+            return {"type": "dm_ack", "id": mid, "ok": False, "reason": reason}
+
+        self.prune()
+        if not mid or not text or not to:
+            return reject("empty")
+        if not self.both(b, "private"):
+            return reject("private messages are not allowed for this point")
+        if size > self.s["max_bytes"]:
+            return reject(f"longer than {self.s['max_bytes']} bytes")
+        bucket = self.buckets.setdefault(bid, Bucket(b["per_min"] if b["per_min"] is not None
+                                                     else self.s["default_per_min"]))
+        if not bucket.take():
+            return reject("rate limit")
+        targets = []
+        for t in self.db.q("SELECT * FROM bridges WHERE status='approved' AND id<>?", (bid,)):
+            if t["id"] not in self.conns or not self.both(t, "private"):
+                continue
+            if place and place not in ((t["name"] or "").lower(), (t["city"] or "").lower(),
+                                       (t["country"] or "").lower()):
+                continue
+            targets.append(t)
+        if not targets:
+            return reject("no other place with private messages is online" + (f" matching {place!r}" if place else ""))
+        now = time.time()
+        out = {"type": "dm", "id": mid, "to": to, "sender": sender, "text": text,
+               "from": {"bridge_id": bid, "name": b["name"], "country": b["country"], "city": b["city"]}}
+        sent = set()
+        for t in targets:
+            try:
+                await self.conns[t["id"]].send_json(out)
+                sent.add(t["id"])
+            except Exception:
+                pass
+        self.dm_routes[mid] = {"origin": bid, "ts": now, "targets": sent, "answers": {}, "done": False}
+        self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
+                    (mid, now, PRIVATE_ROOM, bid, frame.get("net"), size, len(sent), None))
+        await self.admin_event({"kind": "msg", "msg": self.log_row(mid)})
+        log.info("[private] %s → offered to %d point(s)", b["name"], len(sent))
+        return {"type": "dm_ack", "id": mid, "ok": True, "offered": len(sent)}
+
+    async def dm_result(self, bid, frame):
+        r = self.dm_routes.get(str(frame.get("id") or ""))
+        outcome = frame.get("outcome")
+        if not r or bid not in r["targets"] or outcome not in ("delivered", "sent", "notfound", "held"):
+            return
+        r["answers"][bid] = (outcome, str(frame.get("reason") or "")[:120] or None)
+        found = outcome in ("delivered", "sent")
+        if found:
+            self.db.run("INSERT INTO deliveries (ts, room, src, dst, mid, outcome) VALUES (?,?,?,?,?,?)",
+                        (time.time(), PRIVATE_ROOM, r["origin"], bid, frame.get("id"),
+                         "heard" if outcome == "delivered" else "unheard"))
+        if r["done"] or not (found or set(r["answers"]) >= r["targets"]):
+            return
+        r["done"] = True
+        if not found:   # every place answered: nobody there / held everywhere
+            held = [x for x in r["answers"].values() if x[0] == "held"]
+            outcome, reason = ("held", "; ".join(sorted({x[1] or "held back" for x in held}))) if held \
+                else ("notfound", None)
+        t = self.bridge(bid)
+        ws = self.conns.get(r["origin"])
+        if ws is not None:
+            try:
+                await ws.send_json({"type": "dm_result", "id": frame.get("id"), "outcome": outcome, "reason": reason
+                                    if not found else None, "point": {"id": bid, "name": t["name"] if t else "?",
+                                                                      "country": t["country"] if t else None}})
+            except Exception:
+                pass
+
+    def positions_update(self, bid, frame):
+        b = self.bridge(bid)
+        if not self.both(b, "positions"):
+            self.positions.pop(bid, None)
+            return
+        out = []
+        for item in (frame.get("list") or [])[:500]:
+            try:
+                lat, lon, net = float(item[0]), float(item[1]), str(item[2])[:2]
+            except (TypeError, ValueError, IndexError):
+                continue
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                out.append([round(lat / 0.02) * 0.02, round(lon / 0.02) * 0.02, net])   # ~2 km, again
+        self.positions[bid] = (time.time(), out)
 
     async def result(self, bid, frame):
         """A point reports what happened on its air with a relayed message; pass it to the point that sent it."""
@@ -578,6 +720,10 @@ class Hub:
                             (float(pr.get("per_hour") or 0), float(pr.get("measured_hours") or 0), bid))
             except (TypeError, ValueError):
                 pass
+        share = frame.get("share")
+        if isinstance(share, dict):
+            self.db.run("UPDATE bridges SET share=? WHERE id=?",
+                        (json.dumps({k: bool(share.get(k)) for k in ITEMS}), bid))
         air = frame.get("air")
         if isinstance(air, dict):
             num = lambda v: float(v) if isinstance(v, (int, float)) else None
@@ -592,10 +738,12 @@ class Hub:
                         "lat": b["lat"], "lon": b["lon"], "networks": (b["networks"] or "").split(",")
                         if b["networks"] else [], "online": self.online(b["id"]),
                         "last_seen": b["last_seen"], "nodes": b["node_count"],
-                        "rooms": [r["name"] for r in self.rooms_for(b["id"])]})
+                        "rooms": [r["name"] for r in self.rooms_for(b["id"])],
+                        "positions": self.positions.get(b["id"], (0, []))[1] if self.both(b, "positions") else []})
         return out
 
     async def api_public(self, request):
+        self.prune()
         bridges = self.public_bridges()
         day = time.time() - 86400
         data = {"name": self.s["name"], "bridges": bridges, "tls": WEB_TLS,
@@ -733,6 +881,7 @@ class Hub:
             b["rooms"] = [r["name"] for r in self.rooms_for(b["id"])]
             b["area"] = self.area_check(b)
             b["public"] = self.public_status(b)
+            b["allow"], b["shared"] = self.allow(b), self.shared(b)
         rooms = self.db.q("SELECT * FROM rooms ORDER BY name")
         for r in rooms:
             r["members"] = [m["bridge_id"] for m in self.db.q(
@@ -826,6 +975,10 @@ class Hub:
         elif action in ("public_allow", "public_deny"):
             self.db.run("UPDATE bridges SET public_allowed=? WHERE id=?", (1 if action == "public_allow" else 0, bid))
             await self.check_public(bid)
+        elif action in ("allow", "deny") and body.get("item") in ("group", "private", "positions"):
+            self.db.run(f"UPDATE bridges SET allow_{body['item']}=? WHERE id=?", (1 if action == "allow" else 0, bid))
+            if body["item"] == "positions" and action == "deny":
+                self.positions.pop(bid, None)
         elif action == "limit":
             v = body.get("per_min")
             per_min = None if v in (None, "") else int(v)

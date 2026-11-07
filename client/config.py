@@ -48,6 +48,8 @@ DEFAULTS = {
         "max_busy_pct": 25,             # channel busy above this % (Meshtastic) → hold messages from other points
         "max_tx_pct": 5,                # this radio transmitted more than this % of the last hour → hold them
         "notify": True,                 # tell the sender what happened (reaction / short notice)
+        "share": {"group": True, "public": False, "private": False, "positions": False},
+                                        # checklist: what this point lets cross (the server owner must allow it too)
     },
     "auth": {"password_hash": "", "session_secret": ""},
 }
@@ -124,17 +126,17 @@ def _links(value):
     for item in value:
         if not isinstance(item, dict) or not str(item.get("room") or "").strip():
             continue
+        if str(item["room"]).strip() == PUBLIC_ROOM:
+            continue   # the public channel is switched on in the checklist, not linked here
         row = {"room": str(item["room"]).strip()[:30]}
         for k, net in (("mt_channel", "Meshtastic"), ("mc_channel", "MeshCore")):
             try:
                 ch = int(item.get(k, -1))
             except (TypeError, ValueError):
                 raise ValueError(f"{net} channel must be a number")
-            if ch == 0 and row["room"] != PUBLIC_ROOM:
-                raise ValueError(f"{net} channel 0 is the local public channel: it can only be linked to "
-                                 f"#{PUBLIC_ROOM} (public-channel rule), never to #{row['room']}")
-            if row["room"] == PUBLIC_ROOM and ch > 0:
-                raise ValueError(f"#{PUBLIC_ROOM} is for the local public channel: use channel 0 (or off)")
+            if ch == 0:
+                raise ValueError(f"{net} channel 0 is the local public channel: switch on \"Public channel\" in "
+                                 f"the checklist instead of linking it to #{row['room']}")
             if not -1 <= ch <= 7:
                 raise ValueError(f"{net} channel must be 1-7 (or off)")
             if ch > 0 and (k, ch) in used:
@@ -158,6 +160,11 @@ def apply_update(cfg, incoming):
                 continue
             if (sec, key) == ("server", "links"):
                 new[sec][key] = _links(value)
+                continue
+            if (sec, key) == ("server", "share"):
+                if not isinstance(value, dict):
+                    raise ValueError("share: expected a checklist")
+                new[sec][key] = {k: bool(value.get(k, False)) for k in DEFAULTS["server"]["share"]}
                 continue
             if (sec, key) in SECRET_FIELDS and value in (MASK, "", None):
                 continue
