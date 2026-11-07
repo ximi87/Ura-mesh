@@ -46,6 +46,11 @@
 </style>
 </head>
 <body>
+<header class="top">
+  <h1>🌍 Ura</h1>
+  <span class="spacer"></span>
+  <nav class="menu" id="menu" data-page="map" data-admin="0"></nav>
+</header>
 <div class="hero">
   <h1 id="title">🌍 Ura</h1>
   <p>Every mesh, one world. LoRa mesh networks — Meshtastic and MeshCore — linked across countries.</p>
@@ -80,6 +85,7 @@
 </div>
 <footer>Ura — Albanian for “bridge”. Locations are shown at city level. Statistics are per point, never per person.</footer>
 
+<script src="/static/menu.js" defer></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

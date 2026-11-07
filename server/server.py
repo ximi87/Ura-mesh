@@ -167,6 +167,7 @@ def clean_info(raw):
     return {"name": name, "city": city, "country": country, "lat": lat, "lon": lon,
             "networks": ",".join(sorted(set(nets))),
             "contact": str(raw.get("contact") or "").strip()[:80],
+            "page_url": url if re.match(r"^https?://[^\s\"'<>]{1,200}$", url := str(raw.get("page_url") or "").strip()) else "",
             "note": str(raw.get("note") or "").strip()[:300]}
 
 
@@ -197,7 +198,7 @@ class DB:
                          ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0"),
                          ("ch_util", "REAL"), ("air_tx", "REAL"), ("air_busy", "TEXT"),
                          ("allow_group", "INTEGER DEFAULT 1"), ("allow_private", "INTEGER DEFAULT 0"),
-                         ("allow_positions", "INTEGER DEFAULT 0"), ("share", "TEXT")):
+                         ("allow_positions", "INTEGER DEFAULT 0"), ("share", "TEXT"), ("page_url", "TEXT")):
             if col not in have:
                 self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
         have = {r[1] for r in self.con.execute("PRAGMA table_info(deliveries)")}
@@ -542,8 +543,8 @@ class Hub:
                                contact=?, version=? WHERE id=?""",
                             (info["name"], info["country"], info["city"], info["lat"], info["lon"],
                              info["networks"], info["contact"] or b["contact"], hello.get("version"), bid))
-                self.db.run("UPDATE bridges SET client_version=? WHERE id=?",
-                            (str(hello.get("client") or "")[:20], bid))
+                self.db.run("UPDATE bridges SET client_version=?, page_url=? WHERE id=?",
+                            (str(hello.get("client") or "")[:20], info["page_url"] or None, bid))
                 if isinstance(hello.get("share"), dict):
                     self.db.run("UPDATE bridges SET share=? WHERE id=?",
                                 (json.dumps({k: bool(hello["share"].get(k)) for k in ITEMS}), bid))

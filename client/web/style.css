@@ -61,3 +61,21 @@ table.seen th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .center-box .card { padding: 22px; }
 .center-box h1 { font-size: 20px; margin: 0 0 6px; }
 code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); }
+
+/* menu (same on every page) */
+nav.menu { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+nav.menu > a, nav.menu summary { padding: 6px 10px; border-radius: 8px; text-decoration: none; color: var(--text);
+  font-size: 13px; cursor: pointer; list-style: none; white-space: nowrap; }
+nav.menu summary::-webkit-details-marker { display: none; }
+nav.menu > a:hover, nav.menu summary:hover { background: var(--bg); }
+nav.menu > a.on { background: var(--accent); color: #fff; }
+nav.menu details.dd { position: relative; }
+nav.menu .dd-list { position: absolute; right: 0; top: calc(100% + 6px); min-width: 220px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.15); z-index: 20; }
+nav.menu .dd-list > a, nav.menu .dd-list > span { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-radius: 6px; text-decoration: none; color: var(--text); font-size: 13px; white-space: nowrap; }
+nav.menu .dd-list > a:hover { background: var(--bg); }
+nav.menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; flex: none; }
+nav.menu .dot.on { background: var(--ok); }
+nav.menu .muted { color: var(--muted); }
+@media (max-width: 640px) { header.top { flex-wrap: wrap; } header.top .spacer { display: none; } nav.menu { order: 3; width: 100%; } }

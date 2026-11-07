@@ -930,7 +930,7 @@ class Client:
     def point_info(self):
         p = self.pc
         return {"name": p["name"], "country": p["country"], "city": p["city"], "lat": p["lat"], "lon": p["lon"],
-                "contact": p["contact"],
+                "contact": p["contact"], "page_url": p.get("page_url") or "",
                 "networks": [n for n, k in (("mt", "meshtastic"), ("mc", "meshcore")) if self.cfg[k]["enabled"]]}
 
     def ws_url(self):

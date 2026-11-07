@@ -10,7 +10,7 @@
 <header class="top">
   <h1>⚙️ Admin</h1>
   <span class="spacer"></span>
-  <a href="./">← Dashboard</a>
+  <nav class="menu" id="menu" data-page="admin"></nav>
   <button id="logout">Log out</button>
 </header>
 
@@ -26,6 +26,7 @@
         <div class="field"><label for="point.country">Country code</label><input type="text" id="point.country" maxlength="2" placeholder="e.g. AL"></div>
         <div class="field"><label for="point.city">City</label><input type="text" id="point.city" maxlength="40"></div>
         <div class="field"><label for="point.contact">Contact for the server owner</label><input type="text" id="point.contact" maxlength="80" placeholder="phone, e-mail or Telegram"></div>
+        <div class="field"><label for="point.page_url">Address of this page (optional)</label><input type="text" id="point.page_url" maxlength="200" placeholder="e.g. http://192.168.99.165:8091/"><div class="help">Shown only to the server owner, in the Points menu, so they can open this page with one click.</div></div>
       </div>
       <div class="field"><label>Location on the server map</label>
         <div class="inline"><input type="text" id="point.lat" placeholder="latitude"><input type="text" id="point.lon" placeholder="longitude"></div>
@@ -140,6 +141,7 @@
   <button type="button" class="primary" id="save">Save &amp; apply</button>
 </div>
 
+<script src="static/menu.js" defer></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

@@ -42,7 +42,7 @@
 <header class="top">
   <h1>🌍 <span id="title">Ura point</span></h1>
   <span class="spacer"></span>
-  <a href="settings">⚙️ Admin</a>
+  <nav class="menu" id="menu" data-page="status"></nav>
   <button id="logout">Log out</button>
 </header>
 <div class="wrap">
@@ -94,6 +94,7 @@
 </div>
 <div class="tip" id="tip"></div>
 
+<script src="static/menu.js" defer></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
