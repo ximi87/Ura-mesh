@@ -62,6 +62,29 @@ time* (default 24 h); a paused point resumes below 80 % of the limit. Point: cha
 #Public and is relayed only while the server reports the point as active; text that Ura itself put on the air is
 not counted as local traffic; measuring time runs from when measuring began (a silent channel counts too).
 
+## Traffic rules and feedback
+
+Goal: a busy group in one place must never flood a group in another place. Quiet channels are not limited.
+
+1. **Channel switches (point owner).** Every linked channel has two switches: *send* (local → Ura) and
+   *receive* (Ura → local air). A channel can listen only, talk only, or both.
+2. **Busy sender rule (server owner).** A point's channel may send at most *N messages per hour* to a room
+   (default 30, rolling hour). Quiet channels never reach it. Above the limit, that channel is **paused** and
+   resumes by itself below 80 % of the limit.
+3. **Airtime rule (point owner).** Before Ura puts anything on the air, the point checks its own radio:
+   *channel busy %* (all radio traffic heard, measured by Meshtastic) and *Ura transmit %* (airtime this
+   radio used in the last hour). Above the owner's limits (default 25 % and 5 %), messages from other points
+   are **held back** so the local group is not disturbed. MeshCore does not report these values; there only
+   the radio limit (messages per minute) applies.
+4. **Feedback to the sender (no text stored).** The person who wrote on the linked channel learns what happened:
+   - Meshtastic: a reaction on their message — ✅ heard by a radio at another point (that radio's
+     transmission was repeated by a neighbour), 📡 reached another point but no radio there confirmed it,
+     ❌ not sent — plus a short direct message saying why (paused, busy, no point online, …).
+   - MeshCore: a short notice on the channel when a message was not sent (at most one per reason per 10 min).
+   The owner can switch feedback off. Reactions and Ura notices are never relayed.
+5. Statistics show, per point pair, how many messages were heard on the other side, and each point's
+   channel busy % / transmit %.
+
 ## Security
 
 - **Option A (now, done):** client ↔ server connection encrypted with TLS (`wss://`). Each point has its own

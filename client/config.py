@@ -43,7 +43,11 @@ DEFAULTS = {
         "key": "",
         "fingerprint": "",              # pinned SHA-256 of the server certificate
         "rf_per_min": 2,                # max relayed messages per minute put on the air here
-        "links": [],                    # [{"room": "Global", "mt_channel": 1, "mc_channel": 1}], -1 = off
+        "links": [],                    # [{"room": "Global", "mt_channel": 1, "mc_channel": 1,
+                                        #   "send": true, "receive": true}], channel -1 = off
+        "max_busy_pct": 25,             # channel busy above this % (Meshtastic) → hold messages from other points
+        "max_tx_pct": 5,                # this radio transmitted more than this % of the last hour → hold them
+        "notify": True,                 # tell the sender what happened (reaction / short notice)
     },
     "auth": {"password_hash": "", "session_secret": ""},
 }
@@ -137,6 +141,8 @@ def _links(value):
                 raise ValueError(f"{net} channel {ch} is linked to two rooms")
             used.add((k, ch))
             row[k] = ch
+        for k in ("send", "receive"):   # channel switches: local → Ura, Ura → local air
+            row[k] = item.get(k, True) is not False
         if row["mt_channel"] >= 0 or row["mc_channel"] >= 0:
             out.append(row)
     return out
@@ -178,3 +184,5 @@ def _validate(cfg):
         raise ValueError("Server: enter the server address")
     if not 0 <= s["rf_per_min"] <= 30:
         raise ValueError("Radio limit must be 0-30 messages per minute")
+    if not 1 <= s["max_busy_pct"] <= 100 or not 1 <= s["max_tx_pct"] <= 100:
+        raise ValueError("Airtime limits must be 1-100 %")

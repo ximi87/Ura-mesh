@@ -88,7 +88,9 @@
       </div>
 
       <h3 style="font-size:14px;margin:8px 0 4px">Linked channels</h3>
-      <p class="help" style="margin:0 0 8px">For each room the server offers, pick the channel on your radio that carries it. Create the channel
+      <p class="help" style="margin:0 0 8px">For each room the server offers, pick the channel on your radio that carries it.
+        <b>Send</b> = what is written on that channel goes to the other points; <b>Receive</b> = messages from the other
+        points are put on the air on that channel. Create the channel
         on the radio first and tell local users to add it. Channel 0 (your local public channel) can only go to <b>#Public</b>,
         and only while the server allows it and your area is quiet.</p>
       <div id="links"></div>
@@ -96,6 +98,18 @@
         <div class="field"><label for="server.rf_per_min">Radio limit (relayed messages per minute)</label>
           <input type="number" id="server.rf_per_min" min="0" max="30">
           <div class="help">Protects local airtime. Extra messages wait in a short queue (20); 0 = never transmit relayed messages.</div></div>
+        <div class="field"><label for="server.max_busy_pct">Hold back when the channel is busier than (%)</label>
+          <input type="number" id="server.max_busy_pct" min="1" max="100">
+          <div class="help">Channel utilisation measured by the Meshtastic radio (all traffic it hears). Above this, messages
+            from other points are not put on the air and the sender is told. Meshtastic itself calls 25 % busy.</div></div>
+        <div class="field"><label for="server.max_tx_pct">Hold back when this radio transmitted more than (% of the last hour)</label>
+          <input type="number" id="server.max_tx_pct" min="1" max="100">
+          <div class="help">Airtime this radio used for sending. Quiet channels never reach these limits.
+            MeshCore does not report airtime; there only the radio limit applies.</div></div>
+        <div class="field"><label><input type="checkbox" id="server.notify"> Tell the sender what happened</label>
+          <div class="help">Meshtastic: a reaction on their message — ✅ heard at another point, 📡 reached another point but
+            no radio there confirmed it, ❌ not sent (plus a short direct message saying why). MeshCore: a short notice on
+            the channel when a message was not sent.</div></div>
       </div>
       <div class="field" id="leave-box" hidden><button type="button" id="leave">Leave the server</button>
         <span class="help">Forgets this point's key; you'd have to ask to join again.</span></div>
@@ -165,7 +179,8 @@ function collect() {
     }
   }
   out.server.links = [...document.querySelectorAll("#links [data-room]")].map(row => ({ room: row.dataset.room,
-    mt_channel: +row.querySelector("[data-k=mt]").value, mc_channel: +row.querySelector("[data-k=mc]").value }));
+    mt_channel: +row.querySelector("[data-k=mt]").value, mc_channel: +row.querySelector("[data-k=mc]").value,
+    send: row.querySelector("[data-k=send]").checked, receive: row.querySelector("[data-k=receive]").checked }));
   return out;
 }
 function refresh() {
@@ -187,7 +202,7 @@ const PUBST = { "not allowed": "⚪ Not allowed by the server owner", "measuring
   "too busy": "🔴 Paused — your public channel is too busy", "active": "🟢 Active — linked to #Public" };
 function publicNote() {
   const p = st.public || {}, pr = st.public_rate || {};
-  return `<tr><td colspan="3" class="help">${PUBST[p.status] || "Status unknown (not connected)"} ·
+  return `<tr><td colspan="5" class="help">${PUBST[p.status] || "Status unknown (not connected)"} ·
     your public channel: ${pr.per_hour ?? "?"} msg/h over ${pr.measured_hours ?? 0} h
     ${p.max_per_hour != null ? `· server limit ${p.max_per_hour}/h, at least ${p.min_hours} h measured` : ""}.
     Only quiet places may link their public channel; it is paused automatically when it gets busy.</td></tr>`;
@@ -209,14 +224,16 @@ function drawServer() {
   const rooms = [...new Set([...(s.rooms || []).filter(r => r !== "Public"), ...cfg.server.links.map(l => l.room).filter(r => r !== "Public")])];
   if (joined) rooms.push("Public");
   const mtOn = $("meshtastic.enabled").checked, mcOn = $("meshcore.enabled").checked;
-  $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th></tr>` + rooms.map(r => {
+  $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th><th title="messages written here go to the other points">Send</th><th title="messages from other points are put on the air here">Receive</th></tr>` + rooms.map(r => {
       const l = cfg.server.links.find(x => x.room === r) || { mt_channel: -1, mc_channel: -1 };
+      const sw = (k) => `<label class="sw"><input type="checkbox" data-k="${k}" ${l[k] !== false ? "checked" : ""}> ${k === "send" ? "local → Ura" : "Ura → air"}</label>`;
       const pub = r === "Public";
       const gone = !pub && status === "approved" && !(s.rooms || []).includes(r);
       return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}
           ${pub ? `<br><span class="help">your local public channel</span>` : ""}</td>
         <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
-        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td></tr>`
+        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td>
+        <td>${sw("send")}</td><td>${sw("receive")}</td></tr>`
         + (pub ? publicNote() : "");
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
 }

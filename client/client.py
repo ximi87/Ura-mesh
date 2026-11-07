@@ -33,7 +33,7 @@ from pubsub import pub
 import meshtastic.serial_interface
 import meshtastic.tcp_interface
 from meshtastic import BROADCAST_ADDR
-from meshtastic.protobuf import portnums_pb2
+from meshtastic.protobuf import mesh_pb2, portnums_pb2
 from meshcore import EventType, MeshCore
 
 import auth
@@ -41,15 +41,19 @@ import config
 
 log = logging.getLogger("ura-client")
 
-VERSION = "0.2"
+VERSION = "0.3"
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 STATS_DB = os.path.join(config.DATA_DIR, "stats.db")
 SETUP_CODE_PATH = os.path.join(config.DATA_DIR, "setup-code.txt")
 
 LIMITS = {"mt": 200, "mc": 130}            # bytes on air
 NET_NAMES = {"mt": "Meshtastic", "mc": "MeshCore"}
-URA_PREFIX = re.compile(r"^\[[A-Z]{2}\] ")  # text another Ura point put on the air
+URA_PREFIX = re.compile(r"^\[(?:[A-Z]{2}|Ura)\] ")  # text a Ura point put on the air (relay or notice)
 RF_QUEUE_MAX = 20
+FEEDBACK_WAIT = 600        # seconds to wait for "heard" reports from other points
+ACK_WAIT = 120             # seconds to wait for the radio to report an implicit ACK
+NOTICE_EVERY = 600         # same notice to the same person / channel at most every 10 min
+REACT = {"heard": "\u2705", "unconfirmed": "\U0001F4E1", "failed": "\u274C"}   # ✅ 📡 ❌
 PUBLIC_ROOM = config.PUBLIC_ROOM
 KEEP_DAYS = 90
 
@@ -156,10 +160,11 @@ class Stats:
         points = {}
         for pid, name, cc, kind, n, last in q(
                 """SELECT point_id, MAX(point_name), MAX(cc), kind, COUNT(*), MAX(ts) FROM events
-                   WHERE ts>=? AND point_id IS NOT NULL AND kind IN ('remote_in','sent_to')
+                   WHERE ts>=? AND point_id IS NOT NULL AND kind IN ('remote_in','sent_to','heard_remote')
                    GROUP BY point_id, kind"""):
-            p = points.setdefault(pid, {"id": pid, "name": name, "cc": cc, "in": 0, "out": 0, "last": 0})
-            p["in" if kind == "remote_in" else "out"] += n
+            p = points.setdefault(pid, {"id": pid, "name": name, "cc": cc, "in": 0, "out": 0, "heard": 0,
+                                        "last": 0})
+            p[{"remote_in": "in", "sent_to": "out", "heard_remote": "heard"}[kind]] += n
             p["last"] = max(p["last"], last)
             p["name"], p["cc"] = name or p["name"], cc or p["cc"]
         nets = {}
@@ -197,6 +202,9 @@ class Client:
         self.public = {}
         self.backoff = 5
         self.pending = {}              # message id -> (room, net) for acks
+        self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
+        self.inbound = {}              # message id -> outcome of putting a remote message on the air here
+        self.noticed = {}              # (who, reason) -> time of the last notice
         self.rf_queue = deque(maxlen=RF_QUEUE_MAX)
         self.setup_code = None
         self.login_fail = {}
@@ -215,10 +223,11 @@ class Client:
         return (self.pc["country"] or "XX").upper()
 
     def room_for(self, net, channel):
+        """Room a local channel sends to (None if not linked or its *send* switch is off)."""
         key = "mt_channel" if net == "mt" else "mc_channel"
         for row in self.sc["links"]:
             if channel is not None and channel >= 0 and row.get(key) == channel:
-                return row["room"]
+                return row["room"] if row.get("send", True) else None
         return None
 
     def public_active(self):
@@ -232,7 +241,7 @@ class Client:
             return None   # paused / not allowed: nothing goes onto the local public channel
         key = "mt_channel" if net == "mt" else "mc_channel"
         for row in self.sc["links"]:
-            if row["room"] == room and row.get(key, -1) >= 0:
+            if row["room"] == room and row.get(key, -1) >= 0 and row.get("receive", True):
                 return row[key]
         return None
 
@@ -243,10 +252,12 @@ class Client:
     def server_ready(self):
         return self.ws is not None and not self.ws.closed and self.status == "approved"
 
-    async def heard(self, net, room, sender, text):
-        """Someone near us wrote on a linked channel."""
+    async def heard(self, net, room, sender, text, origin=None):
+        """Someone near us wrote on a linked channel. `origin` = where it came from on our radio (packet id,
+        node id, channel) — only used to tell that person what happened, never sent to the server."""
         if URA_PREFIX.match(text):
             return   # already relayed by another Ura point — never send it back (no loops)
+        origin = dict(origin or {}, net=net, room=room)
         self.stats.add("local_in", net=net, room=room)
         other = "mc" if net == "mt" else "mt"
         ch = self.room_channel(room, other)
@@ -254,77 +265,262 @@ class Client:
             self.rf_enqueue(other, ch, f"[{self.cc()}] {sender}: {text}")
         if not self.server_ready() or room not in {r["name"] for r in self.rooms}:
             self.stats.add("refused", net=net, room=room, info=f"server not available ({self.status})")
+            self.feedback(origin, "failed", "Ura server not reachable, not sent")
             return
         mid = uuid.uuid4().hex
         self.pending[mid] = (room, net)
+        self.track[mid] = {"origin": origin, "ts": time.time(), "points": {}, "results": {}, "done": False}
         try:
             await self.ws.send_json({"type": "msg", "id": mid, "room": room, "net": net,
                                      "sender": sender, "text": text})
         except Exception as e:
             self.pending.pop(mid, None)
+            self.track.pop(mid, None)
             self.stats.add("refused", net=net, room=room, info="send failed")
+            self.feedback(origin, "failed", "Ura server not reachable, not sent")
             log.warning("send to server failed: %s", e)
 
     async def from_server(self, f):
-        """A message from another point: put it on the air on the linked channel(s)."""
+        """A message from another point: put it on the air on the linked channel(s), then report back
+        whether a radio here confirmed it (heard / unheard / unknown / held)."""
         room = str(f.get("room") or "")
+        mid = str(f.get("id") or "")
         if room not in self.linked_rooms():
             return
         fr = f.get("from") or {}
         cc = str(fr.get("country") or "XX").upper()
         self.stats.add("remote_in", room=room, point_id=fr.get("bridge_id"), point_name=fr.get("name"), cc=cc)
         line = f"[{cc}] {str(f.get('sender') or '?')[:40]}: {str(f.get('text') or '')}"
-        for net in ("mt", "mc"):
-            ch = self.room_channel(room, net)
-            if ch:
-                self.rf_enqueue(net, ch, line)
+        chans = [(net, self.room_channel(room, net)) for net in ("mt", "mc")]
+        chans = [(net, ch) for net, ch in chans if ch]
+        if not chans:
+            await self.report(mid, "held", f"{self.pc['name']}: channel not open for receiving")
+            return
+        self.inbound[mid] = {"left": len(chans), "outcomes": [], "ts": time.time()}
+        for net, ch in chans:
+            self.rf_enqueue(net, ch, line, mid=mid)
+
+    def inbound_done(self, mid, outcome, reason=None):
+        """One network finished with a remote message: heard / unheard / unknown / held."""
+        e = self.inbound.get(mid)
+        if not e:
+            return
+        e["outcomes"].append((outcome, reason))
+        e["left"] -= 1
+        if e["left"] > 0:
+            return
+        self.inbound.pop(mid, None)
+        kinds = [o for o, _ in e["outcomes"]]
+        for best in ("heard", "unheard", "unknown"):
+            if best in kinds:
+                asyncio.ensure_future(self.report(mid, best))
+                return
+        reasons = "; ".join(sorted({r for o, r in e["outcomes"] if r}))
+        asyncio.ensure_future(self.report(mid, "held", reasons or "held back"))
+
+    async def report(self, mid, outcome, reason=None):
+        if mid and self.server_ready():
+            try:
+                await self.ws.send_json({"type": "result", "id": mid, "outcome": outcome, "reason": reason})
+            except Exception:
+                pass
 
     def ack(self, f):
-        room, net = self.pending.pop(f.get("id"), (None, None))
+        mid = f.get("id")
+        room, net = self.pending.pop(mid, (None, None))
         if room is None:
             return
+        t = self.track.get(mid)
         if f.get("ok"):
             for p in f.get("to_points") or []:
                 self.stats.add("sent_to", net=net, room=room, point_id=p.get("id"), point_name=p.get("name"),
                                cc=p.get("country"))
+                if t:
+                    t["points"][p.get("id")] = p
             if not f.get("to_points"):
                 self.stats.add("sent_nobody", net=net, room=room)
+                if t:
+                    self.finish(mid, "failed", f"no other point is online in #{room}")
+            elif t:
+                self.loop.call_later(FEEDBACK_WAIT, self.finish_timeout, mid)
         else:
-            self.stats.add("refused", net=net, room=room, info=str(f.get("reason") or "?")[:60])
+            reason = str(f.get("reason") or "?")[:80]
+            self.stats.add("refused", net=net, room=room, info=reason[:60])
+            if t:
+                self.finish(mid, "failed", "not sent: " + reason)
 
-    def rf_enqueue(self, net, channel, text):
-        if len(self.rf_queue) == self.rf_queue.maxlen:
-            self.stats.add("rf_drop", net=self.rf_queue[0][0], info="queue full")
-        self.rf_queue.append((net, channel, clip(text, LIMITS[net])))
+    def result(self, f):
+        """Another point reports what happened on its air with a message we sent."""
+        mid = f.get("id")
+        t = self.track.get(mid)
+        p = f.get("point") or {}
+        outcome = f.get("outcome")
+        if outcome == "heard":
+            self.stats.add("heard_remote", net=t["origin"]["net"] if t else None,
+                           room=t["origin"]["room"] if t else None,
+                           point_id=p.get("id"), point_name=p.get("name"), cc=p.get("country"))
+        if not t or t["done"]:
+            return
+        t["results"][p.get("id")] = (outcome, f.get("reason"), p.get("name") or "?")
+        if outcome == "heard":
+            self.finish(mid, "heard")
+        elif t["points"] and set(t["points"]) <= set(t["results"]):
+            self.finish_all(mid)
+
+    def finish_timeout(self, mid):
+        t = self.track.get(mid)
+        if t and not t["done"]:
+            self.finish_all(mid)
+        self.track.pop(mid, None)
+
+    def finish_all(self, mid):
+        """All points answered (or time is up) and nobody confirmed hearing it."""
+        t = self.track[mid]
+        res = t["results"].values()
+        if any(o in ("unheard", "unknown") for o, _, _ in res) or len(res) < len(t["points"]):
+            self.finish(mid, "unconfirmed")
+        else:
+            why = "; ".join(sorted({r or f"held back at {n}" for o, r, n in res}))
+            self.finish(mid, "failed", "not put on the air: " + why)
+
+    def finish(self, mid, verdict, why=None):
+        t = self.track.get(mid)
+        if not t or t["done"]:
+            return
+        t["done"] = True
+        self.feedback(t["origin"], verdict, why)
+
+    def feedback(self, origin, verdict, why=None):
+        """Tell the person who wrote what happened: a reaction on their message (Meshtastic), plus a short
+        direct message / channel notice when it did not go through. Never relayed (see URA_PREFIX)."""
+        if not self.sc.get("notify", True) or not origin:
+            return
+        net, ch = origin.get("net"), origin.get("channel")
+        if net == "mt" and origin.get("pkt_id") and ch is not None:
+            self.rf_enqueue("mt", ch, REACT[verdict], kind="react", reply_id=origin["pkt_id"])
+        if verdict != "failed" or not why:
+            return
+        who = origin.get("from_id") if net == "mt" else f"ch{ch}"
+        key = (who, why.split(":")[0])
+        if time.time() - self.noticed.get(key, 0) < NOTICE_EVERY:
+            return
+        self.noticed[key] = time.time()
+        if net == "mt" and origin.get("from_id"):
+            self.rf_enqueue("mt", ch, f"Ura: {why}", kind="dm", dest=origin["from_id"])
+        elif net == "mc" and ch is not None:
+            self.rf_enqueue("mc", ch, f"[Ura] {why}", kind="notice")
+
+    def air(self):
+        """Airtime of our Meshtastic radio, as the radio itself reports it (percent)."""
+        try:
+            m = (self.mt.nodes or {}).get(self.mt_id, {}).get("deviceMetrics", {}) if self.mt else {}
+        except Exception:
+            m = {}
+        cu, tx = m.get("channelUtilization"), m.get("airUtilTx")
+        return {"ch_util": round(cu, 1) if cu is not None else None,
+                "air_tx": round(tx, 1) if tx is not None else None}
+
+    def busy(self, net):
+        """Why the local channel should not get more Ura traffic now (None = fine)."""
+        if net != "mt":
+            return None   # MeshCore does not report airtime: only the radio limit applies
+        a = self.air()
+        if a["ch_util"] is not None and a["ch_util"] > self.sc["max_busy_pct"]:
+            return f"{self.pc['name']} channel busy ({a['ch_util']:.0f}% > {self.sc['max_busy_pct']}%)"
+        if a["air_tx"] is not None and a["air_tx"] > self.sc["max_tx_pct"]:
+            return f"{self.pc['name']} radio airtime used ({a['air_tx']:.1f}% > {self.sc['max_tx_pct']}%)"
+        return None
+
+    def rf_enqueue(self, net, channel, text, kind="relay", mid=None, **extra):
+        item = dict(extra, net=net, channel=channel, text=clip(text, LIMITS[net]), kind=kind, mid=mid)
+        if kind != "relay":   # feedback is tiny and should be timely: ahead of relayed messages, in order
+            i = next((n for n, x in enumerate(self.rf_queue) if x["kind"] == "relay"), len(self.rf_queue))
+            if len(self.rf_queue) == self.rf_queue.maxlen:
+                return
+            self.rf_queue.insert(i, item)
+            return
+        if len(self.rf_queue) == self.rf_queue.maxlen:   # full: drop the oldest relayed message
+            old = next((i for i in self.rf_queue if i["kind"] == "relay"), self.rf_queue[0])
+            self.rf_queue.remove(old)
+            self.stats.add("rf_drop", net=old["net"], info="queue full")
+            if old.get("mid"):
+                self.inbound_done(old["mid"], "held", f"{self.pc['name']}: too many messages waiting")
+        self.rf_queue.append(item)
+
+    def mt_send_relay(self, item):
+        """Broadcast with want_ack: the radio reports an implicit ACK when a neighbour repeats it (= heard)."""
+        mid, done = item["mid"], []
+
+        def settle(outcome):
+            if not done:
+                done.append(outcome)
+                self.stats.add("rf_" + outcome, net="mt")
+                self.inbound_done(mid, outcome)
+
+        def on_resp(packet):
+            err = ((packet.get("decoded") or {}).get("routing") or {}).get("errorReason", "NONE")
+            self.loop.call_soon_threadsafe(settle, "heard" if err == "NONE" else "unheard")
+
+        self.mt.sendData(item["text"].encode(), BROADCAST_ADDR, portNum=portnums_pb2.PortNum.TEXT_MESSAGE_APP,
+                         wantAck=bool(mid), onResponse=on_resp if mid else None, onResponseAckPermitted=True,
+                         channelIndex=item["channel"])
+        if mid:
+            self.loop.call_soon_threadsafe(self.loop.call_later, ACK_WAIT, settle, "unheard")
+
+    def mt_send_react(self, item):
+        p = mesh_pb2.MeshPacket()
+        p.channel = item["channel"]
+        p.decoded.portnum = portnums_pb2.PortNum.TEXT_MESSAGE_APP
+        p.decoded.payload = item["text"].encode()
+        p.decoded.reply_id = item["reply_id"]
+        p.decoded.emoji = 1
+        p.id = self.mt._generatePacketId()
+        self.mt._sendPacket(p, BROADCAST_ADDR, wantAck=False)
 
     async def rf_worker(self):
-        """Puts relayed messages on the air, at most rf_per_min per minute."""
+        """Puts relayed messages on the air, at most rf_per_min per minute, and only while the local channel
+        is not busy (airtime rule). Feedback (reactions / notices) goes first and is not counted."""
         while True:
             per_min = self.sc["rf_per_min"]
             if not self.rf_queue:
                 await asyncio.sleep(1)
                 continue
-            net, channel, text = self.rf_queue.popleft()
-            if per_min <= 0:
-                self.stats.add("rf_drop", net=net, info="radio limit is 0")
-                continue
+            item = self.rf_queue.popleft()
+            net, channel, kind, mid = item["net"], item["channel"], item["kind"], item.get("mid")
+            if kind == "relay":
+                held = "radio limit is 0" if per_min <= 0 else self.busy(net)
+                if held:
+                    self.stats.add("rf_drop", net=net, info="channel busy" if per_min > 0 else held)
+                    if mid:
+                        self.inbound_done(mid, "held", held)
+                    continue
             try:
                 if net == "mt" and self.mt is not None:
-                    await asyncio.to_thread(self.mt.sendData, text.encode(), BROADCAST_ADDR,
-                                            portNum=portnums_pb2.PortNum.TEXT_MESSAGE_APP,
-                                            wantAck=False, channelIndex=channel)
+                    if kind == "react":
+                        await asyncio.to_thread(self.mt_send_react, item)
+                    elif kind == "dm":
+                        await asyncio.to_thread(self.mt.sendText, item["text"], item["dest"],
+                                                wantAck=False, channelIndex=channel)
+                    else:
+                        await asyncio.to_thread(self.mt_send_relay, item)
                 elif net == "mc" and self.mc is not None and self.mc.is_connected:
-                    r = await self.mc.commands.send_chan_msg(channel, text)
+                    r = await self.mc.commands.send_chan_msg(channel, item["text"])
                     if r.type == EventType.ERROR:
                         raise RuntimeError(r.payload)
+                    if mid:
+                        self.inbound_done(mid, "unknown")   # MeshCore cannot tell whether anyone heard it
                 else:
                     self.stats.add("rf_drop", net=net, info="radio not connected")
+                    if mid:
+                        self.inbound_done(mid, "held", f"{self.pc['name']}: radio not connected")
                     continue
-                self.stats.add("rf_tx", net=net)
+                self.stats.add("rf_tx" if kind == "relay" else "rf_feedback", net=net)
             except Exception as e:
                 self.stats.add("rf_drop", net=net, info="radio error")
+                if mid:
+                    self.inbound_done(mid, "held", f"{self.pc['name']}: radio error")
                 log.warning("transmit on %s ch%s failed: %s", net, channel, e)
-            await asyncio.sleep(60 / per_min)
+            await asyncio.sleep(60 / per_min if kind == "relay" and per_min > 0 else 3)
 
     # ── Meshtastic ───────────────────────────────────────────────
     def mt_on_text(self, packet, interface):
@@ -332,6 +528,8 @@ class Client:
             if packet.get("fromId") == self.mt_id or packet.get("to") != 0xFFFFFFFF:
                 return   # our own packets and direct messages are never relayed
             channel = packet.get("channel", 0)
+            if packet.get("decoded", {}).get("emoji"):
+                return   # reactions (tapbacks) are never relayed or counted
             text = packet.get("decoded", {}).get("text", "")
             if channel == 0 and not URA_PREFIX.match(text):
                 # count only (public-channel rule); text relayed by Ura itself is not local traffic
@@ -342,7 +540,8 @@ class Client:
             node = interface.nodes.get(packet.get("fromId") or "", {}) if interface.nodes else {}
             sender = node.get("user", {}).get("longName") or packet.get("fromId") or "?"
             if text:
-                asyncio.run_coroutine_threadsafe(self.heard("mt", room, sender, text), self.loop)
+                origin = {"pkt_id": packet.get("id"), "from_id": packet.get("fromId"), "channel": channel}
+                asyncio.run_coroutine_threadsafe(self.heard("mt", room, sender, text, origin), self.loop)
         except Exception:
             log.exception("mt_on_text")
 
@@ -385,7 +584,7 @@ class Client:
         if not text:
             sender, text = "?", raw
         if text:
-            await self.heard("mc", room, sender, text)
+            await self.heard("mc", room, sender, text, {"channel": p.get("channel_idx")})
 
     async def mc_connect(self):
         c = self.cfg["meshcore"]
@@ -452,6 +651,8 @@ class Client:
             await self.from_server(f)
         elif t == "ack":
             self.ack(f)
+        elif t == "result":
+            self.result(f)
 
     async def server_loop(self):
         s = self.sc
@@ -499,16 +700,23 @@ class Client:
 
     async def report_loop(self):
         """Tell the server how many nodes this point hears (a number only, no names or positions)."""
+        n = 0
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(30 if n == 0 else 60)
             if self.server_ready():
                 try:
                     await self.ws.send_json({"type": "nodes", "count": self.node_count(), "shared": [],
-                                             "public_rate": self.stats.public_rate()})
+                                             "public_rate": self.stats.public_rate(),
+                                             "air": dict(self.air(), busy=self.busy("mt"))})
                 except Exception:
                     pass
-            self.stats.prune()
-            await asyncio.sleep(270)
+            if n % 60 == 0:
+                self.stats.prune()
+                cutoff = time.time() - 2 * FEEDBACK_WAIT
+                for d in (self.track, self.inbound):
+                    for k in [k for k, v in d.items() if v["ts"] < cutoff]:
+                        d.pop(k, None)
+            n += 1
 
     def node_count(self):
         n = 0
@@ -636,6 +844,9 @@ class Client:
             "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
                            active=self.public_active()),
             "rf": {"per_min": self.sc["rf_per_min"], "queued": len(self.rf_queue), "queue_max": RF_QUEUE_MAX},
+            "air": dict(self.air(), busy=self.busy("mt"), max_busy_pct=self.sc["max_busy_pct"],
+                        max_tx_pct=self.sc["max_tx_pct"]),
+            "notify": self.sc.get("notify", True),
         }
 
     async def web_state(self, request):

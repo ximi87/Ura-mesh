@@ -83,6 +83,7 @@ DEFAULT_SETTINGS = {
     "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
     "public_max_per_hour": 10, # public-channel rule: a point's local public channel must be this quiet …
     "public_min_hours": 24,    # … measured over at least this long, before it may join the #Public room
+    "source_max_per_hour": 30, # busy-sender rule: one point's channel may send this many per room per hour (0 = off)
     "auth": {"password_hash": "", "session_secret": ""},
 }
 
@@ -90,6 +91,8 @@ CC_RE = re.compile(r"^[A-Z]{2}$")
 PREFIX_RE = re.compile(r"^\[[A-Z]{2}\]\s*")
 PUBLIC_ROOM = "Public"          # the only room a point's channel 0 (local public channel) may be linked to
 PUBLIC_RESUME = 0.8             # a paused point resumes at 80 % of the limit (no flip-flopping)
+ROUTE_SECS = 1800               # how long a message id is remembered to route "heard" reports back
+OUTCOMES = ("heard", "unheard", "unknown", "held")
 
 
 def load_settings():
@@ -188,9 +191,14 @@ class DB:
         """)
         have = {r[1] for r in self.con.execute("PRAGMA table_info(bridges)")}
         for col, typ in (("public_rate", "REAL"), ("public_hours", "REAL"), ("client_version", "TEXT"),
-                         ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0")):
+                         ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0"),
+                         ("ch_util", "REAL"), ("air_tx", "REAL"), ("air_busy", "TEXT")):
             if col not in have:
                 self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
+        have = {r[1] for r in self.con.execute("PRAGMA table_info(deliveries)")}
+        for col in ("mid", "outcome"):   # outcome: heard / unheard / unknown / held (no text, ever)
+            if col not in have:
+                self.con.execute(f"ALTER TABLE deliveries ADD COLUMN {col} TEXT")
         if not self.con.execute("SELECT 1 FROM rooms").fetchone():
             self.con.execute("INSERT INTO rooms VALUES ('Global', 'Worldwide chat for every bridge', 1, ?)",
                              (time.time(),))
@@ -245,6 +253,9 @@ class Hub:
         self.seen_ids = {}       # message id -> ts
         self.seen_text = {}      # (room, normalized text) -> ts
         self.dropped_at = {}     # bridge_id -> time the socket went away
+        self.src_hist = {}       # (bridge_id, room) -> recent message times (busy-sender rule)
+        self.src_paused = set()  # (bridge_id, room) currently paused
+        self.routes = {}         # message id -> (origin bridge_id, ts, target ids) for "heard" reports
         self.setup_code = None
         self.fingerprint = ensure_certificate() if WEB_TLS else ""
         self.login_fail = {}
@@ -371,6 +382,29 @@ class Hub:
         for d in (self.seen_ids, self.seen_text):
             for k in [k for k, ts in d.items() if ts < cutoff]:
                 d.pop(k, None)
+        for k in [k for k, v in self.routes.items() if v[1] < time.time() - ROUTE_SECS]:
+            self.routes.pop(k, None)
+
+    def source_check(self, bid, room):
+        """Busy-sender rule: a channel that sends more than N per hour is paused until it is quieter.
+        Every attempt counts (also refused ones), so a channel stays paused while it keeps being busy."""
+        mx = self.s.get("source_max_per_hour") or 0
+        key = (bid, room)
+        now = time.time()
+        hist = [t for t in self.src_hist.get(key, []) if t > now - 3600] + [now]
+        self.src_hist[key] = hist
+        if mx <= 0:
+            self.src_paused.discard(key)
+            return None
+        if key in self.src_paused and len(hist) < mx * PUBLIC_RESUME:
+            self.src_paused.discard(key)
+            log.info("busy-sender rule: %s #%s resumed (%d/h)", bid, room, len(hist))
+        elif key not in self.src_paused and len(hist) > mx:
+            self.src_paused.add(key)
+            log.info("busy-sender rule: %s #%s PAUSED (%d/h > %d/h)", bid, room, len(hist), mx)
+        if key in self.src_paused:
+            return f"channel paused: too busy ({len(hist)} messages in the last hour, limit {mx}/h)"
+        return None
 
     async def relay(self, bid, frame):
         b = self.bridge(bid)
@@ -382,10 +416,10 @@ class Hub:
 
         size = len(text.encode())
 
-        def reject(reason):
+        def reject(reason, logged=None):
             if mid:
                 self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
-                            (mid, time.time(), room, bid, net, size, 0, reason))
+                            (mid, time.time(), room, bid, net, size, 0, logged or reason))
             return {"type": "ack", "id": mid, "ok": False, "to": 0, "to_points": [], "reason": reason}
 
         if not mid or not text:
@@ -398,6 +432,9 @@ class Hub:
         if len(text.encode()) > self.s["max_bytes"]:
             return reject(f"longer than {self.s['max_bytes']} bytes")
         self.prune()
+        busy = self.source_check(bid, room)
+        if busy:
+            return reject(busy, "channel paused (busy-sender rule)")
         if mid in self.seen_ids:
             return reject("duplicate id")
         key = (room, text_hash(text))
@@ -423,9 +460,11 @@ class Hub:
                 t = self.bridge(target)
                 to_points.append({"id": target, "name": t["name"], "country": t["country"]})
                 self.db.con.execute("UPDATE bridges SET msgs_out=msgs_out+1 WHERE id=?", (target,))
-                self.db.con.execute("INSERT INTO deliveries VALUES (?,?,?,?)", (now, room, bid, target))
+                self.db.con.execute("INSERT INTO deliveries (ts, room, src, dst, mid) VALUES (?,?,?,?,?)",
+                                    (now, room, bid, target, mid))
             except Exception as e:
                 log.warning("send to %s failed: %s", target, e)
+        self.routes[mid] = (bid, now, {p["id"] for p in to_points})
         self.db.run("UPDATE bridges SET msgs_in=msgs_in+1 WHERE id=?", (bid,))
         self.db.run("INSERT OR IGNORE INTO relay_log VALUES (?,?,?,?,?,?,?,?)",
                     (mid, now, room, bid, net, size, len(to_points), None))
@@ -493,6 +532,8 @@ class Hub:
                 t = frame.get("type")
                 if t == "msg":
                     await ws.send_json(await self.relay(bid, frame))
+                elif t == "result":
+                    await self.result(bid, frame)
                 elif t == "nodes":
                     self.nodes_update(bid, frame)
                     await self.check_public(bid)
@@ -505,6 +546,24 @@ class Hub:
                 log.info("bridge disconnected: %s", bid)
                 await self.admin_event({"kind": "bridges"})
         return ws
+
+    async def result(self, bid, frame):
+        """A point reports what happened on its air with a relayed message; pass it to the point that sent it."""
+        mid = str(frame.get("id") or "")
+        outcome = frame.get("outcome")
+        route = self.routes.get(mid)
+        if not route or bid not in route[2] or outcome not in OUTCOMES:
+            return
+        self.db.run("UPDATE deliveries SET outcome=? WHERE mid=? AND dst=?", (outcome, mid, bid))
+        b = self.bridge(bid)
+        ws = self.conns.get(route[0])
+        if ws is not None and b is not None:
+            try:
+                await ws.send_json({"type": "result", "id": mid, "outcome": outcome,
+                                    "reason": str(frame.get("reason") or "")[:120] or None,
+                                    "point": {"id": bid, "name": b["name"], "country": b["country"]}})
+            except Exception:
+                pass
 
     def nodes_update(self, bid, frame):
         try:
@@ -519,6 +578,11 @@ class Hub:
                             (float(pr.get("per_hour") or 0), float(pr.get("measured_hours") or 0), bid))
             except (TypeError, ValueError):
                 pass
+        air = frame.get("air")
+        if isinstance(air, dict):
+            num = lambda v: float(v) if isinstance(v, (int, float)) else None
+            self.db.run("UPDATE bridges SET ch_util=?, air_tx=?, air_busy=? WHERE id=?",
+                        (num(air.get("ch_util")), num(air.get("air_tx")), str(air.get("busy") or "")[:120] or None, bid))
 
     # ── public API ───────────────────────────────────────────────
     def public_bridges(self):
@@ -689,10 +753,11 @@ class Hub:
         since = time.time() - hours * 3600
         q = lambda sql, *a: self.db.q(sql, (since,) + a)
         names = {b["id"]: b for b in self.db.q("SELECT id, name, country, city, status, last_seen, node_count, "
-                                               "public_rate, client_version FROM bridges")}
+                                               "public_rate, client_version, ch_util, air_tx, air_busy FROM bridges")}
         relayed = q("SELECT COUNT(*) n, COALESCE(SUM(bytes),0) b FROM relay_log WHERE ts>=? AND rejected IS NULL")[0]
         refused = q("SELECT COUNT(*) n FROM relay_log WHERE ts>=? AND rejected IS NOT NULL")[0]["n"]
         delivered = q("SELECT COUNT(*) n FROM deliveries WHERE ts>=?")[0]["n"]
+        heard = q("SELECT COUNT(*) n FROM deliveries WHERE ts>=? AND outcome='heard'")[0]["n"]
         points = {}
         def pt(bid):
             b = names.get(bid, {})
@@ -701,6 +766,9 @@ class Hub:
                                            "online": self.online(bid), "last_seen": b.get("last_seen"),
                                            "nodes": b.get("node_count"), "public_rate": b.get("public_rate"),
                                            "version": b.get("client_version"),
+                                           "ch_util": b.get("ch_util"), "air_tx": b.get("air_tx"),
+                                           "air_busy": b.get("air_busy"),
+                                           "paused": sorted(r for (x, r) in self.src_paused if x == bid),
                                            "sent": 0, "received": 0, "refused": 0, "last_activity": None,
                                            "public": self.public_status(self.bridge(bid)) if self.bridge(bid) else None})
         for r in q("SELECT bridge_id, rejected IS NOT NULL bad, COUNT(*) n, MAX(ts) last FROM relay_log "
@@ -715,7 +783,8 @@ class Hub:
         for bid, b in names.items():      # approved points without traffic are listed too
             if b["status"] == "approved":
                 pt(bid)
-        pairs = q("SELECT src, dst, COUNT(*) n, MAX(ts) last FROM deliveries WHERE ts>=? GROUP BY src, dst")
+        pairs = q("SELECT src, dst, COUNT(*) n, SUM(outcome='heard') heard, SUM(outcome='held') held, MAX(ts) last "
+                  "FROM deliveries WHERE ts>=? GROUP BY src, dst")
         for r in pairs:
             r["src_name"], r["dst_name"] = pt(r["src"])["name"], pt(r["dst"])["name"]
             r["src_cc"], r["dst_cc"] = pt(r["src"])["country"], pt(r["dst"])["country"]
@@ -727,7 +796,8 @@ class Hub:
             row["refused" if r["bad"] else "relayed"] += r["n"]
         return web.json_response({
             "hours": hours, "bucket": bucket,
-            "totals": {"relayed": relayed["n"], "bytes": relayed["b"], "delivered": delivered, "refused": refused,
+            "totals": {"relayed": relayed["n"], "bytes": relayed["b"], "delivered": delivered, "heard": heard,
+                       "refused": refused,
                        "points_online": sum(1 for b in names.values() if b["status"] == "approved" and self.online(b["id"])),
                        "points_approved": sum(1 for b in names.values() if b["status"] == "approved"),
                        "points_pending": sum(1 for b in names.values() if b["status"] == "pending")},
@@ -797,7 +867,8 @@ class Hub:
         s = self.s
         if "name" in body:
             s["name"] = str(body["name"]).strip()[:40] or "Ura Hub"
-        for k in ("default_per_min", "max_bytes", "min_distance_km", "public_max_per_hour", "public_min_hours"):
+        for k in ("default_per_min", "max_bytes", "min_distance_km", "public_max_per_hour", "public_min_hours",
+                  "source_max_per_hour"):
             if k in body:
                 try:
                     s[k] = int(body[k])
@@ -805,7 +876,7 @@ class Hub:
                     raise web.HTTPBadRequest(text=f"{k} must be a number")
         if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000 \
                 or not 0 <= s["min_distance_km"] <= 1000 or not 0 <= s["public_max_per_hour"] <= 1000 \
-                or not 1 <= s["public_min_hours"] <= 24 * 30:
+                or not 1 <= s["public_min_hours"] <= 24 * 30 or not 0 <= s["source_max_per_hour"] <= 10000:
             raise web.HTTPBadRequest(text="limits out of range")
         for k in ("distance_strict",):
             if k in body:

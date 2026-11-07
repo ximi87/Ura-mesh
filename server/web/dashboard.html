@@ -59,7 +59,7 @@
   <div class="tiles">
     <div class="tile"><b id="t-online">–</b><span>points online</span> <span id="t-pending"></span></div>
     <div class="tile"><b id="t-relayed">–</b><span>messages relayed</span></div>
-    <div class="tile"><b id="t-delivered">–</b><span>deliveries to points</span></div>
+    <div class="tile"><b id="t-delivered">–</b><span>deliveries to points · <span id="t-heard">–</span> heard there</span></div>
     <div class="tile"><b id="t-refused">–</b><span>refused</span></div>
   </div>
 
@@ -120,6 +120,7 @@ function draw(d) {
   $("t-pending").innerHTML = t.points_pending ? `<br><a class="badge-link" href="/admin"><span class="badge">${t.points_pending} waiting for approval</span></a>` : "";
   $("t-relayed").textContent = fmt(t.relayed);
   $("t-delivered").textContent = fmt(t.delivered);
+  $("t-heard").textContent = fmt(t.heard);
   $("t-refused").textContent = fmt(t.refused);
   $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
 
@@ -139,9 +140,9 @@ function draw(d) {
     list.map(p => {
       const [x, y] = Object.values(p.items).length === 2 ? Object.values(p.items) : [Object.values(p.items)[0], null];
       const A = { id: x.src, name: x.src_name, cc: x.src_cc }, B = { id: x.dst, name: x.dst_name, cc: x.dst_cc };
-      const ab = x.n, ba = y ? y.n : 0;
-      return `<tr><td>${label(A.cc, A.name)} ↔ ${label(B.cc, B.name)}</td><td class="n" title="${esc(A.name)} → ${esc(B.name)}">${fmt(ab)}</td>
-        <td class="n" title="${esc(B.name)} → ${esc(A.name)}">${fmt(ba)}</td><td class="n"><b>${fmt(p.total)}</b></td>
+      const ab = x.n, ba = y ? y.n : 0, hd = r => r && r.heard ? ` <span class="muted" title="heard by a radio there">(${fmt(r.heard)} ✅)</span>` : "";
+      return `<tr><td>${label(A.cc, A.name)} ↔ ${label(B.cc, B.name)}</td><td class="n" title="${esc(A.name)} → ${esc(B.name)}">${fmt(ab)}${hd(x)}</td>
+        <td class="n" title="${esc(B.name)} → ${esc(A.name)}">${fmt(ba)}${hd(y)}</td><td class="n"><b>${fmt(p.total)}</b></td>
         <td><div class="pairbar" style="width:${Math.max(3, 100 * p.total / maxP)}%"></div></td></tr>`;
     }).join("") + `</table>` : `<p class="muted">No messages between points in this period.</p>`;
 
@@ -161,13 +162,15 @@ function draw(d) {
   } else $("matrix").innerHTML = "";
 
   $("points").innerHTML = `<tr><th></th><th>Point</th><th>Status</th><th class="n">Sent</th><th class="n">Received</th><th class="n">Refused</th>
-    <th class="n">Nodes</th><th class="n">Public ch.</th><th>Version</th><th>Last activity</th></tr>` +
+    <th class="n">Nodes</th><th class="n" title="channel busy % / this radio transmitting %">Airtime</th><th class="n">Public ch.</th><th>Version</th><th>Last activity</th></tr>` +
     (d.points.length ? d.points.map(p => `<tr><td class="flag">${flag(p.country)}</td><td><b>${esc(p.name)}</b><br><span class="muted">${esc(p.city || "")}</span></td>
       <td><span class="dot ${p.online ? "on" : ""}"></span>${p.status === "approved" ? (p.online ? "online" : "offline · " + ago(p.last_seen)) : esc(p.status)}</td>
       <td class="n">${fmt(p.sent)}</td><td class="n">${fmt(p.received)}</td><td class="n">${fmt(p.refused)}</td>
-      <td class="n">${p.nodes ?? "—"}</td><td class="n">${p.public_rate == null ? "—" : p.public_rate + "/h"}${p.public && p.public.status === "active" ? " 🟢" : p.public && p.public.status === "too busy" ? " 🔴" : ""}</td>
+      <td class="n">${p.nodes ?? "—"}</td>
+      <td class="n" title="${esc(p.air_busy || "")}">${p.ch_util == null ? "—" : p.ch_util.toFixed(0) + "% / " + (p.air_tx ?? 0).toFixed(1) + "%"}${p.air_busy ? " 🔴" : ""}${(p.paused || []).length ? `<br><span class="bad">paused: #${p.paused.map(esc).join(", #")}</span>` : ""}</td>
+      <td class="n">${p.public_rate == null ? "—" : p.public_rate + "/h"}${p.public && p.public.status === "active" ? " 🟢" : p.public && p.public.status === "too busy" ? " 🔴" : ""}</td>
       <td>${esc(p.version || "—")}</td><td>${ago(p.last_activity)}</td></tr>`).join("")
-    : `<tr><td colspan="10" class="muted">No points yet.</td></tr>`);
+    : `<tr><td colspan="11" class="muted">No points yet.</td></tr>`);
 
   $("refused").innerHTML = d.refused_by_reason.length ? `<tr><th>Reason</th><th class="n">Count</th></tr>` +
     d.refused_by_reason.map(r => `<tr><td>${esc(r.reason)}</td><td class="n">${fmt(r.n)}</td></tr>`).join("")

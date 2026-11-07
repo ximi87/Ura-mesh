@@ -92,6 +92,9 @@
     <div class="grid2">
       <div class="field"><label for="s-pmax">Maximum public traffic (messages / hour)</label><input type="number" id="s-pmax" min="0" max="1000"></div>
       <div class="field"><label for="s-pmin">Minimum measuring time (hours)</label><input type="number" id="s-pmin" min="1" max="720"></div>
+      <div class="field"><label for="s-smax">Busy-sender rule: max messages per channel per hour</label><input type="number" id="s-smax" min="0" max="10000">
+        <div class="help">A point's channel that sends more than this to a room in one hour is paused (the sender is told) and resumes
+          below 80 %. Quiet channels never reach it. 0 = off.</div></div>
     </div>
     <div class="field"><label class="switch"><input type="checkbox" id="s-strict"> Strict: refuse join requests inside an existing point's area</label>
       <div class="help">Off = such requests still arrive, with a warning, and you decide. On = they are refused automatically and the point owner is told why.</div></div>
@@ -240,7 +243,7 @@ $("s-save").onclick = async () => {
   try {
     await api("POST", "/api/admin/settings", { name: $("s-name").value, default_per_min: $("s-per").value, max_bytes: $("s-max").value,
       min_distance_km: $("s-dist").value || 0, distance_strict: $("s-strict").checked,
-      public_max_per_hour: $("s-pmax").value, public_min_hours: $("s-pmin").value });
+      public_max_per_hour: $("s-pmax").value, public_min_hours: $("s-pmin").value, source_max_per_hour: $("s-smax").value });
     $("s-msg").className = "ok"; $("s-msg").textContent = "✓ Saved"; await load();
   } catch (e) { $("s-msg").className = "bad"; $("s-msg").textContent = e.message; }
 };
@@ -259,6 +262,7 @@ async function load() {
   $("fp").innerHTML = st.settings.tls ? esc(st.settings.fingerprint)
     : `<span class="bad">TLS is off on this server (WEB_TLS=0). Only acceptable behind a reverse proxy that does TLS.</span>`;
   $("s-pmax").value = st.settings.public_max_per_hour; $("s-pmin").value = st.settings.public_min_hours;
+  $("s-smax").value = st.settings.source_max_per_hour ?? 30;
   $("s-dist").value = st.settings.min_distance_km; $("s-strict").checked = st.settings.distance_strict;
 }
 function live() {

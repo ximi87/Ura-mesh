@@ -64,7 +64,7 @@
     <div class="tile"><b id="t-out">–</b><span>heard here → sent to other points</span></div>
     <div class="tile"><b id="t-in">–</b><span>received from other points</span></div>
     <div class="tile"><b id="t-tx">–</b><span>transmitted on our radio</span></div>
-    <div class="tile"><b id="t-held">–</b><span>held back (radio limit) or refused</span></div>
+    <div class="tile"><b id="t-held">–</b><span>held back (radio limit, busy channel) or refused</span></div>
   </div>
 
   <section class="card">
@@ -135,7 +135,11 @@ function drawState(st) {
     : "";
   $("setup-note").innerHTML = note; $("setup-note").hidden = !note;
   const pr = st.public_rate;
+  const a = st.air || {}, pct = v => v == null ? "—" : v.toFixed(1) + " %";
   $("air").innerHTML = `
+    <tr><td>Channel busy (Meshtastic)</td><td class="n">${pct(a.ch_util)} <span class="muted">/ limit ${a.max_busy_pct} %</span></td></tr>
+    <tr><td>This radio transmitting (last hour)</td><td class="n">${pct(a.air_tx)} <span class="muted">/ limit ${a.max_tx_pct} %</span></td></tr>
+    <tr><td>Messages from other points</td><td class="n">${a.busy ? `🔴 held back — ${esc(a.busy)}` : "🟢 allowed on the air"}</td></tr>
     <tr><td>Radio limit</td><td class="n">${st.rf.per_min} / min</td></tr>
     <tr><td>Waiting to be transmitted</td><td class="n">${st.rf.queued} / ${st.rf.queue_max}</td></tr>
     <tr><td>Local public channel traffic</td><td class="n">${pr.per_hour} / hour</td></tr>
@@ -152,17 +156,17 @@ function drawStats(d) {
   $("t-tx").textContent = fmt(t.rf_tx);
   $("t-held").textContent = fmt((t.rf_drop || 0) + (t.refused || 0));
 
-  $("points").innerHTML = `<tr><th></th><th>Point</th><th class="n">Received from</th><th class="n">Sent to</th><th>Last activity</th></tr>` +
+  $("points").innerHTML = `<tr><th></th><th>Point</th><th class="n">Received from</th><th class="n">Sent to</th><th class="n" title="a radio there confirmed it">Heard there</th><th>Last activity</th></tr>` +
     (d.points.length ? d.points.map(p => `<tr><td class="flag">${flag(p.cc)}</td><td><b>${esc(p.name || p.id)}</b></td>
-      <td class="n">${fmt(p.in)}</td><td class="n">${fmt(p.out)}</td><td>${ago(p.last)}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="muted">No messages exchanged in this period.</td></tr>`);
+      <td class="n">${fmt(p.in)}</td><td class="n">${fmt(p.out)}</td><td class="n">${fmt(p.heard)}</td><td>${ago(p.last)}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="muted">No messages exchanged in this period.</td></tr>`);
 
   const NN = { mt: "Meshtastic", mc: "MeshCore" };
   const nets = Object.keys(NN).filter(k => d.nets[k]);
-  $("nets").innerHTML = `<tr><th>Network</th><th class="n">Heard (linked)</th><th class="n">Transmitted</th><th class="n">Dropped</th></tr>` +
+  $("nets").innerHTML = `<tr><th>Network</th><th class="n">Heard (linked)</th><th class="n">Transmitted</th><th class="n" title="a neighbour repeated it (Meshtastic implicit ACK)">Heard by a radio</th><th class="n">Dropped</th></tr>` +
     (nets.length ? nets.map(k => { const n = d.nets[k];
-      return `<tr><td>${NN[k]}</td><td class="n">${fmt(n.local_in)}</td><td class="n">${fmt(n.rf_tx)}</td><td class="n">${fmt(n.rf_drop)}</td></tr>`; }).join("")
-    : `<tr><td colspan="4" class="muted">No radio activity in this period.</td></tr>`);
+      return `<tr><td>${NN[k]}</td><td class="n">${fmt(n.local_in)}</td><td class="n">${fmt(n.rf_tx)}</td><td class="n">${k === "mt" ? fmt(n.rf_heard) : "—"}</td><td class="n">${fmt(n.rf_drop)}</td></tr>`; }).join("")
+    : `<tr><td colspan="5" class="muted">No radio activity in this period.</td></tr>`);
 
   drawChart(d);
 }

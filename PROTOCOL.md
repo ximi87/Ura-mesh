@@ -30,12 +30,16 @@ The hub admin then approves or rejects the bridge.
 | bridge → hub | `{"type":"msg","id","room","net","sender","text"}` | A message heard on a linked channel. `id` is a random id (dedupe). |
 | hub → bridge | `{"type":"msg","id","room","net","sender","text","ts","from":{"bridge_id","name","country","city"}}` | A message from another bridge. |
 | hub → bridge | `{"type":"ack","id","ok","to":N,"to_points":[{"id","name","country"}],"reason"}` | Result for a `msg` the bridge sent: which points received it, or why it was refused (rate limit, duplicate, not approved, too long). |
-| bridge → hub | `{"type":"nodes","count":N,"shared":[],"public_rate":{"per_hour","measured_hours","count"}}` | Every few minutes: how many nodes the point hears, and how busy its local public channel is (messages counted, never read). `shared` stays empty (no positions are shared). |
+| bridge → hub | `{"type":"result","id","outcome","reason"}` | After putting a relayed message on the air: `heard` (a neighbour repeated it — Meshtastic implicit ACK), `unheard`, `unknown` (MeshCore cannot tell) or `held` (busy channel, queue full, not open for receiving; `reason` says which). |
+| hub → bridge | `{"type":"result","id","outcome","reason","point":{"id","name","country"}}` | The same report, passed to the point that sent the message, so it can tell the sender (✅ / 📡 / ❌). |
+| bridge → hub | `{"type":"nodes","count":N,"shared":[],"public_rate":{"per_hour","measured_hours","count"}}` | Every few minutes: how many nodes the point hears, and how busy its local public channel is (messages counted, never read), and `air`: `{"ch_util","air_tx","busy"}` (Meshtastic channel utilisation %, own transmit airtime %, reason it holds messages back). `shared` stays empty (no positions are shared). |
 
 ## Rules the hub enforces
 
 - Only `approved` bridges, and only rooms the bridge belongs to.
 - `per_min` messages per minute per bridge (token bucket), `max_bytes` per message.
+- Busy-sender rule: at most `source_max_per_hour` messages per bridge per room per rolling hour (every attempt counts);
+  above it the channel is paused and resumes below 80 %.
 - Duplicate `id`s, and the same text in the same room within 10 minutes, are dropped (stops loops when two
   bridges hear each other's radio).
 - Point positions are rounded to ~1 km.
