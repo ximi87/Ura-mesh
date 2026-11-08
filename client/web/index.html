@@ -152,7 +152,7 @@ function drawState(st) {
     <tr><td>Waiting to be transmitted</td><td class="n">${st.rf.queued} / ${st.rf.queue_max}</td></tr>
     <tr><td>Local public channel traffic</td><td class="n">${pr.per_hour} / hour</td></tr>
     <tr><td>Public channel link</td><td class="n">${({ "not allowed": "⚪ not allowed", "measuring": "⏳ measuring", "too busy": "🔴 paused (busy)",
-      "active": "🟢 active" })[(st.public || {}).status] || "—"}${st.public && st.public.linked ? "" : " · not linked here"}</td></tr>
+      "active": "🟢 active" })[(st.public || {}).status] || "—"}${st.public && st.public.linked ? "" : " · off here"}</td></tr>
     ${st.radios.mc.enabled ? (m => `
     <tr><td>MeshCore packets heard by our radio</td><td class="n">${fmt(m.packets)} <span class="muted">since ${new Date(m.since * 1000).toLocaleString()}</span></td></tr>
     <tr><td>Last MeshCore packet heard</td><td class="n">${m.last ? ago(m.last) : "⚠ none yet"}</td></tr>

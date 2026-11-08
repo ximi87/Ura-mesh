@@ -70,7 +70,6 @@ def ensure_certificate():
 def pretty_fp(hexfp):
     return ":".join(hexfp[i:i + 2] for i in range(0, len(hexfp), 2)).upper() if hexfp else ""
 
-PROTOCOL_VERSION = 1
 DEDUPE_SECS = 600
 KEEP_DAYS = 90
 ONLINE_GRACE = 90          # bridge counts as online this long after its socket drops (reconnects)
@@ -81,8 +80,7 @@ DEFAULT_SETTINGS = {
     "max_bytes": 200,
     "min_distance_km": 20,     # one bridge per area: approved bridges closer than this are flagged (0 = off)
     "distance_strict": False,  # True: refuse join requests inside an existing bridge's area
-    "public_max_per_hour": 10, # public-channel rule: a point's local public channel must be this quiet …
-    "public_min_hours": 1,     # … measured over at least this long (rolling hour), before it may join #Public
+    "public_max_per_hour": 10, # public-channel rule: a point's local public channel (rolling hour) must be this quiet
     "source_max_per_hour": 30, # busy-sender rule: one point's channel may send this many per room per hour (0 = off)
     "auth": {"password_hash": "", "session_secret": ""},
 }
@@ -157,17 +155,18 @@ def clean_info(raw):
     lat = raw.get("lat")
     lon = raw.get("lon")
     try:
-        lat = round(float(lat), 2) if lat not in (None, "") else None
-        lon = round(float(lon), 2) if lon not in (None, "") else None
+        lat = float(lat) if lat not in (None, "") else None
+        lon = float(lon) if lon not in (None, "") else None
     except (TypeError, ValueError):
         raise ValueError("lat/lon must be numbers")
-    if lat is not None and not (-90 <= lat <= 90 and -180 <= (lon or 0) <= 180):
+    if (lat is None) != (lon is None):
+        raise ValueError("enter both latitude and longitude (or neither)")
+    if lat is not None and not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise ValueError("lat/lon out of range")
     nets = [n for n in (raw.get("networks") or []) if n in ("mt", "mc")]
     return {"name": name, "city": city, "country": country, "lat": lat, "lon": lon,
             "networks": ",".join(sorted(set(nets))),
             "contact": str(raw.get("contact") or "").strip()[:80],
-            "page_url": url if re.match(r"^https?://[^\s\"'<>]{1,200}$", url := str(raw.get("page_url") or "").strip()) else "",
             "note": str(raw.get("note") or "").strip()[:300]}
 
 
@@ -198,7 +197,7 @@ class DB:
                          ("public_allowed", "INTEGER DEFAULT 0"), ("public_active", "INTEGER DEFAULT 0"),
                          ("ch_util", "REAL"), ("air_tx", "REAL"), ("air_busy", "TEXT"),
                          ("allow_group", "INTEGER DEFAULT 1"), ("allow_private", "INTEGER DEFAULT 0"),
-                         ("allow_positions", "INTEGER DEFAULT 0"), ("share", "TEXT"), ("page_url", "TEXT")):
+                         ("allow_positions", "INTEGER DEFAULT 0"), ("share", "TEXT")):
             if col not in have:
                 self.con.execute(f"ALTER TABLE bridges ADD COLUMN {col} {typ}")
         have = {r[1] for r in self.con.execute("PRAGMA table_info(deliveries)")}
@@ -257,7 +256,7 @@ class Hub:
     def __init__(self):
         os.makedirs(DATA_DIR, exist_ok=True)
         self.s = load_settings()
-        for old in ("public_feed", "show_nodes"):   # removed options (privacy)
+        for old in ("public_feed", "show_nodes", "public_min_hours"):   # removed options
             self.s.pop(old, None)
         self.db = DB(DB_PATH)
         self.conns = {}          # bridge_id -> websocket
@@ -269,7 +268,7 @@ class Hub:
         self.src_paused = set()  # (bridge_id, room) currently paused
         self.routes = {}         # message id -> (origin bridge_id, ts, target ids) for "heard" reports
         self.dm_routes = {}      # private message id -> {"origin", "ts", "targets", "answers", "done"}
-        self.positions = {}      # bridge_id -> (ts, [[lat, lon, net], …])  memory only, rounded, no names
+        self.positions = {}      # bridge_id -> (ts, [node, …]) as the point reports them; memory only
         self.setup_code = None
         self.fingerprint = ensure_certificate() if WEB_TLS else ""
         self.login_fail = {}
@@ -320,7 +319,7 @@ class Hub:
             st = "measuring"
         else:
             st = "too busy"
-        return {"status": st, "rate": rate, "hours": hours, "max_per_hour": mx, "min_hours": need}
+        return {"status": st, "rate": rate, "hours": hours, "max_per_hour": mx}
 
     async def check_public(self, bid):
         """Re-evaluate the public-channel rule for one point; pause / resume it and tell it."""
@@ -356,10 +355,8 @@ class Hub:
             "WHERE m.room=? AND b.status='approved' AND b.allow_group=1", (room,))}
 
     def status_frame(self, b, kind="status"):
-        per_min = b["per_min"] if b["per_min"] is not None else self.s["default_per_min"]
         return {"type": kind, "status": b["status"], "hub": self.s["name"],
                 "rooms": self.rooms_for(b["id"]) if b["status"] == "approved" else [],
-                "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]},
                 "public": self.public_status(b), "allow": self.allow(b)}
 
     async def push_status(self, bid):
@@ -450,7 +447,7 @@ class Hub:
         room = str(frame.get("room") or "")
         text = str(frame.get("text") or "").strip()
         sender = str(frame.get("sender") or "?").strip()[:40]
-        net = frame.get("net") if frame.get("net") in ("mt", "mc", "web", "tg") else "web"
+        net = frame.get("net") if frame.get("net") in ("mt", "mc") else None
 
         size = len(text.encode())
 
@@ -527,6 +524,8 @@ class Hub:
             if first.type != WSMsgType.TEXT:
                 return ws
             hello = json.loads(first.data)
+            if not isinstance(hello, dict):
+                return ws
             bid = str(hello.get("bridge_id") or "")
             b = self.bridge(bid) if hello.get("type") == "hello" else None
             if b is None or not hmac.compare_digest(b["key_hash"], key_hash(str(hello.get("key") or ""))):
@@ -534,8 +533,7 @@ class Hub:
                 await asyncio.sleep(1)
                 return ws
             if b["status"] == "blocked":
-                await ws.send_json({"type": "welcome", "status": "blocked", "hub": self.s["name"],
-                                    "rooms": [], "limits": {}})
+                await ws.send_json({"type": "welcome", "status": "blocked", "hub": self.s["name"], "rooms": []})
                 return ws
             try:
                 info = clean_info(hello.get("info") or {})
@@ -543,7 +541,7 @@ class Hub:
                                contact=?, version=? WHERE id=?""",
                             (info["name"], info["country"], info["city"], info["lat"], info["lon"],
                              info["networks"], info["contact"] or b["contact"], hello.get("version"), bid))
-                self.db.run("UPDATE bridges SET client_version=?, page_url=NULL WHERE id=?",
+                self.db.run("UPDATE bridges SET client_version=? WHERE id=?",
                             (str(hello.get("client") or "")[:20], bid))
                 if isinstance(hello.get("share"), dict):
                     self.db.run("UPDATE bridges SET share=? WHERE id=?",
@@ -570,6 +568,8 @@ class Hub:
                 try:
                     frame = json.loads(m.data)
                 except ValueError:
+                    continue
+                if not isinstance(frame, dict):
                     continue
                 self.db.run("UPDATE bridges SET last_seen=? WHERE id=?", (time.time(), bid))
                 t = frame.get("type")
@@ -754,8 +754,13 @@ class Hub:
                 pass
         share = frame.get("share")
         if isinstance(share, dict):
+            b = self.bridge(bid)
+            before = self.both(b, "positions")
             self.db.run("UPDATE bridges SET share=? WHERE id=?",
                         (json.dumps({k: bool(share.get(k)) for k in ITEMS}), bid))
+            if before and not self.both(self.bridge(bid), "positions"):
+                self.positions.pop(bid, None)   # switched off: the others stop seeing its nodes now
+                asyncio.ensure_future(self.push_peer_nodes())
         air = frame.get("air")
         if isinstance(air, dict):
             num = lambda v: float(v) if isinstance(v, (int, float)) else None
@@ -917,7 +922,7 @@ class Hub:
         bridges = self.db.q("SELECT * FROM bridges ORDER BY created DESC")
         for b in bridges:
             b.pop("key_hash", None)
-            b["online"] = b["id"] in self.conns
+            b["online"] = self.online(b["id"])
             b["rooms"] = [r["name"] for r in self.rooms_for(b["id"])]
             b["area"] = self.area_check(b)
             b["public"] = self.public_status(b)
@@ -1023,7 +1028,10 @@ class Hub:
                 asyncio.ensure_future(self.push_peer_nodes())
         elif action == "limit":
             v = body.get("per_min")
-            per_min = None if v in (None, "") else int(v)
+            try:
+                per_min = None if v in (None, "") else int(v)
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text="limit must be a number")
             if per_min is not None and not 0 <= per_min <= 600:
                 raise web.HTTPBadRequest(text="per_min must be 0-600")
             self.db.run("UPDATE bridges SET per_min=? WHERE id=?", (per_min, bid))
@@ -1061,9 +1069,8 @@ class Hub:
         body = await self.json_body(request)
         s = self.s
         if "name" in body:
-            s["name"] = str(body["name"]).strip()[:40] or "Ura Hub"
-        for k in ("default_per_min", "max_bytes", "min_distance_km", "public_max_per_hour", "public_min_hours",
-                  "source_max_per_hour"):
+            s["name"] = str(body["name"]).strip()[:40] or "Ura Server"
+        for k in ("default_per_min", "max_bytes", "min_distance_km", "public_max_per_hour", "source_max_per_hour"):
             if k in body:
                 try:
                     s[k] = int(body[k])
@@ -1071,7 +1078,7 @@ class Hub:
                     raise web.HTTPBadRequest(text=f"{k} must be a number")
         if not 0 <= s["default_per_min"] <= 600 or not 20 <= s["max_bytes"] <= 1000 \
                 or not 0 <= s["min_distance_km"] <= 1000 or not 0 <= s["public_max_per_hour"] <= 1000 \
-                or not 1 <= s["public_min_hours"] <= 24 * 30 or not 0 <= s["source_max_per_hour"] <= 10000:
+                or not 0 <= s["source_max_per_hour"] <= 10000:
             raise web.HTTPBadRequest(text="limits out of range")
         for k in ("distance_strict",):
             if k in body:

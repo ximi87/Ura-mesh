@@ -71,7 +71,7 @@
   </section>
 
   <section class="card">
-    <h2>Hub settings</h2>
+    <h2>Server settings</h2>
     <div class="grid2">
       <div class="field"><label for="s-name">Server name</label><input type="text" id="s-name"></div>
       <div class="field"><label for="s-per">Default limit (messages / minute / point)</label><input type="number" id="s-per" min="0" max="600"></div>
@@ -86,7 +86,7 @@
     </div>
     <h3 style="font-size:14px;margin:4px 0 4px">Public-channel rule</h3>
     <p class="help" style="margin:0 0 8px">A point's local public channel (channel 0) can join the room <b>#Public</b> only if you allow it
-      AND it is quiet: at most this many messages per hour, measured for at least this long. A point that gets busier is paused
+      AND it is quiet: at most this many messages in the last hour. A point that gets busier is paused
       automatically and resumes when it is back under 80 % of the limit.</p>
     <div class="grid2">
       <div class="field"><label for="s-pmax">Maximum public traffic (messages / hour)</label><input type="number" id="s-pmax" min="0" max="1000"></div>
@@ -121,7 +121,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const flag = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : "🏳️";
-const NETS = { mt: "Meshtastic", mc: "MeshCore", web: "web", tg: "Telegram" };
+const NETS = { mt: "Meshtastic", mc: "MeshCore" };
 const when = ts => ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
 let st = null;
 
@@ -241,7 +241,7 @@ function drawLog() {
 }
 function logRow(m) {
   return `<tr><td>${when(m.ts)}</td><td>#${esc(m.room)}</td>
-    <td>${flag(m.country)} ${esc(m.bridge || m.bridge_id)} <span class="muted">· ${esc(NETS[m.net] || m.net)}</span></td>
+    <td>${flag(m.country)} ${esc(m.bridge || m.bridge_id)} ${m.net ? `<span class="muted">· ${esc(NETS[m.net] || m.net)}</span>` : ""}</td>
     <td>${m.bytes ?? "—"} B</td>
     <td>${m.rejected ? `<span class="rej">refused: ${esc(m.rejected)}</span>` : `delivered to ${m.delivered} point${m.delivered == 1 ? "" : "s"}`}</td></tr>`;
 }

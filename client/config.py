@@ -3,7 +3,6 @@
 Stored in <DATA_DIR>/config.json and edited on the admin page. Only these come from the
 environment: DATA_DIR (./data), WEB_HOST (0.0.0.0), WEB_PORT (8091).
 """
-import re
 import copy
 import json
 import os
@@ -23,7 +22,6 @@ DEFAULTS = {
         "lat": None,                    # location for the server map (city level is enough)
         "lon": None,
         "contact": "",                  # how the server owner can reach you
-        "page_url": "",                 # address of this page, for the server owner's Points menu (optional)
     },
     "meshtastic": {
         "enabled": False,
@@ -179,9 +177,6 @@ def apply_update(cfg, incoming):
 def _validate(cfg):
     p, mt, mc, s = cfg["point"], cfg["meshtastic"], cfg["meshcore"], cfg["server"]
     p["country"] = p["country"].upper()
-    p["page_url"] = p["page_url"].strip()
-    if p["page_url"] and not re.match(r"^https?://[^\s\"'<>]{1,200}$", p["page_url"]):
-        raise ValueError("Page address must start with http:// or https://")
     if p["country"] and not (len(p["country"]) == 2 and p["country"].isalpha()):
         raise ValueError("Country must be a 2-letter code, e.g. AL, DE, US")
     if mt["connection"] not in ("tcp", "serial") or mc["connection"] not in ("tcp", "serial"):

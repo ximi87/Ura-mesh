@@ -30,7 +30,7 @@
       </div>
       <div class="field"><label>Location on the server map</label>
         <div class="inline"><input type="text" id="point.lat" placeholder="latitude"><input type="text" id="point.lon" placeholder="longitude"></div>
-        <div class="help">City centre is enough. The server rounds it to about 1 km.</div></div>
+        <div class="help">Shown on the server map as you enter it. City centre is enough.</div></div>
     </section>
 
     <section class="card">
@@ -207,10 +207,9 @@ function refresh() {
     el.hidden = !cur || cur.value !== val;
   });
 }
-function chanSelect(k, val, isPublic) {
+function chanSelect(k, val) {
   let o = `<option value="-1">off</option>`;
-  if (isPublic) o += `<option value="0" ${val === 0 ? "selected" : ""}>channel 0 (local public)</option>`;
-  else for (let i = 1; i <= 7; i++) o += `<option value="${i}" ${i === val ? "selected" : ""}>channel ${i}</option>`;
+  for (let i = 1; i <= 7; i++) o += `<option value="${i}" ${i === val ? "selected" : ""}>channel ${i}</option>`;
   return `<select data-k="${k}">${o}</select>`;
 }
 const PUBST = { "not allowed": "⚪ Not allowed by the server owner", "measuring": "⏳ Measuring your public channel",
@@ -235,13 +234,6 @@ function publicText() {
   return `${PUBST[p.status] || "Status unknown (not connected)"} · your public channel: ${pr.per_hour ?? "?"} messages in the last hour` +
     (p.max_per_hour != null ? ` · limit ${p.max_per_hour}/h` : "");
 }
-function publicNote() {
-  const p = st.public || {}, pr = st.public_rate || {};
-  return `<tr><td colspan="5" class="help">${PUBST[p.status] || "Status unknown (not connected)"} ·
-    your public channel: ${pr.per_hour ?? "?"} msg/h over ${pr.measured_hours ?? 0} h
-    ${p.max_per_hour != null ? `· server limit ${p.max_per_hour}/h, at least ${p.min_hours} h measured` : ""}.
-    Only quiet places may link their public channel; it is paused automatically when it gets busy.</td></tr>`;
-}
 function drawServer() {
   const s = st.server || {}, joined = !!s.point_id, status = s.status || "off";
   $("srv-state").innerHTML = !joined ? "Not joined yet. Fill in <b>This point</b>, the server address, then click <b>Request to join</b>."
@@ -262,12 +254,10 @@ function drawServer() {
   $("links").innerHTML = rooms.length ? `<table class="seen"><tr><th>Room</th><th>Meshtastic</th><th>MeshCore</th><th title="messages written here go to the other points">Send</th><th title="messages from other points are put on the air here">Receive</th></tr>` + rooms.map(r => {
       const l = cfg.server.links.find(x => x.room === r) || { mt_channel: -1, mc_channel: -1 };
       const sw = (k) => `<label class="sw"><input type="checkbox" data-k="${k}" ${l[k] !== false ? "checked" : ""}> ${k === "send" ? "local → Ura" : "Ura → air"}</label>`;
-      const pub = r === "Public";
-      const gone = !pub && status === "approved" && !(s.rooms || []).includes(r);
-      return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}
-          ${pub ? `<br><span class="help">your local public channel</span>` : ""}</td>
-        <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">radio off</span><input type="hidden" data-k="mt" value="${l.mt_channel}">`}</td>
-        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">radio off</span><input type="hidden" data-k="mc" value="${l.mc_channel}">`}</td>
+      const gone = status === "approved" && !(s.rooms || []).includes(r);
+      return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}</td>
+        <td>${mtOn ? chanSelect("mt", l.mt_channel) : `<span class="muted">radio off</span><input type="hidden" data-k="mt" value="${l.mt_channel}">`}</td>
+        <td>${mcOn ? chanSelect("mc", l.mc_channel) : `<span class="muted">radio off</span><input type="hidden" data-k="mc" value="${l.mc_channel}">`}</td>
         <td>${sw("send")}</td><td>${sw("receive")}</td></tr>`
         ;
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;

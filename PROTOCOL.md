@@ -25,8 +25,8 @@ The hub admin then approves or rejects the bridge.
 | Direction | Frame | Meaning |
 |---|---|---|
 | bridge → hub | `{"type":"hello","bridge_id","key","version":1,"info":{…same fields as join…}}` | First frame. Wrong key → socket closed. |
-| hub → bridge | `{"type":"welcome","status","hub":"name","rooms":[{"name","description"}],"limits":{"per_min","max_bytes"}}` | `status` = `pending`, `approved` or `blocked`. Only approved bridges send/receive messages. |
-| hub → bridge | `{"type":"status", …same fields as welcome…}` | Sent when the admin changes the bridge (approve, block, rooms, limits). |
+| hub → bridge | `{"type":"welcome","status","hub":"name","rooms":[{"name","description"}],"public":{…},"allow":{group,public,private,positions}}` | `status` = `pending`, `approved` or `blocked`. Only approved bridges send/receive messages. |
+| hub → bridge | `{"type":"status", …same fields as welcome…}` | Sent when the admin changes the bridge (approve, block, rooms, rules). |
 | bridge → hub | `{"type":"msg","id","room","net","sender","text"}` | A message heard on a linked channel. `id` is a random id (dedupe). |
 | hub → bridge | `{"type":"msg","id","room","net","sender","text","ts","from":{"bridge_id","name","country","city"}}` | A message from another bridge. |
 | hub → bridge | `{"type":"ack","id","ok","to":N,"to_points":[{"id","name","country"}],"reason"}` | Result for a `msg` the bridge sent: which points received it, or why it was refused (rate limit, duplicate, not approved, too long). |

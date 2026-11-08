@@ -47,7 +47,6 @@ STATS_DB = os.path.join(config.DATA_DIR, "stats.db")
 SETUP_CODE_PATH = os.path.join(config.DATA_DIR, "setup-code.txt")
 
 LIMITS = {"mt": 200, "mc": 130}            # bytes on air
-NET_NAMES = {"mt": "Meshtastic", "mc": "MeshCore"}
 URA_PREFIX = re.compile(r"^\[(?:[A-Z]{2}|Ura)\] ")  # text a Ura point put on the air (relay or notice)
 RF_QUEUE_MAX = 20
 FEEDBACK_WAIT = 600        # seconds to wait for "heard" reports from other points
@@ -197,8 +196,6 @@ class Stats:
         for net, kind, n in q("SELECT net, kind, COUNT(*) FROM events WHERE ts>=? AND net IS NOT NULL "
                               "GROUP BY net, kind"):
             nets.setdefault(net, {})[kind] = n
-        refused = dict(q("SELECT info, COUNT(*) FROM events WHERE ts>=? AND kind='refused' GROUP BY info"))
-        dropped = dict(q("SELECT info, COUNT(*) FROM events WHERE ts>=? AND kind='rf_drop' GROUP BY info"))
         bucket = 3600 if hours <= 48 else 86400
         series = {}
         for b, kind, n in q(f"""SELECT CAST(ts/{bucket} AS INTEGER)*{bucket}, kind, COUNT(*) FROM events
@@ -206,7 +203,7 @@ class Stats:
             series.setdefault(b, {"t": b, "local_in": 0, "remote_in": 0})[kind] = n
         return {"hours": hours, "bucket": bucket, "totals": totals,
                 "points": sorted(points.values(), key=lambda p: -(p["in"] + p["out"])),
-                "nets": nets, "refused": refused, "dropped": dropped,
+                "nets": nets,
                 "series": sorted(series.values(), key=lambda s: s["t"])}
 
 
@@ -222,7 +219,6 @@ class Client:
         self.status = "off"            # server link: off / not joined / connecting / pending / approved / blocked / offline
         self.server_name = None
         self.rooms = []                # rooms the server offers this point
-        self.limits = {}
         self.connected_since = None
         self.cert_problem = None
         self.public = {}
@@ -333,6 +329,7 @@ class Client:
         room = str(f.get("room") or "")
         mid = str(f.get("id") or "")
         if room not in self.linked_rooms():
+            await self.report(mid, "held", f"{self.pc['name']}: #{room} is not linked to a channel here")
             return
         fr = f.get("from") or {}
         cc = str(fr.get("country") or "XX").upper()
@@ -993,7 +990,6 @@ class Client:
             self.allowed = f.get("allow") or {}
             self.server_name = f.get("hub")
             self.rooms = f.get("rooms") or []
-            self.limits = f.get("limits") or {}
             self.public = f.get("public") or {}
             self.backoff = 5
             if prev != self.status:
@@ -1054,6 +1050,7 @@ class Client:
                     self.cert_problem = None
                 self.ws = None
                 self.connected_since = None
+                self.peer_nodes = []
                 if self.status == "approved":
                     self.status = "offline"
                 wait = 600 if self.status in ("blocked", "certificate mismatch") or self.status.startswith("refused") \
@@ -1062,13 +1059,13 @@ class Client:
                 await asyncio.sleep(wait)
 
     async def report_loop(self):
-        """Tell the server how many nodes this point hears (a number only, no names or positions)."""
+        """Every minute: node count, public-channel traffic, checklist and airtime for the server's rules."""
         n = 0
         while True:
             await asyncio.sleep(30 if n == 0 else 60)
             if self.server_ready():
                 try:
-                    await self.ws.send_json({"type": "nodes", "count": self.node_count(), "shared": [],
+                    await self.ws.send_json({"type": "nodes", "count": self.node_count(),
                                              "public_rate": self.stats.public_rate(1),
                                              "share": self.sc.get("share") or {},
                                              "air": dict(self.air(), busy=self.busy("mt"))})
@@ -1203,8 +1200,7 @@ class Client:
                        "url": self.sc["url"], "encrypted": self.sc["url"].startswith("https://"),
                        "fingerprint": pretty_fp(self.sc["fingerprint"]), "cert_problem": self.cert_problem,
                        "point_id": self.sc["point_id"], "connected_since": self.connected_since,
-                       "rooms": [r["name"] for r in self.rooms], "linked": self.sc["links"],
-                       "limits": self.limits},
+                       "rooms": [r["name"] for r in self.rooms], "linked": self.sc["links"]},
             "radios": {
                 "mt": {"enabled": mt["enabled"], "connected": self.mt is not None, "id": self.mt_id},
                 "mc": {"enabled": mc["enabled"], "connected": bool(self.mc and self.mc.is_connected),
@@ -1213,14 +1209,12 @@ class Client:
             "nodes_heard": self.node_count(),
             "peer_nodes": self.peer_nodes if self.can("positions") else [],
             "public_rate": self.stats.public_rate(1),
-            "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
-                           active=self.public_active()),
+            "public": dict(self.public, linked=self.share("public"), active=self.public_active()),
             "mc_rx": {"since": self.mc_rx["since"], "packets": self.mc_rx["packets"], "last": self.mc_rx["last"],
                       "repeaters": len([1 for t in self.mc_rx["hops"].values() if time.time() - t <= 3600])},
             "rf": {"per_min": self.sc["rf_per_min"], "queued": len(self.rf_queue), "queue_max": RF_QUEUE_MAX},
             "air": dict(self.air(), busy=self.busy("mt"), max_busy_pct=self.sc["max_busy_pct"],
                         max_tx_pct=self.sc["max_tx_pct"]),
-            "notify": self.sc.get("notify", True),
             "checklist": {k: {"point": self.share(k), "server": bool(self.allowed.get(k)), "on": self.can(k)}
                           for k in ("group", "public", "private", "positions")},
         }
