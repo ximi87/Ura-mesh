@@ -39,9 +39,9 @@ the rules that apply to them; they monitor what crosses, they never manage each 
   server checks everything against its own rules and may refuse. A point never gets the server's admin data,
   other points' settings, keys or statistics beyond its own deliveries.
 - **Each side has its own login, keys and certificate.** Point pages and server pages run over HTTPS, each
-  with its own self-signed certificate (fingerprint shown on its own page). Links in the menu are only links:
-  opening another page still needs that page's own login.
-- Sharing a page address in the Points menu is the point owner's choice (empty = not listed as a link).
+  with its own self-signed certificate (fingerprint shown on its own page).
+- **Each side's menu shows only its own pages** (2026-11-08): a point shows Status · Admin; the server shows
+  Map · Dashboard · Points & rules. No links between them, no point page addresses on the server.
 
 ## Privacy rules
 

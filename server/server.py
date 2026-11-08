@@ -360,15 +360,7 @@ class Hub:
         return {"type": kind, "status": b["status"], "hub": self.s["name"],
                 "rooms": self.rooms_for(b["id"]) if b["status"] == "approved" else [],
                 "limits": {"per_min": per_min, "max_bytes": self.s["max_bytes"]},
-                "public": self.public_status(b), "allow": self.allow(b),
-                "points": self.menu_points() if b["status"] == "approved" else []}
-
-    def menu_points(self):
-        """Approved points for the menu on every page (name, country, online, page address)."""
-        return [{"id": x["id"], "name": x["name"], "country": x["country"], "online": self.online(x["id"]),
-                 "page_url": x["page_url"] or ""}
-                for x in self.db.q("SELECT id, name, country, page_url FROM bridges WHERE status='approved' "
-                                   "ORDER BY country, name")]
+                "public": self.public_status(b), "allow": self.allow(b)}
 
     async def push_status(self, bid):
         b = self.bridge(bid)
@@ -551,8 +543,8 @@ class Hub:
                                contact=?, version=? WHERE id=?""",
                             (info["name"], info["country"], info["city"], info["lat"], info["lon"],
                              info["networks"], info["contact"] or b["contact"], hello.get("version"), bid))
-                self.db.run("UPDATE bridges SET client_version=?, page_url=? WHERE id=?",
-                            (str(hello.get("client") or "")[:20], info["page_url"] or None, bid))
+                self.db.run("UPDATE bridges SET client_version=?, page_url=NULL WHERE id=?",
+                            (str(hello.get("client") or "")[:20], bid))
                 if isinstance(hello.get("share"), dict):
                     self.db.run("UPDATE bridges SET share=? WHERE id=?",
                                 (json.dumps({k: bool(hello["share"].get(k)) for k in ITEMS}), bid))
@@ -568,7 +560,6 @@ class Hub:
             await ws.send_json(self.status_frame(b, "welcome"))
             if b["status"] == "approved" and self.both(b, "positions"):
                 await ws.send_json({"type": "peer_nodes", "points": self.peer_nodes_for(bid)})
-            asyncio.ensure_future(self.push_all_status())   # other points' menus: this one is online now
             log.info("bridge connected: %s (%s, %s) status=%s", b["name"], b["country"], bid, b["status"])
             await self.admin_event({"kind": "bridges"})
             async for m in ws:
@@ -602,7 +593,6 @@ class Hub:
                 del self.conns[bid]
                 self.dropped_at[bid] = time.time()
                 log.info("bridge disconnected: %s", bid)
-                asyncio.ensure_future(self.push_all_status())
                 await self.admin_event({"kind": "bridges"})
         return ws
 
