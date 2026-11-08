@@ -52,7 +52,7 @@ the rules that apply to them; they monitor what crosses, they never manage each 
    refused and why.
 4. Only channels a point owner links are relayed. The local default channel (Meshtastic primary /
    MeshCore Public, index 0) is not linked — except under the public-channel rule below.
-5. Only what the checklist allows crosses (below). Positions: rounded to ~2 km, no names, server map only.
+5. Only what the checklist allows crosses (below). Nodes & positions: passed on unchanged, as the radios report them.
 
 ## Statistics
 
@@ -83,7 +83,7 @@ except group messages on the dedicated Ura channel.
 | Group messages | Messages on the linked Ura channel(s) (e.g. channel 1 "Ura") |
 | Public channel | The local public channel (channel 0) is linked to the other places' public channels (room #Public) |
 | Private messages | Person-to-person messages through the point: `@Name text` to the point's radio |
-| Positions | Positions people already share openly on the mesh, rounded to ~2 km, shown on the server map only |
+| Nodes & positions | The radios heard at a point, as they report themselves (name, id, shared position) — to the other points and the server map |
 
 ## Public-channel rule
 
@@ -108,11 +108,14 @@ except group messages on the dedicated Ura channel.
   sent but not confirmed, or not found. Names pass through the server in memory only, never stored.
 - If the public channel is paused, private messages still work (busy-sender and airtime rules still apply).
 
-## Positions
+## Nodes & positions (changed 2026-11-08, owner's decision)
 
-Positions the radios already broadcast openly (Meshtastic node position, MeshCore advert), from radios heard
-in the last 2 hours, rounded to ~2 km, without names. They go only to the server map, kept in memory for
-1 hour. A foreign node is **never** made to appear inside another mesh (that would fake a radio's identity).
+Information goes on **as it comes — nothing is changed**. The radios heard at a point (last 24 hours) are passed
+to the other points and to the server map exactly as they report themselves: name, short name, id, and the
+position their owner chose to share (no rounding, no hiding; a node that shares no position shows none).
+Each point's Status page lists the nodes of the other places; the server map shows them with their names.
+Crosses only when the checklist item **Nodes & positions** is on at both points and allowed by the server owner.
+Kept in memory only (server: 1 hour), refreshed every 5 minutes.
 
 ## Traffic rules and feedback
 

@@ -566,6 +566,8 @@ class Hub:
             self.db.run("UPDATE bridges SET last_seen=?, ip=? WHERE id=?", (time.time(), request.remote, bid))
             b = self.bridge(bid)
             await ws.send_json(self.status_frame(b, "welcome"))
+            if b["status"] == "approved" and self.both(b, "positions"):
+                await ws.send_json({"type": "peer_nodes", "points": self.peer_nodes_for(bid)})
             asyncio.ensure_future(self.push_all_status())   # other points' menus: this one is online now
             log.info("bridge connected: %s (%s, %s) status=%s", b["name"], b["country"], bid, b["status"])
             await self.admin_event({"kind": "bridges"})
@@ -693,14 +695,39 @@ class Hub:
             self.positions.pop(bid, None)
             return
         out = []
-        for item in (frame.get("list") or [])[:500]:
-            try:
-                lat, lon, net = float(item[0]), float(item[1]), str(item[2])[:2]
-            except (TypeError, ValueError, IndexError):
+        for n in (frame.get("nodes") or [])[:500]:   # passed on as the point reports it (no rounding)
+            if not isinstance(n, dict):
                 continue
-            if -90 <= lat <= 90 and -180 <= lon <= 180:
-                out.append([round(lat / 0.02) * 0.02, round(lon / 0.02) * 0.02, net])   # ~2 km, again
+            lat, lon = n.get("lat"), n.get("lon")
+            ok = isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and -90 <= lat <= 90 and -180 <= lon <= 180
+            heard = n.get("heard")
+            out.append({"net": "mc" if n.get("net") == "mc" else "mt", "id": str(n.get("id") or "")[:20],
+                        "name": str(n.get("name") or "")[:40], "short": str(n.get("short") or "")[:8],
+                        "lat": lat if ok else None, "lon": lon if ok else None,
+                        "heard": heard if isinstance(heard, (int, float)) else None, "own": bool(n.get("own"))})
         self.positions[bid] = (time.time(), out)
+        asyncio.ensure_future(self.push_peer_nodes())
+
+    def peer_nodes_for(self, bid):
+        """Nodes of the other points, for one point (only between points where both owners allow it)."""
+        out = []
+        for other, (ts, nodes) in list(self.positions.items()):
+            if other == bid:
+                continue
+            b = self.bridge(other)
+            if self.both(b, "positions"):
+                out.append({"id": other, "name": b["name"], "country": b["country"], "city": b["city"],
+                            "updated": ts, "nodes": nodes})
+        return out
+
+    async def push_peer_nodes(self):
+        for bid, ws in list(self.conns.items()):
+            b = self.bridge(bid)
+            frame = {"type": "peer_nodes", "points": self.peer_nodes_for(bid) if self.both(b, "positions") else []}
+            try:
+                await ws.send_json(frame)
+            except Exception:
+                pass
 
     async def result(self, bid, frame):
         """A point reports what happened on its air with a relayed message; pass it to the point that sent it."""
@@ -754,7 +781,9 @@ class Hub:
                         if b["networks"] else [], "online": self.online(b["id"]),
                         "last_seen": b["last_seen"], "nodes": b["node_count"],
                         "rooms": [r["name"] for r in self.rooms_for(b["id"])],
-                        "positions": self.positions.get(b["id"], (0, []))[1] if self.both(b, "positions") else []})
+                        "positions": [[n["lat"], n["lon"], n["net"], n["name"] or n["short"] or n["id"]]
+                                      for n in self.positions.get(b["id"], (0, []))[1] if n["lat"] is not None]
+                                     if self.both(b, "positions") else []})
         return out
 
     async def api_public(self, request):
@@ -994,6 +1023,8 @@ class Hub:
             self.db.run(f"UPDATE bridges SET allow_{body['item']}=? WHERE id=?", (1 if action == "allow" else 0, bid))
             if body["item"] == "positions" and action == "deny":
                 self.positions.pop(bid, None)
+            if body["item"] == "positions":
+                asyncio.ensure_future(self.push_peer_nodes())
         elif action == "limit":
             v = body.get("per_min")
             per_min = None if v in (None, "") else int(v)

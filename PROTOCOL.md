@@ -42,7 +42,7 @@ The hub admin then approves or rejects the bridge.
   above it the channel is paused and resumes below 80 %.
 - Duplicate `id`s, and the same text in the same room within 10 minutes, are dropped (stops loops when two
   bridges hear each other's radio).
-- Point positions are rounded to ~1 km.
+- Node lists (`positions` frame, `nodes: [{net,id,name,short,lat,lon,heard,own}]`) are passed on unchanged; the server forwards them to the other points as `peer_nodes`.
 - **Message text is relayed in memory only. The server never stores, logs or shows it**; the relay log keeps time, point, room, size and result (SPEC.md).
 
 ## Rules the bridge follows

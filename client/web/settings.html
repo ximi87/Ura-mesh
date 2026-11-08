@@ -221,7 +221,7 @@ const ITEMS = [
   ["group", "Group messages", "Messages on the linked Ura channel(s) below."],
   ["public", "Public channel", "Your local public channel (channel 0) is linked to the public channels of the other places (#Public). Paused automatically when it gets busy; private messages still work then."],
   ["private", "Private messages", "Someone here sends a direct message to this point's radio: <code>@Name text</code> (or <code>@Name/Place text</code>). The other place delivers it as a direct message to the radio with that name. Answers come back the same way."],
-  ["positions", "Positions", "Positions that radios here already share openly, from the last 2 hours, rounded to ~2 km, without names — shown on the server map only."]];
+  ["positions", "Nodes &amp; positions", "The radios heard here (last 24 hours) go to the other points and the server map exactly as they report themselves: name, id and the position their owner shares. You see the other points' nodes on the Status page."]];
 function drawChecklist() {
   const share = cfg.server.share || {}, cl = st.checklist || {};
   $("checklist").innerHTML = `<table class="seen"><tr><th>Item</th><th>Here</th><th>Server owner</th><th>Result</th></tr>` + ITEMS.map(([k, name, help]) => {

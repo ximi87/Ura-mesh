@@ -55,8 +55,8 @@ ACK_WAIT = 120             # seconds to wait for the radio to report an implicit
 MC_ECHO_WAIT = 30          # seconds a MeshCore point listens for repeaters re-sending its message
 NOTICE_EVERY = 600         # same notice to the same person / channel at most every 10 min
 DM_WAIT = 300              # seconds to wait for the other places to answer a private message
-POS_EVERY = 300            # send rounded positions every 5 min (if the checklist allows it)
-POS_MAX_AGE = 7200         # only radios heard in the last 2 hours
+POS_EVERY = 300            # send the node list every 5 min (if the checklist allows it)
+POS_MAX_AGE = 86400        # radios heard in the last 24 hours
 DM_RE = re.compile(r"^@([^\s/]{1,40})(?:/(\S{1,40}))?\s+(.+)$", re.S)
 DM_HELP = "Ura: to write to someone at another place, send me: @Name your message"
 REACT = {"heard": "\u2705", "unconfirmed": "\U0001F4E1", "failed": "\u274C"}   # ✅ 📡 ❌
@@ -231,6 +231,7 @@ class Client:
         self.track = {}                # message id -> what we sent (for feedback to the local sender; no text)
         self.inbound = {}              # message id -> outcome of putting a remote message on the air here
         self.points = []               # approved points, from the server (for the menu)
+        self.peer_nodes = []           # nodes heard at the other points (from the server)
         self.web_fp = ""               # fingerprint of this point's own page certificate
         self.mc_echo = {}              # message id -> what we sent on MeshCore + repeaters heard re-sending it
         self.mc_rx = {"since": time.time(), "packets": 0, "last": None, "hops": {}}   # MeshCore radio check
@@ -705,30 +706,46 @@ class Client:
             log.warning("MeshCore private message failed: %s", e)
             await self.dm_report(item["mid"], "held", f"{self.pc['name']}: radio error")
 
-    # ── positions (rounded, no names, server map only) ───────────
-    def positions(self):
-        out, now = set(), time.time()
+    # ── nodes: passed on exactly as the radios report them ───────
+    def nodes_out(self):
+        """Nodes this point hears: name, id and the position each node's owner chose to share — unchanged."""
+        out, now = [], time.time()
+        def pos(lat, lon):
+            return (lat, lon) if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and (lat or lon) else (None, None)
         if self.mt is not None:
             for node in (self.mt.nodes or {}).values():
-                pos = node.get("position") or {}
-                lat, lon = pos.get("latitude"), pos.get("longitude")
-                if lat and lon and now - (node.get("lastHeard") or 0) < POS_MAX_AGE:
-                    out.add((round(lat / 0.02) * 0.02, round(lon / 0.02) * 0.02, "mt"))
+                own = node.get("num") == self.mt_num
+                heard = now if own else (node.get("lastHeard") or 0)
+                if now - heard > POS_MAX_AGE:
+                    continue
+                u, p = node.get("user") or {}, node.get("position") or {}
+                lat, lon = pos(p.get("latitude"), p.get("longitude"))
+                out.append({"net": "mt", "id": u.get("id") or "", "name": u.get("longName") or "",
+                            "short": u.get("shortName") or "", "lat": lat, "lon": lon, "heard": heard, "own": own})
         if self.mc is not None:
-            for c in (self.mc.contacts or {}).values():
-                lat, lon = c.get("adv_lat"), c.get("adv_lon")
-                if lat and lon and now - (c.get("last_advert") or 0) < POS_MAX_AGE:
-                    out.add((round(lat / 0.02) * 0.02, round(lon / 0.02) * 0.02, "mc"))
-        return [[round(a, 2), round(b, 2), n] for a, b, n in out][:500]
+            si = self.mc.self_info or {}
+            if si.get("name"):
+                lat, lon = pos(si.get("adv_lat"), si.get("adv_lon"))
+                out.append({"net": "mc", "id": str(si.get("public_key") or "")[:12], "name": si["name"], "short": "",
+                            "lat": lat, "lon": lon, "heard": now, "own": True})
+            for key, c in (self.mc.contacts or {}).items():
+                heard = c.get("last_advert") or 0
+                if now - heard > POS_MAX_AGE:
+                    continue
+                lat, lon = pos(c.get("adv_lat"), c.get("adv_lon"))
+                out.append({"net": "mc", "id": str(key)[:12], "name": c.get("adv_name") or "", "short": "",
+                            "lat": lat, "lon": lon, "heard": heard, "own": False})
+        return out[:500]
 
     async def positions_loop(self):
+        await asyncio.sleep(30)
         while True:
-            await asyncio.sleep(POS_EVERY)
             if self.server_ready() and self.can("positions"):
                 try:
-                    await self.ws.send_json({"type": "positions", "list": self.positions()})
-                except Exception:
-                    pass
+                    await self.ws.send_json({"type": "positions", "nodes": self.nodes_out()})
+                except Exception as e:
+                    log.warning("node list not sent: %s", e)
+            await asyncio.sleep(POS_EVERY)
 
     async def rf_worker(self):
         """Puts relayed messages on the air, at most rf_per_min per minute, and only while the local channel
@@ -998,6 +1015,8 @@ class Client:
             self.dm_ack(f)
         elif t == "dm_result":
             self.dm_result(f)
+        elif t == "peer_nodes":
+            self.peer_nodes = [p for p in (f.get("points") or []) if isinstance(p, dict)][:200]
 
     async def server_loop(self):
         s = self.sc
@@ -1188,6 +1207,7 @@ class Client:
                        "name": (self.mc.self_info or {}).get("name") if self.mc else None},
             },
             "nodes_heard": self.node_count(),
+            "peer_nodes": self.peer_nodes if self.can("positions") else [],
             "public_rate": self.stats.public_rate(1),
             "public": dict(self.public, linked=any(r["room"] == PUBLIC_ROOM for r in self.sc["links"]),
                            active=self.public_active()),

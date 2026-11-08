@@ -32,8 +32,8 @@ cities and countries over the internet, without flooding the local radio channel
 - **Control.** The Hub owner approves, limits and blocks bridges. Every bridge has its own key.
 - **One bridge per area.** The Hub flags (or, in strict mode, refuses) a new bridge closer than a set distance
   (default 20 km) to an approved one, so one city is not connected twice.
-- **Privacy.** Bridge locations are shown at city level. Node positions are off by default and
-  rounded when shared.
+- **Nodes & positions.** Off by default. When both point owners and the server owner switch it on, the nodes a
+  point hears are passed on unchanged (name, id, the position each node's owner shares).
 - **Clearly labelled.** Messages that came over the internet are marked with where they came from.
 - **Private messages** go only to the bridge where the recipient is.
 

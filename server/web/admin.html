@@ -131,7 +131,7 @@ async function api(method, url, body) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
-const ITEM_NAMES = { group: "Group messages", public: "Public channel", private: "Private messages", positions: "Positions" };
+const ITEM_NAMES = { group: "Group messages", public: "Public channel", private: "Private messages", positions: "Nodes & positions" };
 function checklistCell(b) {
   if (b.status !== "approved") return "—";
   const a = b.allow || {}, sh = b.shared || {};

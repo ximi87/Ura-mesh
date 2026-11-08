@@ -80,6 +80,13 @@
     <div style="overflow-x:auto;margin-bottom:12px"><table class="t" id="points"></table></div>
   </section>
 
+  <section class="card">
+    <h2>Nodes at other places</h2>
+    <p class="desc">Radios heard at the other points in the last 24 hours, as they report themselves: name and the position
+      their owner shares. Shown when <b>Nodes &amp; positions</b> is on here and at the other point.</p>
+    <div style="overflow-x:auto;margin-bottom:12px"><table class="t" id="peer-nodes"></table></div>
+  </section>
+
   <div class="grid2">
     <section class="card">
       <h2>Our radios</h2>
@@ -210,10 +217,23 @@ function drawChart(d) {
   $("chart-note").textContent = step >= 86400 ? "Per day." : "Per hour.";
 }
 
+function drawPeerNodes(st) {
+  const pts = st.peer_nodes || [];
+  const rows = pts.flatMap(p => (p.nodes || []).map(n => ({ p, n })))
+    .sort((a, b) => (a.p.name || "").localeCompare(b.p.name || "") || (b.n.heard || 0) - (a.n.heard || 0));
+  $("peer-nodes").innerHTML = !st.checklist?.positions?.point ? `<tr><td class="muted">Switch on <b>Nodes &amp; positions</b> in <a href="settings">Admin</a> to see them.</td></tr>`
+    : !rows.length ? `<tr><td class="muted">No nodes from other points yet (they are sent every 5 minutes).</td></tr>`
+    : `<tr><th>Place</th><th>Node</th><th>Short</th><th>Network</th><th>Position</th><th>Last heard</th></tr>` + rows.map(({ p, n }) => `<tr>
+      <td>${flag(p.country)} ${esc(p.name)}</td>
+      <td><b>${esc(n.name || n.id)}</b>${n.own ? ' <span class="muted">(point radio)</span>' : ""}<br><span class="muted">${esc(n.id)}</span></td>
+      <td>${esc(n.short)}</td><td>${n.net === "mc" ? "MeshCore" : "Meshtastic"}</td>
+      <td>${n.lat != null ? `<a href="https://www.openstreetmap.org/?mlat=${n.lat}&mlon=${n.lon}#map=14/${n.lat}/${n.lon}" target="_blank" rel="noopener">${(+n.lat).toFixed(5)}, ${(+n.lon).toFixed(5)}</a>` : '<span class="muted">not shared</span>'}</td>
+      <td>${ago(n.heard)}</td></tr>`).join("");
+}
 async function load() {
   try {
     const [st, d] = await Promise.all([get("api/state"), get("api/stats?hours=" + hours)]);
-    drawState(st); drawStats(d); window._last = d;
+    drawState(st); drawStats(d); drawPeerNodes(st); window._last = d;
   } catch (e) { console.error(e); }
 }
 document.querySelectorAll("#range button").forEach(b => {
