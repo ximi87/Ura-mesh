@@ -267,8 +267,8 @@ function drawServer() {
       const gone = !pub && status === "approved" && !(s.rooms || []).includes(r);
       return `<tr data-room="${esc(r)}"><td><b>#${esc(r)}</b>${gone ? ` <span class="bad">(no longer offered)</span>` : ""}
           ${pub ? `<br><span class="help">your local public channel</span>` : ""}</td>
-        <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mt" value="-1">`}</td>
-        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">off</span><input type="hidden" data-k="mc" value="-1">`}</td>
+        <td>${mtOn ? chanSelect("mt", l.mt_channel, pub) : `<span class="muted">radio off</span><input type="hidden" data-k="mt" value="${l.mt_channel}">`}</td>
+        <td>${mcOn ? chanSelect("mc", l.mc_channel, pub) : `<span class="muted">radio off</span><input type="hidden" data-k="mc" value="${l.mc_channel}">`}</td>
         <td>${sw("send")}</td><td>${sw("receive")}</td></tr>`
         ;
     }).join("") + `</table>` : `<p class="muted">Rooms appear here once the server has approved this point.</p>`;
