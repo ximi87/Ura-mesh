@@ -1107,7 +1107,13 @@ class Client:
             if is_api:
                 raise web.HTTPForbidden(text="setup required")
             raise web.HTTPFound("setup")
-        if path in ("/login", "/api/login") or self.logged_in(request):
+        if path in ("/login", "/setup"):   # already logged in → straight to the Status page
+            if self.logged_in(request):
+                raise web.HTTPFound("./")
+            if path == "/login":
+                return await handler(request)
+            raise web.HTTPFound("login")
+        if path == "/api/login" or self.logged_in(request):
             return await handler(request)
         if is_api:
             raise web.HTTPUnauthorized(text="login required")

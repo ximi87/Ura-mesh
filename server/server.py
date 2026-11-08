@@ -836,7 +836,13 @@ class Hub:
             if p.startswith("/api/"):
                 raise web.HTTPForbidden(text="setup required")
             raise web.HTTPFound("/admin/setup")
-        if p in ("/admin/login", "/api/admin/login") or self.logged_in(request):
+        if p in ("/admin/login", "/admin/setup"):   # already logged in → straight to the dashboard
+            if self.logged_in(request):
+                raise web.HTTPFound("/admin/dashboard")
+            if p == "/admin/login":
+                return await handler(request)
+            raise web.HTTPFound("/admin/login")
+        if p == "/api/admin/login" or self.logged_in(request):
             return await handler(request)
         if p.startswith("/api/"):
             raise web.HTTPUnauthorized(text="login required")
