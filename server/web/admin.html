@@ -164,11 +164,24 @@ async function act(bid, action, extra = {}) {
   if (action === "delete" && !confirm("Delete this point? Its key stops working; it would have to request to join again.")) return;
   if (action === "block" && !confirm("Block this point? It is disconnected and cannot send or receive.")) return;
   if (action === "public_allow" && !confirm("Allow this point's LOCAL PUBLIC CHANNEL to join #Public?\n\nIt becomes active only if the point owner also switches it on, and only while the place is quiet enough (see settings → Public-channel rule).")) return;
-  try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); await load(); }
-  catch (e) { alert(e.message); }
+  try { await api("POST", "/api/admin/bridge/" + encodeURIComponent(bid), { action, ...extra }); lastSig = ""; await load(); }
+  catch (e) { alert(((st.bridges.find(x => x.id === bid) || {}).name || bid) + ": " + e.message); lastSig = ""; draw(); }
 }
 
+// The page refreshes itself (every 30 s, on every point connect/disconnect, on every relayed message).
+// Rebuilding the tables while the owner is clicking swallowed or misplaced clicks — so: rebuild only when the
+// data changed, never while a mouse button is down or a field is being edited; catch up right after.
+let holding = false, drawWaiting = false, lastSig = "";
+const editing = () => document.activeElement && document.activeElement.matches("#bridges input, #pending input");
+document.addEventListener("pointerdown", () => { holding = true; }, true);
+document.addEventListener("pointerup", () => setTimeout(() => { holding = false; if (drawWaiting) draw(); }, 300), true);
+document.addEventListener("focusout", () => setTimeout(() => { if (drawWaiting && !editing()) draw(); }, 300), true);
 function draw() {
+  if (holding || editing()) { drawWaiting = true; drawLog(); return; }
+  drawWaiting = false;
+  const sig = JSON.stringify([st.bridges, st.rooms, st.settings]);
+  if (sig === lastSig) { drawLog(); return; }
+  lastSig = sig;
   $("hub-name").textContent = st.settings.name;
   const pend = st.bridges.filter(b => b.status === "pending");
   $("pending").innerHTML = pend.length ? pend.map(b => `<div class="req">
@@ -209,16 +222,22 @@ function draw() {
         <button data-del-room="${esc(r.name)}">Delete</button></div>`}</td></tr>`).join("");
   fillMembers();
 
-  $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From point</th><th>Size</th><th>Result</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
-    : `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`);
+  drawLog();
 
-  document.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.id, b.dataset.a, b.dataset.item ? { item: b.dataset.item } : {}));
+  document.querySelectorAll("[data-a]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "…";
+    await act(b.dataset.id, b.dataset.a, b.dataset.item ? { item: b.dataset.item } : {});
+    lastSig = ""; draw(); });
   document.querySelectorAll("[data-limit]").forEach(i => i.onchange = () => act(i.dataset.limit, "limit", { per_min: i.value }));
   document.querySelectorAll("[data-edit-room]").forEach(b => b.onclick = () => editRoom(b.dataset.editRoom));
   document.querySelectorAll("[data-del-room]").forEach(b => b.onclick = async () => {
     if (!confirm("Delete room #" + b.dataset.delRoom + "?")) return;
     try { await api("POST", "/api/admin/room", { action: "delete", name: b.dataset.delRoom }); await load(); } catch (e) { alert(e.message); }
   });
+}
+function drawLog() {
+  $("log").innerHTML = `<tr><th>Time</th><th>Room</th><th>From point</th><th>Size</th><th>Result</th></tr>` + (st.messages.length ? st.messages.map(logRow).join("")
+    : `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`);
 }
 function logRow(m) {
   return `<tr><td>${when(m.ts)}</td><td>#${esc(m.room)}</td>
@@ -277,7 +296,7 @@ function live() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/admin/ws");
   ws.onmessage = e => {
     const ev = JSON.parse(e.data);
-    if (ev.kind === "msg" && st) { st.messages.unshift(ev.msg); st.messages.length = Math.min(st.messages.length, 200); draw(); }
+    if (ev.kind === "msg" && st) { st.messages.unshift(ev.msg); st.messages.length = Math.min(st.messages.length, 200); drawLog(); }
     else if (ev.kind === "bridges") load();
   };
   ws.onclose = () => setTimeout(live, 3000);
