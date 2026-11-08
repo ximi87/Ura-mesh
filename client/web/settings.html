@@ -306,13 +306,14 @@ $("check").onclick = async () => {
       box.innerHTML = "Do <b>not</b> connect. Someone may be pretending to be the server — contact the server owner."; };
   } catch (e) { box.className = "note bad"; box.textContent = e.message; }
 };
-function dirty() { $("save-msg").className = "msg muted"; $("save-msg").textContent = "Unsaved changes"; }
-async function waitForRestart(msg) {
+let unsaved = false;
+function dirty() { unsaved = true; $("save-msg").className = "msg muted"; $("save-msg").textContent = "Unsaved changes"; }
+async function waitForRestart(msg, done = "✓ Saved — restarted with the new settings") {
   $("save-msg").className = "msg muted"; $("save-msg").textContent = msg;
   await new Promise(r => setTimeout(r, 2500));
   for (let i = 0; i < 30; i++) { try { await api("GET", "api/config"); break; } catch (e) { await new Promise(r => setTimeout(r, 1000)); } }
-  await load();
-  $("save-msg").className = "msg ok"; $("save-msg").textContent = "✓ Saved — restarted with the new settings";
+  await load(); unsaved = false;
+  $("save-msg").className = "msg ok"; $("save-msg").textContent = done;
 }
 $("save").onclick = async () => {
   $("save").disabled = true;
@@ -320,7 +321,9 @@ $("save").onclick = async () => {
   catch (e) { $("save-msg").className = "msg bad"; $("save-msg").textContent = e.message; }
   $("save").disabled = false;
 };
-$("restart").onclick = async () => { try { await api("POST", "api/restart", {}); await waitForRestart("Restarting…"); } catch (e) { alert(e.message); } };
+$("restart").onclick = async () => {
+  if (unsaved && !confirm("You have unsaved changes. Restart throws them away.\n\nClick Cancel, then Save, to keep them.")) return;
+  try { await api("POST", "api/restart", {}); await waitForRestart("Restarting…", "✓ Restarted (nothing saved)"); } catch (e) { alert(e.message); } };
 $("join").onclick = async () => {
   const m = $("join-msg"); m.className = "muted"; m.textContent = "asking the server…";
   const c = collect();

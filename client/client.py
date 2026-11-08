@@ -1324,6 +1324,7 @@ class Client:
         return web.json_response({"ok": True})
 
     async def web_restart(self, request):
+        log.info("restart requested from the point page (nothing saved)")
         self.schedule_restart()
         return web.json_response({"ok": True})
 
