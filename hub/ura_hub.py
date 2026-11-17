@@ -260,15 +260,27 @@ class Radio:
         return meshtastic.serial_interface.SerialInterface(ports[0])
 
     def _keep_open(self):
+        time_set = 0
         while not self.stop:
             if self.iface is None and self.conf.get("enabled", True):
                 try:
                     iface = self._open()
                     with self.lock:
                         self.iface, self.error, self.connected_at = iface, "", time.time()
+                    time_set = 0
                     log.info("radio connected: %s (%s)", self.info().get("name"), self.conf.get("address"))
                 except Exception as e:
                     self.error = str(e)
+            # Radios without GPS/internet drift or keep an old clock; their "last heard" times and message
+            # timestamps then go wrong. Give the radio this computer's clock on connect and every hour.
+            if self.iface is not None and time.time() - time_set > 3600 and time.gmtime().tm_year >= 2025:
+                try:
+                    self.iface.localNode.setTime(int(time.time()))
+                    time_set = time.time()
+                    log.info("radio clock set from this computer")
+                except Exception as e:
+                    log.warning("setting radio clock failed: %s", e)
+                    time_set = time.time() - 3300
             time.sleep(5)
 
     def close(self):
@@ -361,8 +373,8 @@ class Radio:
         out = []
         my = iface.myInfo.my_node_num
         for num, n in list((iface.nodesByNum or {}).items()):
-            if n.get("viaMqtt") and num != my:
-                continue                      # remote nodes belong to the hub that heard them
+            if num != my and (n.get("viaMqtt") or not n.get("lastHeard")):
+                continue                      # remote nodes belong to the hub that heard them; no time = stale memory
             u, p = n.get("user", {}), n.get("position", {})
             out.append({"id": u.get("id") or f"!{num:08x}", "name": u.get("longName"), "short": u.get("shortName"),
                         "hw": u.get("hwModel"), "role": u.get("role"),
@@ -578,12 +590,17 @@ class Link:
             await self.send({"t": "ping"})
 
     async def _nodes(self):
-        await asyncio.sleep(20)
+        """Report local nodes to the server: as soon as the radio is connected, then every NODES_EVERY s.
+        Never report while the radio is down (an empty list would wipe the hub's nodes from the map)."""
+        last = 0
         while True:
             r = mt_radio()
-            if r:
-                await self.send({"t": "nodes", "net": "mt", "nodes": r.nodes(cfg.get()["share_positions_on_map"])})
-            await asyncio.sleep(NODES_EVERY)
+            if r and r.iface is not None and time.time() - last >= NODES_EVERY:
+                nodes = await asyncio.to_thread(r.nodes, cfg.get()["share_positions_on_map"])
+                if nodes:
+                    await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
+                    last = time.time()
+            await asyncio.sleep(10)
 
 
 class FingerprintMismatch(Exception):

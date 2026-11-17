@@ -272,7 +272,10 @@ async def handle(reader, writer):
     peer = writer.get_extra_info("peername")
     hub_id = None
     try:
-        first = json.loads(await asyncio.wait_for(reader.readline(), 15))
+        line = await asyncio.wait_for(reader.readline(), 15)
+        if not line.strip():
+            return                                         # e.g. a hub only checking the certificate fingerprint
+        first = json.loads(line)
         if first.get("t") == "join":
             await handle_join(first, writer)
             return
