@@ -1,0 +1,122 @@
+/* Ura — shared look for ura-server and ura-hub pages */
+:root {
+  --bg: #f4f6f8; --card: #ffffff; --text: #17212b; --muted: #5d6b78; --line: #dde3e9;
+  --accent: #0f7b6c; --accent-2: #0a5c51; --accent-soft: #e2f3f0;
+  --ok: #1e8e3e; --ok-soft: #e3f4e7; --warn: #b26a00; --warn-soft: #fff3dc;
+  --bad: #c62828; --bad-soft: #fde7e7; --info-soft: #e7eefc; --info: #2a56c6;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1418; --card: #182027; --text: #e6edf3; --muted: #93a1ae; --line: #2a3540;
+    --accent: #3ccbb4; --accent-2: #6fe0cd; --accent-soft: #143a35;
+    --ok: #5bd17b; --ok-soft: #173322; --warn: #f0b44c; --warn-soft: #3a2c12;
+    --bad: #ff7b7b; --bad-soft: #3d1c1c; --info-soft: #1b2847; --info: #8aa8ff;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.15rem; margin: 0 0 .75rem; }
+h3 { font-size: 1rem; margin: 1rem 0 .5rem; }
+p { margin: .25rem 0 .75rem; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+
+header.top { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1000; }
+header.top .in { max-width: 1200px; margin: 0 auto; padding: .6rem 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.15rem; color: var(--text); }
+.brand svg { width: 28px; height: 28px; }
+.brand small { font-weight: 400; color: var(--muted); font-size: .8rem; }
+nav.menu { display: flex; gap: .25rem; flex-wrap: wrap; flex: 1; }
+nav.menu a { padding: .35rem .7rem; border-radius: 8px; color: var(--muted); font-weight: 500; }
+nav.menu a:hover { background: var(--bg); text-decoration: none; color: var(--text); }
+nav.menu a.active { background: var(--accent-soft); color: var(--accent-2); }
+.lang { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.lang button { border: 0; background: transparent; color: var(--muted); padding: .3rem .6rem; cursor: pointer; font-weight: 600; }
+.lang button.on { background: var(--accent); color: #fff; }
+
+main { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem 1.1rem; margin-bottom: 1rem; }
+.grid { display: grid; gap: 1rem; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: .8rem 1rem; }
+.stat .v { font-size: 1.6rem; font-weight: 700; }
+.stat .l { color: var(--muted); font-size: .85rem; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: .5rem .55rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .02em; }
+tr:last-child td { border-bottom: 0; }
+.tablewrap { overflow-x: auto; }
+
+.badge { display: inline-block; padding: .08rem .5rem; border-radius: 999px; font-size: .78rem; font-weight: 600; background: var(--bg); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.badge.info { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: .35rem; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+
+button, .btn { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: .45rem .9rem; border-radius: 8px; cursor: pointer; font-weight: 600; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: var(--accent-2); }
+button.danger { color: var(--bad); }
+button.danger:hover { border-color: var(--bad); }
+button:disabled { opacity: .55; cursor: default; }
+button.small { padding: .2rem .55rem; font-size: .85rem; }
+
+label { display: block; font-weight: 600; font-size: .88rem; margin: .6rem 0 .2rem; }
+input[type=text], input[type=email], input[type=password], input[type=number], select, textarea {
+  font: inherit; width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+textarea { min-height: 110px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.check { display: flex; gap: .5rem; align-items: center; font-weight: 500; margin: .35rem 0; }
+.check input { width: 18px; height: 18px; }
+.hint { color: var(--muted); font-size: .83rem; margin-top: .15rem; }
+.msg { padding: .6rem .8rem; border-radius: 8px; margin: .6rem 0; }
+.msg.ok { background: var(--ok-soft); color: var(--ok); }
+.msg.bad { background: var(--bad-soft); color: var(--bad); }
+.msg.warn { background: var(--warn-soft); color: var(--warn); }
+.msg.info { background: var(--info-soft); color: var(--info); }
+
+#map { height: calc(100vh - 170px); min-height: 420px; border-radius: var(--radius); border: 1px solid var(--line); }
+.minimap { height: 320px; border-radius: var(--radius); border: 1px solid var(--line); }
+.maplayout { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; }
+.maplayout .side { max-height: calc(100vh - 170px); overflow: auto; }
+@media (max-width: 900px) { .maplayout { grid-template-columns: 1fr; } .maplayout .side { max-height: none; } #map { height: 60vh; } }
+.hubitem { padding: .55rem .4rem; border-bottom: 1px solid var(--line); cursor: pointer; }
+.hubitem:hover { background: var(--bg); }
+.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .85rem; color: var(--muted); margin-top: .5rem; }
+.leaflet-popup-content { font: 14px/1.4 system-ui, sans-serif; }
+
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; word-break: break-word; }
+
+.chart svg { width: 100%; height: 220px; display: block; }
+.chart .bar { fill: var(--accent); }
+.chart .bar2 { fill: var(--info); }
+.chart .axis { stroke: var(--line); }
+.chart text { fill: var(--muted); font-size: 11px; }
+
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 2.2rem; margin-bottom: .8rem; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent-2); display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+
+footer { max-width: 1200px; margin: 1rem auto 2rem; padding: 0 1rem; color: var(--muted); font-size: .82rem; }
+.center { min-height: 70vh; display: grid; place-items: center; }
+.narrow { max-width: 420px; width: 100%; }
+.hidden { display: none !important; }
