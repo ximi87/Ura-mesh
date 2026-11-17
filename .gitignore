@@ -1,0 +1,4 @@
+*.env
+data/
+nodes.json*
+__pycache__/
