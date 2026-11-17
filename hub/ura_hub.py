@@ -102,7 +102,7 @@ class Radio:
         if os.environ.get("URA_DEBUG"):
             log.info("to radio: %s, %d bytes", topic, len(data))
 
-    def announce(self):
+    def announce(self, want_response=False):
         """Broadcast this radio's own node info + telemetry (what it does on its own every few hours)."""
         with self.lock:
             iface = self.iface
@@ -111,9 +111,12 @@ class Radio:
         me = dict(iface.getMyUser() or {})
         me.pop("raw", None)
         user = ParseDict(me, mesh_pb2.User(), ignore_unknown_fields=True)
-        iface.sendData(user, portNum=portnums_pb2.PortNum.NODEINFO_APP, wantResponse=False)
+        iface.sendData(user, portNum=portnums_pb2.PortNum.NODEINFO_APP, wantResponse=want_response)
         iface.sendTelemetry()
-        log.info("announced own node info + telemetry")
+        pos = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
+        if "latitude" in pos and "longitude" in pos:
+            iface.sendPosition(pos["latitude"], pos["longitude"], pos.get("altitude", 0))
+        log.info("announced own node info + telemetry%s", " (asking neighbours to reply)" if want_response else "")
 
     def node_summary(self):
         with self.lock:
@@ -201,6 +204,7 @@ async def main():
     radio = Radio(loop, queue)
     threading.Thread(target=radio.keep_open, daemon=True).start()
     loop.add_signal_handler(signal.SIGUSR1, lambda: loop.run_in_executor(None, radio.announce))
+    loop.add_signal_handler(signal.SIGUSR2, lambda: loop.run_in_executor(None, radio.announce, True))
     await asyncio.gather(server_link(radio, queue), report(radio))
 
 if __name__ == "__main__":
