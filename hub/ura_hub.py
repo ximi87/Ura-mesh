@@ -35,6 +35,12 @@ class Radio:
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
         pub.subscribe(self._on_lost, "meshtastic.connection.lost")
         pub.subscribe(self._on_packet, "meshtastic.receive")
+        if os.environ.get("URA_DEBUG"):
+            pub.subscribe(self._on_log, "meshtastic.log.line")
+
+    def _on_log(self, line, interface):
+        if any(k in line for k in ("MQTT", "ebroadcast", "Ignore", "filtered", "dupe", "Lora RX", "Started Tx", "Completed sending")):
+            log.info("radio log: %s", line.strip())
 
     def _on_packet(self, packet, interface):
         counts["heard"] += 1
@@ -44,6 +50,11 @@ class Radio:
                      packet.get("fromId"), packet.get("toId"), d.get("portnum"), packet.get("channel"),
                      packet.get("rxSnr"), packet.get("hopStart"), packet.get("hopLimit"),
                      packet.get("viaMqtt"), "encrypted" in packet)
+            ls = d.get("telemetry", {}).get("localStats")
+            if ls:
+                log.info("radio stats: tx %s, relayed %s, relay cancelled %s, rx ok %s, rx bad %s, dupes %s",
+                         ls.get("numPacketsTx"), ls.get("numTxRelay"), ls.get("numTxRelayCanceled"),
+                         ls.get("numPacketsRx"), ls.get("numPacketsRxBad"), ls.get("numRxDupe"))
 
     def _on_proxy(self, proxymessage, interface):
         if proxymessage.data:
@@ -88,6 +99,8 @@ class Radio:
             counts["to_radio_fail"] += 1
             return
         iface.sendMqttClientProxyMessage(topic, data)
+        if os.environ.get("URA_DEBUG"):
+            log.info("to radio: %s, %d bytes", topic, len(data))
 
     def announce(self):
         """Broadcast this radio's own node info + telemetry (what it does on its own every few hours)."""
