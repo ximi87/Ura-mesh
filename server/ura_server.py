@@ -19,7 +19,29 @@ HUB_PORT = int(os.environ.get("URA_PORT", "8100"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8443"))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "common"))
-NODE_MAX_AGE = 7 * 86400
+
+# Every operational value is a setting (Admin → Advanced settings). Only the data folder and the two
+# ports are startup options. key: (default, min, max); strings/bools have None limits.
+ADV_SPEC = {
+    "registrations_open":   (True, None, None),   # accept new hub registrations
+    "node_max_age_days":    (7, 1, 90),           # nodes older than this are not shown
+    "max_nodes_per_report": (2000, 10, 20000),
+    "relay_rate_per_s":     (30, 1, 1000),        # sealed boxes per second per hub (flood limit)
+    "relay_burst":          (200, 1, 10000),
+    "max_box_bytes":        (3000, 300, 60000),
+    "stats_retention_days": (365, 7, 3650),
+    "complaints_per_hour":  (5, 1, 100),          # per sender address
+    "complaint_min_chars":  (10, 1, 500),
+    "complaint_max_chars":  (4000, 100, 20000),
+    "session_hours":        (12, 1, 720),
+    "lockout_attempts":     (5, 3, 50),
+    "lockout_minutes":      (15, 1, 1440),
+    "password_min":         (8, 8, 64),
+    "tile_upstream":        ("https://tile.openstreetmap.org/{z}/{x}/{y}.png", None, None),
+    "tile_contact":         ("https://github.com/ximi87/Ura-mesh", None, None),   # sent to the tile server (its policy asks for it)
+    "tile_cache_days":      (14, 1, 365),
+    "tile_backoff_s":       (60, 5, 3600),
+}
 
 log = logging.getLogger("ura-server")
 
@@ -94,6 +116,36 @@ FINGERPRINT = ""
 
 def now():
     return int(time.time())
+
+
+def adv(key):
+    try:
+        v = json.loads(db.setting("advanced") or "{}").get(key)
+    except Exception:
+        v = None
+    return ADV_SPEC[key][0] if v is None else v
+
+
+def clean_advanced(new):
+    out, errors = {}, []
+    for k, (default, lo, hi) in ADV_SPEC.items():
+        if k not in new:
+            continue
+        v = new[k]
+        try:
+            v = bool(v) if isinstance(default, bool) else int(float(v)) if isinstance(default, int) else str(v).strip()[:300]
+        except (TypeError, ValueError):
+            errors.append(k)
+            continue
+        if lo is not None and not (lo <= v <= hi):
+            errors.append(k)
+        elif k == "tile_upstream" and not (v.startswith("https://") and all(x in v for x in ("{z}", "{x}", "{y}"))):
+            errors.append(k)
+        elif k == "tile_contact" and not re.match(r"^(https?://|mailto:)\S+$", v):
+            errors.append(k)
+        else:
+            out[k] = v
+    return out, errors
 
 
 def key_hash(key):
@@ -211,8 +263,15 @@ def from_thread(coro):
     asyncio.run_coroutine_threadsafe(coro, loop)
 
 
+_last_cleanup = 0
+
+
 def count(src, dst, net, size):
+    global _last_cleanup
     hour = now() // 3600 * 3600
+    if time.time() - _last_cleanup > 3600:
+        _last_cleanup = time.time()
+        db.x("DELETE FROM stats WHERE hour < ?", (now() - adv("stats_retention_days") * 86400,))
     db.x("""INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES(?,?,?,?,1,?)
             ON CONFLICT(src,dst,net,hour) DO UPDATE SET frames=frames+1, bytes=bytes+excluded.bytes""",
          (src, dst, net, hour, size))
@@ -229,10 +288,10 @@ def store_nodes(hub, net, nodes):
     t = now()
     with db.lock:
         db.c.execute("DELETE FROM nodes WHERE hub=? AND net=?", (hub, net))
-        for n in nodes[:2000]:
+        for n in nodes[:adv("max_nodes_per_report")]:
             nid = clean(n.get("id"), 40)
             lh = n.get("last_heard")
-            if not nid or (lh and t - int(lh) > NODE_MAX_AGE):
+            if not nid or (lh and t - int(lh) > adv("node_max_age_days") * 86400):
                 continue
             db.c.execute("""INSERT OR REPLACE INTO nodes(hub,net,id,name,short,hw,role,lat,lon,alt,last_heard,hops,updated)
                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -248,7 +307,9 @@ async def handle_join(msg, writer):
     email, name = clean(msg.get("email"), 120), clean(msg.get("name"), 60)
     code = f"{country}-{city}"
     err = None
-    if not name:
+    if not adv("registrations_open"):
+        err = "registrations_closed"
+    elif not name:
         err = "name_required"
     elif not EMAIL_RE.match(email):
         err = "email_required"
@@ -291,7 +352,7 @@ async def handle(reader, writer):
         db.x("UPDATE hubs SET last_seen=?, version=?, rules=?, radios=?, pubkey=COALESCE(?, pubkey) WHERE id=?",
              (now(), clean(first.get("version"), 20), json.dumps(info.get("rules")),
               json.dumps(info.get("radios") or []), pubkey_of(info), hub_id))
-        bucket = [time.time(), BURST]
+        bucket = [time.time(), float(adv("relay_burst"))]
         old = online.pop(hub_id, None)
         if old:
             old.close()
@@ -335,7 +396,7 @@ async def handle(reader, writer):
             elif t == "mesh":
                 # flood limit per hub (token bucket)
                 tnow = time.time()
-                bucket[1] = min(BURST, bucket[1] + (tnow - bucket[0]) * RATE)
+                bucket[1] = min(adv("relay_burst"), bucket[1] + (tnow - bucket[0]) * adv("relay_rate_per_s"))
                 bucket[0] = tnow
                 if bucket[1] < 1:
                     continue
@@ -343,7 +404,7 @@ async def handle(reader, writer):
                 # only end-to-end sealed boxes are relayed; the server cannot open them
                 allowed = active_peers(hub_id)
                 for dst, box in (msg.get("boxes") or {}).items():
-                    if dst in allowed and dst in online and isinstance(box, str) and len(box) < 4000:
+                    if dst in allowed and dst in online and isinstance(box, str) and len(box) * 3 // 4 <= adv("max_box_bytes"):
                         await push(dst, {"t": "mesh", "net": msg.get("net"), "from": hub_id, "box": box})
                         count(hub_id, dst, msg.get("net") or "mt", len(box) * 3 // 4)
     except Exception as e:
@@ -356,12 +417,8 @@ async def handle(reader, writer):
         writer.close()
 
 
-RATE, BURST = 30.0, 200.0                              # mesh frames per second per hub
 
 # Map tiles: OpenStreetMap blocks anonymous browser requests; apps must identify themselves and cache.
-TILE_UPSTREAM = os.environ.get("URA_TILES", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
-TILE_UA = f"Ura-server/{VERSION} (+https://github.com/ximi87/Ura-mesh)"
-TILE_MAX_AGE = 14 * 86400
 tile_lock = threading.Semaphore(4)
 tile_down_until = 0.0                                  # after a failure, don't make pages wait for a dead upstream
 
@@ -372,13 +429,14 @@ def get_tile(z, x, y):
         return None
     path = os.path.join(DATA_DIR, "tiles", str(z), str(x), f"{y}.png")
     global tile_down_until
-    if os.path.exists(path) and time.time() - os.path.getmtime(path) < TILE_MAX_AGE:
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < adv("tile_cache_days") * 86400:
         return open(path, "rb").read()
     if time.time() < tile_down_until:
         return open(path, "rb").read() if os.path.exists(path) else None
     try:
         with tile_lock:
-            req = urllib.request.Request(TILE_UPSTREAM.format(z=z, x=x, y=y), headers={"User-Agent": TILE_UA})
+            req = urllib.request.Request(adv("tile_upstream").format(z=z, x=x, y=y),
+                                         headers={"User-Agent": f"Ura-server/{VERSION} (+{adv('tile_contact')})"})
             data = urllib.request.urlopen(req, timeout=6).read()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".tmp", "wb") as f:
@@ -386,8 +444,8 @@ def get_tile(z, x, y):
         os.replace(path + ".tmp", path)
         return data
     except Exception as e:
-        log.warning("tile %s/%s/%s: %s (not retrying for 60 s)", z, x, y, e)
-        tile_down_until = time.time() + 60
+        log.warning("tile %s/%s/%s: %s (pausing %s s)", z, x, y, e, adv("tile_backoff_s"))
+        tile_down_until = time.time() + adv("tile_backoff_s")
         return open(path, "rb").read() if os.path.exists(path) else None
 
 
@@ -439,7 +497,6 @@ SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "
                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; "
                                           "style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"}
 complaint_times = {}   # ip -> [times]
-SESSION_TTL = 12 * 3600
 
 
 class Web(http.server.BaseHTTPRequestHandler):
@@ -512,6 +569,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.static(p)
             if p == "/api/public/info":
                 return self.reply({"version": VERSION, "fingerprint": FINGERPRINT, "hub_port": HUB_PORT,
+                                   "password_min": adv("password_min"), "registrations_open": adv("registrations_open"),
+                                   "node_max_age_days": adv("node_max_age_days"), "complaint_min_chars": adv("complaint_min_chars"),
                                    "setup_needed": db.setting("admin_pw") is None, "admin": self.is_admin()})
             if p == "/api/public/hubs":
                 hubs = directory()
@@ -559,7 +618,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 hubs = [dict(hub_public(h), email=h["email"], status=h["status"],
                              email_verified=bool(h["email_verified"]), created=h["created"])
                         for h in db.q("SELECT * FROM hubs WHERE status!='removed' ORDER BY created DESC")]
-                return self.reply({"hubs": hubs, "links": db.q("SELECT * FROM links WHERE state!='removed'"),
+                return self.reply({"advanced": {k: adv(k) for k in ADV_SPEC},
+                                   "advanced_spec": {k: {"default": v[0], "min": v[1], "max": v[2]} for k, v in ADV_SPEC.items()},
+                                   "hubs": hubs, "links": db.q("SELECT * FROM links WHERE state!='removed'"),
                                    "complaints": db.q("SELECT * FROM complaints ORDER BY id DESC")})
             self.reply({"error": "not_found"}, 404)
         except Exception as e:
@@ -573,14 +634,14 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/setup":
                 if db.setting("admin_pw") is not None:
                     return self.reply({"error": "already_set"}, 400)
-                if len(b.get("password") or "") < 8:
+                if len(b.get("password") or "") < adv("password_min"):
                     return self.reply({"error": "password_short"}, 400)
                 db.set_setting("admin_pw", hash_pw(b["password"]))
                 return self.login_ok()
             if p == "/api/login":
                 ip = self.client_address[0]
-                login_fail[ip] = [x for x in login_fail.get(ip, []) if time.time() - x < 900]
-                if len(login_fail[ip]) >= 5:
+                login_fail[ip] = [x for x in login_fail.get(ip, []) if time.time() - x < adv("lockout_minutes") * 60]
+                if len(login_fail[ip]) >= adv("lockout_attempts"):
                     return self.reply({"error": "locked"}, 429)
                 time.sleep(0.5)
                 if check_pw(b.get("password") or "", db.setting("admin_pw")):
@@ -594,12 +655,12 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/public/complaints":
                 ip = self.client_address[0]
                 times = [t for t in complaint_times.get(ip, []) if time.time() - t < 3600]
-                if len(times) >= 5:
+                if len(times) >= adv("complaints_per_hour"):
                     return self.reply({"error": "too_many"}, 429)
-                email, text = clean(b.get("email"), 120), clean(b.get("text"), 4000)
+                email, text = clean(b.get("email"), 120), clean(b.get("text"), adv("complaint_max_chars"))
                 if not EMAIL_RE.match(email):
                     return self.reply({"error": "email_required"}, 400)
-                if len(text) < 10:
+                if len(text) < adv("complaint_min_chars"):
                     return self.reply({"error": "text_short"}, 400)
                 stype = b.get("subject_type") if b.get("subject_type") in ("hub", "node", "general") else "general"
                 cur = db.x("""INSERT INTO complaints(created,email,subject_type,subject_id,text,status,updated)
@@ -633,8 +694,16 @@ class Web(http.server.BaseHTTPRequestHandler):
                 db.x("UPDATE complaints SET status=?, resolution=?, updated=? WHERE id=?",
                      (st, clean(b.get("resolution"), 2000), now(), int(m.group(1))))
                 return self.reply({"ok": True})
+            if p == "/api/admin/advanced":
+                vals, errors = clean_advanced(b.get("advanced") or {})
+                if errors:
+                    return self.reply({"error": "invalid", "fields": errors}, 400)
+                cur = json.loads(db.setting("advanced") or "{}")
+                cur.update(vals)
+                db.set_setting("advanced", json.dumps(cur))
+                return self.reply({"ok": True})
             if p == "/api/admin/password":
-                if len(b.get("password") or "") < 8:
+                if len(b.get("password") or "") < adv("password_min"):
                     return self.reply({"error": "password_short"}, 400)
                 db.set_setting("admin_pw", hash_pw(b["password"]))
                 return self.reply({"ok": True})
@@ -644,10 +713,10 @@ class Web(http.server.BaseHTTPRequestHandler):
             self.reply({"error": str(e)}, 500)
 
     def login_ok(self):
-        tok = secrets.token_urlsafe(24)
-        sessions[tok] = time.time() + SESSION_TTL
+        tok, ttl = secrets.token_urlsafe(24), adv("session_hours") * 3600
+        sessions[tok] = time.time() + ttl
         return self.reply({"ok": True}, headers={
-            "Set-Cookie": f"ura_admin={tok}; Max-Age={SESSION_TTL}; Path=/; HttpOnly; Secure; SameSite=Strict"})
+            "Set-Cookie": f"ura_admin={tok}; Max-Age={ttl}; Path=/; HttpOnly; Secure; SameSite=Strict"})
 
 
 class TLSWebServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

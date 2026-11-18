@@ -14,7 +14,25 @@ Ura.add({
   "map.legend.node": { en: "Node heard by a hub", sq: "Nyje e dëgjuar nga një hub" },
   "map.legend.link": { en: "Active link", sq: "Lidhje aktive" },
   "map.nohubs": { en: "No hub is registered yet.", sq: "Ende nuk ka asnjë hub të regjistruar." },
-  "map.nodes_on": { en: "{n} nodes (heard in the last 7 days)", sq: "{n} nyje (dëgjuar në 7 ditët e fundit)" },
+  "adv.registrations_open": { en: "Accept new hub registrations", sq: "Prano regjistrime të reja hub-esh" },
+  "adv.node_max_age_days": { en: "Show nodes heard within (days)", sq: "Shfaq nyjet e dëgjuara brenda (ditë)" },
+  "adv.max_nodes_per_report": { en: "Max. nodes accepted per hub report", sq: "Maks. nyje të pranuara për raport hub-i" },
+  "adv.relay_rate_per_s": { en: "Flood limit: sealed boxes per second per hub", sq: "Kufiri i vërshimit: kuti të mbyllura për sekondë për hub" },
+  "adv.relay_burst": { en: "Flood limit: short burst allowed", sq: "Kufiri i vërshimit: shpërthim i shkurtër i lejuar" },
+  "adv.max_box_bytes": { en: "Largest sealed box relayed (bytes)", sq: "Kutia më e madhe e kaluar (bajt)" },
+  "adv.stats_retention_days": { en: "Keep statistics for (days)", sq: "Mbaj statistikat për (ditë)" },
+  "adv.complaints_per_hour": { en: "Complaints per sender address per hour", sq: "Ankesa për adresë dërguesi në orë" },
+  "adv.complaint_min_chars": { en: "Shortest complaint text (characters)", sq: "Teksti më i shkurtër i ankesës (karaktere)" },
+  "adv.complaint_max_chars": { en: "Longest complaint text (characters)", sq: "Teksti më i gjatë i ankesës (karaktere)" },
+  "adv.session_hours": { en: "Admin stays logged in for (hours)", sq: "Administratori qëndron i identifikuar për (orë)" },
+  "adv.lockout_attempts": { en: "Lock out an address after wrong passwords", sq: "Blloko një adresë pas fjalëkalimesh të gabuara" },
+  "adv.lockout_minutes": { en: "Lockout lasts (minutes)", sq: "Bllokimi zgjat (minuta)" },
+  "adv.password_min": { en: "Minimum password length", sq: "Gjatësia minimale e fjalëkalimit" },
+  "adv.tile_upstream": { en: "Map tile source (https URL with {z}/{x}/{y})", sq: "Burimi i pllakave të hartës (URL https me {z}/{x}/{y})" },
+  "adv.tile_contact": { en: "Contact sent to the tile server (its policy requires one)", sq: "Kontakti i dërguar te serveri i pllakave (rregullat e tij e kërkojnë)" },
+  "adv.tile_cache_days": { en: "Keep map tiles for (days)", sq: "Mbaj pllakat e hartës për (ditë)" },
+  "adv.tile_backoff_s": { en: "After a failed tile download, pause for (seconds)", sq: "Pas një shkarkimi të dështuar, prit për (sekonda)" },
+  "map.nodes_on": { en: "{n} nodes (heard in the last {d} days)", sq: "{n} nyje (dëgjuar në {d} ditët e fundit)" },
   "map.nopos": { en: "{n} nodes have no position and are not on the map.", sq: "{n} nyje nuk kanë pozicion dhe nuk shfaqen në hartë." },
   "hubs.title": { en: "Registered hubs", sq: "Hub-et e regjistruar" },
   "hubs.where": { en: "Place", sq: "Vendi" }, "hubs.links": { en: "Linked with", sq: "I lidhur me" },
@@ -85,7 +103,7 @@ Ura.add({
   "c.st.open": { en: "open", sq: "e hapur" }, "c.st.review": { en: "under review", sq: "në shqyrtim" },
   "c.st.resolved": { en: "resolved", sq: "e zgjidhur" }, "c.st.rejected": { en: "rejected", sq: "e refuzuar" },
   "err.email_required": { en: "Please enter a valid e-mail address.", sq: "Ju lutem vendosni një adresë të vlefshme e-mail-i." },
-  "err.text_short": { en: "Please describe the problem (at least 10 characters).", sq: "Ju lutem përshkruani problemin (të paktën 10 karaktere)." },
+  "err.text_short": { en: "Please describe the problem (at least {n} characters).", sq: "Ju lutem përshkruani problemin (të paktën {n} karaktere)." },
   "err.too_many": { en: "Too many complaints from your address. Please try again later.", sq: "Shumë ankesa nga adresa juaj. Ju lutem provoni më vonë." },
   "a.title": { en: "Administration", sq: "Administrimi" },
   "a.pending": { en: "Waiting for approval", sq: "Në pritje të miratimit" }, "a.approved": { en: "Approved hubs", sq: "Hub-et e miratuar" },
@@ -131,9 +149,7 @@ function rulesHtml(r) {
 
 async function pageMap() {
   const [hubs, nodes] = await Promise.all([api("GET", "/api/public/hubs"), api("GET", "/api/public/nodes")]);
-  app().innerHTML = `<div class="maplayout"><div><div id="map"></div>
-      <div class="legend"><span>◉ ${t("map.legend.hub")}</span><span>● ${t("map.legend.node")}</span><span>— ${t("map.legend.link")}</span></div></div>
-      <div class="card side"><h2>${t("map.title")}</h2><div id="hublist"></div><p class="muted small" id="nopos"></p></div></div>`;
+  app().innerHTML = `<div id="map" class="fullmap"></div>`;
   mapObj = makeMap("map");
   const color = {}, bounds = [];
   hubs.forEach((h, i) => color[h.id] = colorFor(i));
@@ -145,35 +161,28 @@ async function pageMap() {
     drawn.add(key);
     L.polyline([[h.lat, h.lon], [p.lat, p.lon]], { color: "#0f7b6c", weight: 2, dashArray: "6 6", opacity: .7 }).addTo(mapObj);
   }));
-  let nopos = 0;
   nodes.forEach(n => {
-    if (n.lat == null || n.lon == null) { nopos++; return; }
+    if (n.lat == null || n.lon == null) return;
     const h = byId[n.hub];
     L.circleMarker([n.lat, n.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: color[n.hub] || "#666", fillOpacity: .95 })
-      .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? esc(h.code) : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
+      .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? `<a href="#/hub/${h.id}">${esc(h.code)}</a>` : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
       .addTo(mapObj);
     bounds.push([n.lat, n.lon]);
   });
   hubs.forEach(h => {
     if (h.lat == null) return;
     L.circleMarker([h.lat, h.lon], { radius: 11, color: color[h.id], weight: 3, fillColor: "#fff", fillOpacity: 1 })
-      .bindPopup(`<b><a href="#/hub/${h.id}">${esc(h.code)} · ${esc(h.name)}</a></b><br>${onlineBadge(h.online)}<br>${t("map.nodes_on", { n: h.nodes })}`)
+      .bindPopup(`<b><a href="#/hub/${h.id}">${esc(h.code)} · ${esc(h.name)}</a></b><br>${onlineBadge(h.online)}<br>${t("map.nodes_on", { n: h.nodes, d: INFO.node_max_age_days })}`)
       .addTo(mapObj);
     bounds.push([h.lat, h.lon]);
   });
   if (bounds.length) mapObj.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
-  $("#hublist").innerHTML = hubs.length ? hubs.map(h => `
-      <div class="hubitem" data-id="${h.id}"><div class="spread"><b style="color:${color[h.id]}">${esc(h.code)}</b>${onlineBadge(h.online)}</div>
-      <div>${esc(h.name)}</div><div class="muted small">${t("map.nodes_on", { n: h.nodes })} · ${(h.links || []).map(l => esc(l.peer_code)).join(", ") || ""}</div></div>`).join("")
-    : `<p class="muted">${t("map.nohubs")}</p>`;
-  $$(".hubitem").forEach(el => el.onclick = () => { const h = byId[el.dataset.id]; if (h.lat != null) mapObj.setView([h.lat, h.lon], 11); else location.hash = "#/hub/" + h.id; });
-  if (nopos) $("#nopos").textContent = t("map.nopos", { n: nopos });
 }
 
 async function pageHubs() {
   const hubs = await api("GET", "/api/public/hubs");
   app().innerHTML = `<div class="card"><h2>${t("hubs.title")}</h2><div class="tablewrap"><table>
-    <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")} <span class="muted small">(7 d)</span></th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
+    <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span></th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
     ${hubs.map(h => `<tr><td><a href="#/hub/${h.id}"><b>${esc(h.code)}</b></a></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td>
       <td>${h.nodes}</td><td>${(h.links || []).map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)}</a>`).join(", ") || "–"}</td><td>${h.online ? t("online") : ago(h.last_seen)}</td></tr>`).join("")
       || `<tr><td colspan="6" class="muted">${t("map.nohubs")}</td></tr>`}
@@ -322,7 +331,7 @@ async function pageComplaints() {
     try {
       const r = await api("POST", "/api/public/complaints", { subject_type: $("#cst").value, subject_id: $("#csi").value, email: $("#cem").value, text: $("#ctx").value });
       $("#cmsg").innerHTML = `<div class="msg ok">${t("c.sent", { id: r.id })}</div>`; setTimeout(pageComplaints, 2500);
-    } catch (e) { $("#cmsg").innerHTML = `<div class="msg bad">${t("err." + e.message) !== "err." + e.message ? t("err." + e.message) : esc(e.message)}</div>`; }
+    } catch (e) { $("#cmsg").innerHTML = `<div class="msg bad">${t("err." + e.message, { n: INFO.complaint_min_chars }) !== "err." + e.message ? t("err." + e.message, { n: INFO.complaint_min_chars }) : esc(e.message)}</div>`; }
   };
 }
 
@@ -330,7 +339,7 @@ async function pageAdmin() {
   INFO = await api("GET", "/api/public/info");
   if (INFO.setup_needed || !INFO.admin) {
     app().innerHTML = `<div class="center"><div class="card narrow"><h2>${INFO.setup_needed ? t("setup.title") : t("a.title")}</h2>
-      <label>${t("password")}</label><input type="password" id="pw" autocomplete="current-password"><div class="hint">${t("password.short")}</div>
+      <label>${t("password")}</label><input type="password" id="pw" autocomplete="current-password"><div class="hint">${t("password.min", { n: INFO.password_min })}</div>
       <div id="lmsg"></div><button class="primary" id="lbtn">${INFO.setup_needed ? t("setup.btn") : t("login")}</button></div></div>`;
     const go = async () => {
       try { await api("POST", INFO.setup_needed ? "/api/setup" : "/api/login", { password: $("#pw").value }); pageAdmin(); }
@@ -356,7 +365,13 @@ async function pageAdmin() {
       <p>${esc(c.text)}</p><div class="row"><select data-cs="${c.id}">${["open", "review", "resolved", "rejected"].map(x => `<option value="${x}" ${x === c.status ? "selected" : ""}>${t("c.st." + x)}</option>`).join("")}</select></div>
       <label>${t("c.resolution")}</label><textarea data-cr="${c.id}" style="min-height:60px">${esc(c.resolution || "")}</textarea>
       <button class="small" data-csave="${c.id}">${t("a.set_status")}</button></div>`).join("") || `<p class="muted">${t("c.none")}</p>`}</div>
-    <div class="card narrow"><h2>${t("a.change_pw")}</h2><input type="password" id="npw"><div class="hint">${t("password.short")}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>`;
+    <div class="card narrow"><h2>${t("a.change_pw")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>
+    <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
+  const af = advancedForm($("#advform"), s.advanced_spec, s.advanced);
+  $("#advsave").onclick = async () => {
+    try { await api("POST", "/api/admin/advanced", { advanced: af.read() }); af.mark([]); INFO = {}; $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
+    catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${t("adv.invalid")}</div>`; }
+  };
   $("#lo").onclick = async () => { await api("POST", "/api/logout", {}); pageAdmin(); };
   $$("button[data-a]").forEach(b => b.onclick = async () => {
     if (b.dataset.a === "remove" && !confirm(t("a.remove_q", { x: b.dataset.code }))) return;
@@ -370,7 +385,7 @@ async function pageAdmin() {
   });
   $("#pbtn").onclick = async () => {
     try { await api("POST", "/api/admin/password", { password: $("#npw").value }); $("#pmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
-    catch (e) { $("#pmsg").innerHTML = `<div class="msg bad">${t("password.short")}</div>`; }
+    catch (e) { $("#pmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: INFO.password_min })}</div>`; }
   };
 }
 
@@ -378,7 +393,7 @@ async function pageAdmin() {
 
 async function route() {
   renderHeader(t("site.title"), MENU);
-  $("#foot").textContent = t("foot");
+  $("#foot").textContent = (location.hash.replace(/^#\/?/, "") === "") ? "" : t("foot");
   if (mapObj) { mapObj.remove(); mapObj = null; }
   const parts = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").map(decodeURIComponent);
   app().innerHTML = `<p class="muted">${t("loading")}</p>`;

@@ -138,6 +138,88 @@ Ura.add({
   "nc.map": { en: "On the Ura map", sq: "Në hartën e Ura" }, "nc.map.hint": { en: "heard here in the last 7 days, incl. this radio — same number as on the server", sq: "dëgjuar këtu në 7 ditët e fundit, përfshirë këtë radio — i njëjti numër si në server" },
   "nc.remote": { en: "From linked hubs", sq: "Nga hub-et e lidhur" },
   "nc.memory": { en: "In the radio's memory", sq: "Në kujtesën e radios" }, "nc.memory.hint": { en: "everything the radio remembers, incl. {n} older or without time", sq: "gjithçka që radio mban mend, përfshirë {n} më të vjetra ose pa kohë" },
+  "adv.node_max_age_days": { en: "A node counts as “heard here” if heard within (days)", sq: "Një nyje llogaritet “dëgjuar këtu” nëse është dëgjuar brenda (ditë)" },
+  "adv.nodes_report_min": { en: "Send the full node list to the server at least every (minutes)", sq: "Dërgo listën e plotë të nyjeve te serveri të paktën çdo (minuta)" },
+  "adv.nodes_check_s": { en: "Check for node changes every (seconds)", sq: "Kontrollo për ndryshime të nyjeve çdo (sekonda)" },
+  "adv.location_follow_m": { en: "Follow the radio's position when it moved more than (metres)", sq: "Ndiq pozicionin e radios kur ka lëvizur më shumë se (metra)" },
+  "adv.location_check_s": { en: "Check the radio's position every (seconds)", sq: "Kontrollo pozicionin e radios çdo (sekonda)" },
+  "adv.clock_sync": { en: "Set the radio's clock from this computer", sq: "Vendos orën e radios nga ky kompjuter" },
+  "adv.clock_sync.hint": { en: "Radios without GPS or internet lose the right time; wrong times break “last heard” and message times.", sq: "Radiot pa GPS ose internet humbasin orën e saktë; orët e gabuara prishin “dëgjuar së fundi” dhe kohët e mesazheve." },
+  "adv.clock_sync_min": { en: "Set the radio's clock every (minutes)", sq: "Vendos orën e radios çdo (minuta)" },
+  "adv.mqtt_address": { en: "MQTT address written by “Prepare radio”", sq: "Adresa MQTT që shkruan “Përgatit radion”" },
+  "adv.mqtt_address.hint": { en: "Must be a private IP. It is never contacted (the radio talks to the hub over USB/IP); a private address makes the firmware pass on every packet.", sq: "Duhet të jetë IP private. Nuk kontaktohet kurrë (radio flet me hub-in përmes USB/IP); një adresë private bën që firmware të kalojë çdo paketë." },
+  "adv.replay_window_s": { en: "Reject sealed boxes older than (seconds)", sq: "Refuzo kutitë e mbyllura më të vjetra se (sekonda)" },
+  "adv.replay_window_s.hint": { en: "Protection against someone replaying old traffic. Clocks of both hubs must be within this window.", sq: "Mbrojtje kundër dikujt që riprodhon trafik të vjetër. Orët e të dy hub-eve duhet të jenë brenda këtij intervali." },
+  "adv.session_hours": { en: "Stay logged in for (hours)", sq: "Qëndro i identifikuar për (orë)" },
+  "adv.lockout_attempts": { en: "Lock out an address after wrong passwords", sq: "Blloko një adresë pas fjalëkalimesh të gabuara" },
+  "adv.lockout_minutes": { en: "Lockout lasts (minutes)", sq: "Bllokimi zgjat (minuta)" },
+  "adv.password_min": { en: "Minimum password length", sq: "Gjatësia minimale e fjalëkalimit" },
+  "adv.server_retry_s": { en: "Reconnect to the server after (seconds)", sq: "Rilidhu me serverin pas (sekonda)" },
+  "adv.refused_retry_s": { en: "After a refusal, try again after (seconds)", sq: "Pas një refuzimi, provo përsëri pas (sekonda)" },
+  "adv.keepalive_s": { en: "Keep-alive to the server every (seconds)", sq: "Mbaj gjallë lidhjen me serverin çdo (sekonda)" },
+  "adv.server_timeout_s": { en: "Consider the server gone after silence of (seconds)", sq: "Konsidero serverin të shkëputur pas heshtjes prej (sekonda)" },
+  "adv.queue_max": { en: "Packets kept while the server is unreachable", sq: "Paketa të mbajtura kur serveri është i paarritshëm" },
+  "adv.tile_source": { en: "Map tiles", sq: "Pllakat e hartës" },
+  "adv.tile_source.hint": { en: "“server” = through the Ura server (works without internet here), then OpenStreetMap. Or an https URL with {z}/{x}/{y}.", sq: "“server” = përmes serverit Ura (funksionon edhe pa internet këtu), pastaj OpenStreetMap. Ose një URL https me {z}/{x}/{y}." },
+  "adv.tile_cache_days": { en: "Keep map tiles for (days)", sq: "Mbaj pllakat e hartës për (ditë)" },
+  "adv.tile_backoff_s": { en: "After a failed tile download, pause for (seconds)", sq: "Pas një shkarkimi të dështuar, prit për (sekonda)" },
+  "adv.page_refresh_s": { en: "Refresh the status page every (seconds)", sq: "Rifresko faqen e gjendjes çdo (sekonda)" },
+  "adv.diag_timeout_s": { en: "Diagnostics waits for an answer (seconds)", sq: "Diagnostikimi pret përgjigje (sekonda)" },
+  "adv.server_web_port": { en: "Web port of the Ura server (for map tiles)", sq: "Porta web e serverit Ura (për pllakat e hartës)" },
+  "err.registrations_closed": { en: "The server does not accept new registrations at the moment.", sq: "Serveri nuk pranon regjistrime të reja për momentin." },
+  "err.invalid": { en: "Some values are outside their limits (marked red).", sq: "Disa vlera janë jashtë kufijve (të shënuara me të kuqe)." },
+  "dg.title": { en: "Diagnostics", sq: "Diagnostikimi" },
+  "dg.hint": { en: "Test a node — local or in another country — from this hub's radio. The answer travels back the same way, so a reply proves both directions.",
+               sq: "Testoni një nyje — lokale ose në një shtet tjetër — nga radio e këtij hub-i. Përgjigjja kthehet në të njëjtën rrugë, ndaj një përgjigje provon të dyja drejtimet." },
+  "dg.node": { en: "Node ID", sq: "ID e nyjes" }, "dg.text": { en: "Text for the private message", sq: "Teksti i mesazhit privat" },
+  "dg.dm": { en: "Private message + delivery check", sq: "Mesazh privat + kontroll dorëzimi" }, "dg.trace": { en: "Traceroute", sq: "Gjurmimi i rrugës" },
+  "dg.telemetry": { en: "Ask for telemetry", sq: "Kërko telemetrinë" }, "dg.position": { en: "Ask for position", sq: "Kërko pozicionin" },
+  "dg.broadcast": { en: "Send the text to this channel", sq: "Dërgo tekstin në këtë kanal" },
+  "dg.broadcast.hint": { en: "Everyone on that channel receives it — here and, through Ura, in linked hubs (if your rules allow). Use sparingly.", sq: "Të gjithë në atë kanal e marrin — këtu dhe, përmes Ura, në hub-et e lidhur (nëse rregullat e lejojnë). Përdoreni me masë." },
+  "dg.sent": { en: "Sent. Check the counters on the Status page of the linked hub, or a radio there.", sq: "U dërgua. Kontrolloni numëruesit në faqen e Gjendjes së hub-it të lidhur, ose një radio atje." },
+  "r.exclusive": { en: "⚠️ While the hub runs, nothing else may be connected to this radio (no Meshtastic app over Bluetooth or Wi-Fi, no other program). The radio hands bridge packets to whichever connected program reads first — anything else connected makes traffic silently go missing.",
+                   sq: "⚠️ Ndërsa hub-i punon, asgjë tjetër nuk duhet të jetë e lidhur me këtë radio (asnjë aplikacion Meshtastic përmes Bluetooth ose Wi-Fi, asnjë program tjetër). Radio ua jep paketat e urës cilitdo program të lidhur që lexon i pari — çdo gjë tjetër e lidhur bën që trafiku të humbasë pa u vënë re." },
+  "dg.waiting": { en: "Sent — waiting for the answer…", sq: "U dërgua — në pritje të përgjigjes…" },
+  "dg.noanswer": { en: "No answer within {s} s. The node may be off, out of range, or a rule blocks this kind of traffic.", sq: "Asnjë përgjigje brenda {s} s. Nyja mund të jetë e fikur, jashtë rrezes, ose një rregull e bllokon këtë lloj trafiku." },
+  "dg.delivered": { en: "Delivered — the node confirmed it after {s} s.", sq: "U dorëzua — nyja e konfirmoi pas {s} s." },
+  "dg.route": { en: "Route found after {s} s:", sq: "Rruga u gjet pas {s} s:" }, "dg.me": { en: "this radio", sq: "kjo radio" },
+  "dg.answer": { en: "Answer after {s} s:", sq: "Përgjigje pas {s} s:" }, "dg.other": { en: "Answer “{x}” after {s} s.", sq: "Përgjigje “{x}” pas {s} s." },
+  "err.bad_node": { en: "Enter a node ID like !abcd1234.", sq: "Vendosni një ID nyjeje si !abcd1234." },
+  "nav.device": { en: "Device settings", sq: "Cilësimet e pajisjes" },
+  "dev.warn": { en: "These settings are written straight into the radio. Wrong values (region, LoRa, channels) can cut this radio off from the local mesh. Settings marked “restarts” make the radio reboot (about 30 s).",
+                sq: "Këto cilësime shkruhen drejtpërdrejt në radio. Vlera të gabuara (rajoni, LoRa, kanalet) mund ta shkëpusin këtë radio nga rrjeti lokal. Cilësimet e shënuara “rindizet” e rindezin radion (rreth 30 s)." },
+  "dev.owner": { en: "Name of the radio", sq: "Emri i radios" }, "dev.long": { en: "Long name (max. 39)", sq: "Emri i gjatë (maks. 39)" },
+  "dev.short": { en: "Short name (max. 4)", sq: "Emri i shkurtër (maks. 4)" }, "dev.owner.bad": { en: "Long name 1–39, short name 1–4 characters.", sq: "Emri i gjatë 1–39, i shkurtri 1–4 karaktere." },
+  "dev.fixed": { en: "Fixed position", sq: "Pozicion fiks" }, "dev.fixed.on": { en: "The radio stays at this position (no GPS)", sq: "Radio qëndron në këtë pozicion (pa GPS)" },
+  "dev.alt": { en: "Altitude (m)", sq: "Lartësia (m)" }, "dev.restarts": { en: "The radio restarts now.", sq: "Radio po rindizet tani." },
+  "dev.channels": { en: "Channels (groups)", sq: "Kanalet (grupet)" },
+  "dev.channels.hint": { en: "Channel 0 is the primary channel. A group works between two radios only with the SAME name and the SAME key. To let a group cross Ura, also tick it in Links & rules on both hubs.",
+                         sq: "Kanali 0 është kanali kryesor. Një grup funksionon ndërmjet dy radiove vetëm me të NJËJTIN emër dhe të NJËJTIN çelës. Që grupi të kalojë Ura, shënojeni edhe te Lidhjet & rregullat në të dy hub-et." },
+  "dev.primary": { en: "primary", sq: "kryesor" }, "dev.secondary": { en: "secondary", sq: "dytësor" }, "dev.nokey": { en: "no encryption", sq: "pa enkriptim" },
+  "dev.preset_name": { en: "(preset name, e.g. LongFast)", sq: "(emri i presetit, p.sh. LongFast)" },
+  "dev.addch": { en: "Add a channel", sq: "Shto një kanal" }, "dev.delch": { en: "Delete channel", sq: "Fshi kanalin" },
+  "dev.del_q": { en: "Delete this channel from the radio?", sq: "Ta fshij këtë kanal nga radio?" },
+  "dev.chname": { en: "Name (max. 11)", sq: "Emri (maks. 11)" }, "dev.role": { en: "Role", sq: "Roli" }, "dev.key": { en: "Key", sq: "Çelësi" },
+  "dev.key.keep": { en: "keep current key", sq: "mbaj çelësin aktual" }, "dev.key.random": { en: "new secure random key (256-bit)", sq: "çelës i ri i rastësishëm i sigurt (256-bit)" },
+  "dev.key.default": { en: "public default key (AQ==)", sq: "çelësi publik i parazgjedhur (AQ==)" }, "dev.key.custom": { en: "own key", sq: "çelës i vetë" },
+  "dev.key.none": { en: "no encryption", sq: "pa enkriptim" },
+  "dev.pp": { en: "Position precision (bits, 0 = no position)", sq: "Saktësia e pozicionit (bit, 0 = pa pozicion)" },
+  "dev.pp.hint": { en: "32 = exact, 13 ≈ 1.5 km, 0 = never share position on this channel.", sq: "32 = e saktë, 13 ≈ 1.5 km, 0 = mos e nda kurrë pozicionin në këtë kanal." },
+  "dev.uplink": { en: "Uplink (to Ura)", sq: "Uplink (te Ura)" }, "dev.downlink": { en: "Downlink (from Ura)", sq: "Downlink (nga Ura)" },
+  "dev.muted": { en: "Muted (no notifications)", sq: "Pa zë (pa njoftime)" },
+  "dev.ch_restart": { en: "The radio applies it within a few seconds.", sq: "Radio e zbaton brenda pak sekondash." },
+  "dev.url": { en: "Link to share these channels with other radios (Meshtastic app → scan/open)", sq: "Lidhja për t'i ndarë këto kanale me radio të tjera (aplikacioni Meshtastic → skano/hap)" },
+  "dev.all": { en: "All radio settings", sq: "Të gjitha cilësimet e radios" },
+  "dev.all.hint": { en: "Every setting of the Meshtastic firmware, read live from the radio. Names are Meshtastic's own. Only changed fields are written.",
+                    sq: "Çdo cilësim i firmware-it Meshtastic, i lexuar drejtpërdrejt nga radio. Emrat janë ato të Meshtastic. Shkruhen vetëm fushat e ndryshuara." },
+  "dev.module": { en: "module", sq: "modul" }, "dev.config": { en: "radio", sq: "radio" }, "dev.reboot": { en: "restarts", sq: "rindizet" },
+  "dev.nochange": { en: "Nothing changed.", sq: "Asgjë nuk ndryshoi." },
+  "dev.invalid": { en: "Not accepted: {x}", sq: "Nuk u pranua: {x}" },
+  "dev.mqtt_q": { en: "Ura needs MQTT “proxy to client” on, encryption on and a private address. Changing MQTT can stop the bridge. Continue?", sq: "Ura ka nevojë për MQTT “proxy to client” aktiv, enkriptim aktiv dhe adresë private. Ndryshimi i MQTT mund ta ndalë urën. Të vazhdoj?" },
+  "sec.device": { en: "Device", sq: "Pajisja" }, "sec.position": { en: "Position", sq: "Pozicioni" }, "sec.power": { en: "Power", sq: "Energjia" },
+  "sec.network": { en: "Network (Wi-Fi/Ethernet)", sq: "Rrjeti (Wi-Fi/Ethernet)" }, "sec.display": { en: "Display", sq: "Ekrani" },
+  "sec.lora": { en: "LoRa (region, preset, power)", sq: "LoRa (rajoni, preseti, fuqia)" }, "sec.bluetooth": { en: "Bluetooth", sq: "Bluetooth" },
+  "sec.security": { en: "Security", sq: "Siguria" }, "sec.mqtt": { en: "MQTT (used by Ura)", sq: "MQTT (përdoret nga Ura)" }, "sec.telemetry": { en: "Telemetry", sq: "Telemetria" },
   "s.limits": { en: "Airtime and sharing", sq: "Koha në ajër dhe ndarja" },
   "s.air_hour": { en: "Max. airtime for remote packets, % of each hour (0 = no limit)", sq: "Koha maksimale në ajër për paketat e largëta, % e çdo ore (0 = pa kufi)" },
   "s.air_day": { en: "Max. airtime, % of each day (0 = no limit)", sq: "Koha maksimale në ajër, % e çdo dite (0 = pa kufi)" },
@@ -155,7 +237,7 @@ Ura.add({
   "err.address_required": { en: "Please enter the server address.", sq: "Ju lutem vendosni adresën e serverit." },
 });
 
-const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/settings", "nav.settings"]];
+const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"]];
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
@@ -167,7 +249,7 @@ function ruleRow(lbl, dir, key, rule) { return `<label class="check"><input type
 /* ───────── status ───────── */
 const LOCAL_COLOR = "#0f7b6c";
 const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
-const WEEK = 7 * 86400;
+let SESS = { password_min: 8, page_refresh_s: 30 };
 let showOld = false;
 
 function receptionHtml(st) {
@@ -186,7 +268,7 @@ async function pageStatus() {
   const g = s.counters.global, r = s.radio, a = s.airtime;
   const pct = (used, win) => (100 * used / win).toFixed(2) + " %";
   const srvBadge = s.link_state === "connected" ? "ok" : (s.link_state === "connecting" ? "warn" : "bad");
-  const now = Date.now() / 1000;
+  const now = Date.now() / 1000, WEEK = (s.node_max_age_days || 7) * 86400;
   const own = nodes.find(n => n.own);
   const localAll = nodes.filter(n => !n.own && !n.remote);
   const localRecent = localAll.filter(n => n.last_heard && now - n.last_heard < WEEK);
@@ -353,7 +435,40 @@ async function pageRadio() {
       </dl>${r.connected ? `<h3>${r.ready ? `<span class="badge ok">${t("r.ready")}</span>` : `<span class="badge warn">${t("r.not_ready")}</span>`}</h3>
       ${Object.entries(r.checks || {}).map(([k, v]) => `<div>${v ? "✅" : "❌"} ${t("chk." + k)}</div>`).join("")}
       ${r.ready ? "" : `<p><button class="primary" id="prep">${t("r.prepare")}</button></p>`}<div id="pmsg"></div>
-      <p class="muted small">${t("r.fw_note")}</p>` : ""}` : `<p class="muted">${t("err.no_radio")}</p>`}</div></div>`;
+      <p class="muted small">${t("r.fw_note")}</p><div class="msg warn small">${t("r.exclusive")}</div>` : ""}` : `<p class="muted">${t("err.no_radio")}</p>`}</div></div>`;
+  if (r && r.connected) {
+    const nodes = await api("GET", "/api/nodes");
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h2>${t("dg.title")}</h2><p class="muted small">${t("dg.hint")}</p>
+      <label>${t("dg.node")}</label><input type="text" id="dgnode" list="dglist" placeholder="!abcd1234">
+      <datalist id="dglist">${nodes.filter(n => !n.own).sort((a, b) => (b.last_heard || 0) - (a.last_heard || 0)).map(n => `<option value="${esc(n.id)}">${esc(n.name || "")}${n.remote ? " · " + t("remote") : ""}</option>`).join("")}</datalist>
+      <label>${t("dg.text")}</label><input type="text" id="dgtext" maxlength="200" value="Ura test">
+      <div class="row" style="margin-top:.6rem">
+        <button data-dg="dm">${t("dg.dm")}</button><button data-dg="trace">${t("dg.trace")}</button>
+        <button data-dg="telemetry">${t("dg.telemetry")}</button><button data-dg="position">${t("dg.position")}</button></div>
+      <div class="row" style="margin-top:.8rem"><select id="dgch" style="max-width:260px">${(r.channels || []).map(ch => `<option value="${ch.index}">${esc(ch.name)}${ch.public ? " (" + t("r.public") + ")" : ""}</option>`).join("")}</select>
+        <button data-dg="broadcast">${t("dg.broadcast")}</button></div><div class="hint">${t("dg.broadcast.hint")}</div>
+      <div id="dgout"></div>`;
+    app().appendChild(card);
+    $$("button[data-dg]").forEach(b => b.onclick = async () => {
+      const node = $("#dgnode").value.trim();
+      $$("button[data-dg]").forEach(x => x.disabled = true);
+      $("#dgout").innerHTML = `<div class="msg info">${t("dg.waiting")}</div>`;
+      try {
+        const r2 = await api("POST", "/api/diag", { node, kind: b.dataset.dg, text: $("#dgtext").value, channel: $("#dgch") ? $("#dgch").value : 0 });
+        let body = "";
+        if (!r2.answered) body = `<div class="msg bad">${t("dg.noanswer", { s: r2.seconds })}</div>`;
+        else if (r2.result === "sent") body = `<div class="msg ok">${t("dg.sent")}</div>`;
+        else if (r2.result === "delivered") body = `<div class="msg ok">✅ ${t("dg.delivered", { s: r2.seconds })}</div>`;
+        else if (r2.result === "route") body = `<div class="msg ok">${t("dg.route", { s: r2.seconds })}<br><b>→</b> ${esc([t("dg.me"), ...r2.route_to, node].join(" → "))}<br><b>←</b> ${esc([node, ...r2.route_back, t("dg.me")].join(" → "))}</div>`;
+        else if (r2.result === "telemetry") body = `<div class="msg ok">${t("dg.answer", { s: r2.seconds })}<pre class="small">${esc(JSON.stringify(r2.telemetry, null, 1))}</pre></div>`;
+        else if (r2.result === "position") body = `<div class="msg ok">${t("dg.answer", { s: r2.seconds })} ${fmtPos(r2.position.lat, r2.position.lon)}</div>`;
+        else body = `<div class="msg warn">${t("dg.other", { x: esc(r2.result), s: r2.seconds })}</div>`;
+        $("#dgout").innerHTML = body;
+      } catch (e) { $("#dgout").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+      $$("button[data-dg]").forEach(x => x.disabled = false);
+    });
+  }
   const tr = $("#rtr"); tr.value = rc.transport || "serial";
   const sw = () => { $("#rser").classList.toggle("hidden", tr.value !== "serial"); $("#rtcp").classList.toggle("hidden", tr.value !== "tcp"); };
   tr.onchange = sw; sw();
@@ -368,6 +483,94 @@ async function pageRadio() {
     try { await api("POST", "/api/radio/prepare", {}); $("#pmsg").innerHTML = `<div class="msg ok">${t("r.prepared")}</div>`; setTimeout(pageRadio, 30000); }
     catch (e) { $("#pmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#prep").disabled = false; }
   };
+}
+
+/* ───────── device settings (program the radio) ───────── */
+const human = s => String(s).replace(/_/g, " ").replace(/\./g, " › ").replace(/^\w/, c => c.toUpperCase());
+const SEC_NAMES = { device: "sec.device", position: "sec.position", power: "sec.power", network: "sec.network", display: "sec.display",
+  lora: "sec.lora", bluetooth: "sec.bluetooth", security: "sec.security", mqtt: "sec.mqtt", telemetry: "sec.telemetry" };
+
+async function pageDevice() {
+  let d;
+  try { d = await api("GET", "/api/radio/settings"); }
+  catch (e) { app().innerHTML = `<div class="card msg warn">${errText(e)} <a href="#/radio">${t("nav.radio")} →</a></div>`; return; }
+  const field = (sec, f, v) => {
+    const id = `f_${sec}_${f.name.replace(/\./g, "__")}`, lbl = `<label for="${id}">${esc(human(f.name))}</label>`;
+    if (f.readonly) return `<div>${lbl}<input type="text" disabled value="${esc(Array.isArray(v) ? v.join(", ") : v)}"></div>`;
+    if (f.type === "bool") return `<label class="check"><input type="checkbox" id="${id}" data-f="${esc(f.name)}" ${v ? "checked" : ""}> ${esc(human(f.name))}</label>`;
+    if (f.type === "enum") return `<div>${lbl}<select id="${id}" data-f="${esc(f.name)}">${f.options.map(o => `<option value="${esc(o)}" ${o === v ? "selected" : ""}>${esc(human(o.toLowerCase()))}</option>`).join("")}</select></div>`;
+    return `<div>${lbl}<input type="${f.type === "string" ? "text" : "number"}" ${f.type === "float" ? 'step="any"' : ""} id="${id}" data-f="${esc(f.name)}" data-t="${f.type}" value="${esc(v)}"></div>`;
+  };
+  const ch = d.channels.filter(c => c.role !== "DISABLED"), free = d.channels.find(c => c.role === "DISABLED");
+  app().innerHTML = `
+    <div class="msg warn">${t("dev.warn")}</div>
+    <div class="grid g2">
+      <div class="card"><h2>${t("dev.owner")}</h2>
+        <label>${t("dev.long")}</label><input type="text" id="olong" maxlength="39" value="${esc(d.owner.long_name)}">
+        <label>${t("dev.short")}</label><input type="text" id="oshort" maxlength="4" value="${esc(d.owner.short_name)}">
+        <div id="omsg"></div><button class="primary" id="osave">${t("save")}</button></div>
+      <div class="card"><h2>${t("dev.fixed")}</h2>
+        <label class="check"><input type="checkbox" id="fxon" ${d.fixed.enabled ? "checked" : ""}> ${t("dev.fixed.on")}</label>
+        <div class="grid g3" style="gap:.5rem"><div><label>${t("s.lat")}</label><input type="number" step="any" id="fxlat" value="${esc(d.fixed.lat ?? "")}"></div>
+          <div><label>${t("s.lon")}</label><input type="number" step="any" id="fxlon" value="${esc(d.fixed.lon ?? "")}"></div>
+          <div><label>${t("dev.alt")}</label><input type="number" id="fxalt" value="${esc(d.fixed.alt ?? 0)}"></div></div>
+        <div id="fxmsg"></div><button class="primary" id="fxsave">${t("save")}</button></div>
+    </div>
+    <div class="card"><h2>${t("dev.channels")}</h2><p class="muted small">${t("dev.channels.hint")}</p>
+      ${ch.map(c => `<details class="chbox" data-ch="${c.index}"><summary><b>#${c.index}</b> ${esc(c.name || t("dev.preset_name"))} <span class="badge ${c.role === "PRIMARY" ? "info" : ""}">${c.role === "PRIMARY" ? t("dev.primary") : t("dev.secondary")}</span> <span class="badge ${c.psk === "default" ? "warn" : "ok"}">${c.psk === "default" ? t("r.public") : c.psk === "none" ? t("dev.nokey") : t("r.private_ch")}</span></summary>
+          ${chForm(c)}</details>`).join("")}
+      ${free ? `<details class="chbox" data-ch="${free.index}" data-new="1"><summary>➕ ${t("dev.addch")}</summary>${chForm({ index: free.index, role: "SECONDARY", name: "", psk: "random", uplink: true, downlink: true, position_precision: 0, muted: false })}</details>` : ""}
+      ${d.url ? `<p class="small">${t("dev.url")}: <a href="${esc(d.url)}" target="_blank" rel="noopener" class="mono">${esc(d.url)}</a></p>` : ""}
+      <div id="chmsg"></div></div>
+    <div class="card"><h2>${t("dev.all")}</h2><p class="muted small">${t("dev.all.hint")}</p>
+      ${d.sections.map(s => `<details class="secbox" data-sec="${s.name}" data-kind="${s.kind}"><summary><b>${SEC_NAMES[s.name] ? t(SEC_NAMES[s.name]) : esc(human(s.name))}</b> <span class="muted small">${s.kind === "module" ? t("dev.module") : t("dev.config")}${s.reboot ? " · " + t("dev.reboot") : ""}</span></summary>
+        <div class="grid g3" style="gap:.4rem 1rem;margin-top:.6rem">${s.fields.map(f => field(s.name, f, s.values[f.name])).join("")}</div>
+        <div class="row" style="margin-top:.6rem"><button class="primary" data-save-sec="${s.name}">${t("save")}</button><span class="muted small" data-secmsg="${s.name}"></span></div></details>`).join("")}</div>`;
+  const orig = {}; d.sections.forEach(s => orig[s.name] = s.values);
+  $("#osave").onclick = async () => { try { await api("POST", "/api/radio/owner", { long_name: $("#olong").value, short_name: $("#oshort").value }); $("#omsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#omsg").innerHTML = `<div class="msg bad">${t("dev.owner.bad")}</div>`; } };
+  $("#fxsave").onclick = async () => { try { await api("POST", "/api/radio/fixed", { fixed: { enabled: $("#fxon").checked, lat: $("#fxlat").value, lon: $("#fxlon").value, alt: $("#fxalt").value } }); $("#fxmsg").innerHTML = `<div class="msg ok">${t("saved")} ${t("dev.restarts")}</div>`; } catch (e) { $("#fxmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; } };
+  $$("button[data-save-sec]").forEach(b => b.onclick = async () => {
+    const box = b.closest("[data-sec]"), sec = box.dataset.sec, values = {};
+    $$("[data-f]", box).forEach(i => { const v = i.type === "checkbox" ? i.checked : i.value; if (String(v) !== String(orig[sec][i.dataset.f])) values[i.dataset.f] = v; });
+    const msg = $(`[data-secmsg="${sec}"]`);
+    if (!Object.keys(values).length) { msg.textContent = t("dev.nochange"); return; }
+    if (box.dataset.sec === "mqtt" && !confirm(t("dev.mqtt_q"))) return;
+    b.disabled = true;
+    try { const r = await api("POST", "/api/radio/section", { kind: box.dataset.kind, section: sec, values }); Object.assign(orig[sec], values);
+          msg.textContent = "✓ " + t("saved") + (r.reboot ? " — " + t("dev.restarts") : ""); }
+    catch (e) { msg.textContent = t("dev.invalid", { x: ((e.data && e.data.fields) || []).join(", ") }); }
+    b.disabled = false;
+  });
+  $$(".chbox").forEach(box => {
+    const save = $("[data-chsave]", box), del = $("[data-chdel]", box);
+    save.onclick = async () => {
+      const g = n => $(`[data-c="${n}"]`, box);
+      const c = { index: +box.dataset.ch, role: g("role").value, name: g("name").value, psk: g("pskmode").value === "keep" ? g("pskcur").value : g("pskmode").value === "custom" ? g("psk").value : g("pskmode").value,
+                  uplink: g("uplink").checked, downlink: g("downlink").checked, position_precision: g("pp").value, muted: g("muted").checked };
+      save.disabled = true;
+      try { await api("POST", "/api/radio/channel", { channel: c }); $("#chmsg").innerHTML = `<div class="msg ok">${t("saved")} ${t("dev.ch_restart")}</div>`; setTimeout(pageDevice, 4000); }
+      catch (e) { $("#chmsg").innerHTML = `<div class="msg bad">${t("dev.invalid", { x: ((e.data && e.data.fields) || []).join(", ") })}</div>`; save.disabled = false; }
+    };
+    if (del) del.onclick = async () => { if (!confirm(t("dev.del_q"))) return; await api("POST", "/api/radio/channel", { channel: { index: +box.dataset.ch, role: "DISABLED" } }); $("#chmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(pageDevice, 4000); };
+  });
+}
+
+function chForm(c) {
+  const isNew = c.psk === "random" && !c.name;
+  return `<div class="grid g3" style="gap:.4rem 1rem;margin-top:.6rem">
+    <div><label>${t("dev.chname")}</label><input type="text" data-c="name" maxlength="11" value="${esc(c.name)}" placeholder="${c.index === 0 ? esc(t("dev.preset_name")) : ""}"></div>
+    <div><label>${t("dev.role")}</label><select data-c="role" ${c.index === 0 ? "disabled" : ""}>${c.index === 0 ? `<option value="PRIMARY">${t("dev.primary")}</option>` : `<option value="SECONDARY">${t("dev.secondary")}</option>`}</select></div>
+    <div><label>${t("dev.key")}</label><select data-c="pskmode">
+      ${isNew ? "" : `<option value="keep">${t("dev.key.keep")}</option>`}
+      <option value="random" ${isNew ? "selected" : ""}>${t("dev.key.random")}</option><option value="default">${t("dev.key.default")}</option>
+      <option value="custom">${t("dev.key.custom")}</option><option value="none">${t("dev.key.none")}</option></select>
+      <input type="hidden" data-c="pskcur" value="${esc(c.psk)}"></div>
+    <div><label>${t("dev.key.custom")} (base64)</label><input type="text" data-c="psk" value="${c.psk !== "default" && c.psk !== "none" && c.psk !== "random" ? esc(c.psk) : ""}"></div>
+    <div><label>${t("dev.pp")}</label><input type="number" min="0" max="32" data-c="pp" value="${esc(c.position_precision)}"><div class="hint">${t("dev.pp.hint")}</div></div>
+    <div><label class="check"><input type="checkbox" data-c="uplink" ${c.uplink ? "checked" : ""}> ${t("dev.uplink")}</label>
+      <label class="check"><input type="checkbox" data-c="downlink" ${c.downlink ? "checked" : ""}> ${t("dev.downlink")}</label>
+      <label class="check"><input type="checkbox" data-c="muted" ${c.muted ? "checked" : ""}> ${t("dev.muted")}</label></div></div>
+    <div class="row" style="margin-top:.5rem"><button class="primary" data-chsave="1">${t("save")}</button>${c.index > 0 && c.name !== "" || (c.index > 0 && !isNew) ? `<button class="danger" data-chdel="1">${t("dev.delch")}</button>` : ""}</div>`;
 }
 
 /* ───────── settings ───────── */
@@ -405,8 +608,17 @@ async function pageSettings() {
       <label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
       <h3>${t("s.defaults")}</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button></div>
-    <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.short")}</div><div id="pwmsg"></div>
-      <button id="pwsave">${t("save")}</button> <button id="logout">${t("logout")}</button></div></div>`;
+    <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
+      <button id="pwsave">${t("save")}</button> <button id="logout">${t("logout")}</button></div></div>
+    <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
+      <div><label>${t("adv.server_web_port")}</label><input type="number" id="swebport" min="1" max="65535" value="${esc(c.server.web_port || 8443)}"></div>
+      <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
+  const spec = await api("GET", "/api/advanced_spec");
+  const af = advancedForm($("#advform"), spec, c.advanced || {});
+  $("#advsave").onclick = async () => {
+    try { await api("POST", "/api/advanced", { advanced: af.read(), server_web_port: $("#swebport").value }); af.mark([]); $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
+    catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
   const hubBody = () => ({ hub: { name: $("#hname").value, email: $("#hemail").value, country: $("#hcountry").value, city: $("#hcity").value,
                                   description: $("#hdesc").value } });
   const lmode = () => ($$("input[name=lmode]").find(i => i.checked) || {}).value;
@@ -442,18 +654,18 @@ async function pageSettings() {
     try { await api("POST", "/api/hub", { airtime: { pct_hour: $("#ahour").value, pct_day: $("#aday").value }, share_positions_on_map: $("#spos").checked, defaults });
           $("#lmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
-  $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.short")}</div>`; } };
+  $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: SESS.password_min })}</div>`; } };
   $("#logout").onclick = async () => { await api("POST", "/api/logout", {}); route(); };
 }
 
 /* ───────── login / router ───────── */
 async function pageLogin(setup) {
   app().innerHTML = `<div class="center"><div class="card narrow"><h2>${setup ? t("setup.title") : t("login.title")}</h2>
-    <label>${t("password")}</label><input type="password" id="pw"><div class="hint">${t("password.short")}</div><div id="lmsg"></div>
+    <label>${t("password")}</label><input type="password" id="pw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="lmsg"></div>
     <button class="primary" id="lbtn">${setup ? t("setup.btn") : t("login")}</button></div></div>`;
   const go = async () => {
     try { await api("POST", setup ? "/api/setup" : "/api/login", { password: $("#pw").value }); route(); }
-    catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "locked" ? t("err.locked") : t("password.short")}</div>`; }
+    catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "locked" ? t("err.locked") : t("password.min", { n: SESS.password_min })}</div>`; }
   };
   $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
 }
@@ -466,13 +678,15 @@ async function route() {
   app().innerHTML = `<p class="muted">${t("loading")}</p>`;
   try {
     const sess = await api("GET", "/api/session");
+    SESS = sess;
     if (sess.setup_needed || !sess.logged_in) return pageLogin(sess.setup_needed);
     const page = location.hash.replace(/^#\/?/, "").split("/")[0];
     if (page === "links") return await pageLinks();
     if (page === "radio") return await pageRadio();
+    if (page === "device") return await pageDevice();
     if (page === "settings") return await pageSettings();
     await pageStatus();
-    timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, 30000);
+    timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, (SESS.page_refresh_s || 30) * 1000);
   } catch (e) {
     if (e.status === 401) return pageLogin(false);
     app().innerHTML = `<div class="card msg bad">${t("error")}: ${esc(e.message)}</div>`;

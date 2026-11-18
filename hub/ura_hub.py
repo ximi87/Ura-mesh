@@ -30,9 +30,34 @@ WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8091"))
 WEB_DIR = os.path.join(HERE, "web")
 COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(HERE), "common"))
 CONFIG = os.path.join(DATA_DIR, "config.json")
-URA_MQTT_ADDRESS = "127.0.0.1"          # private => firmware passes every packet; never contacted (proxy mode)
-NODES_EVERY = 600                 # full node report at least this often (seconds); changes go out within a minute
-NODE_MAX_AGE = 7 * 86400          # same rule as the server: nodes heard in the last 7 days
+
+# Every operational value is a setting (website: Settings → Advanced). Only the data folder and the
+# web port are startup options. key: (default, min, max)  — numbers; strings/bools have None limits.
+ADV_SPEC = {
+    "node_max_age_days":   (7, 1, 90),        # a node counts as "heard here" if heard within N days
+    "nodes_report_min":    (10, 1, 120),      # full node report to the server at least every N minutes
+    "nodes_check_s":       (60, 10, 3600),    # look for node changes every N seconds
+    "location_follow_m":   (50, 5, 5000),     # follow the radio only when it moved more than N metres
+    "location_check_s":    (30, 10, 3600),
+    "clock_sync":          (True, None, None),
+    "clock_sync_min":      (60, 5, 1440),
+    "mqtt_address":        ("127.0.0.1", None, None),   # set by "Prepare radio"; must be a private IP
+    "replay_window_s":     (600, 60, 3600),   # reject sealed boxes older than this / remember nonces this long
+    "session_hours":       (12, 1, 720),
+    "lockout_attempts":    (5, 3, 50),
+    "lockout_minutes":     (15, 1, 1440),
+    "password_min":        (8, 8, 64),
+    "server_retry_s":      (5, 2, 600),
+    "refused_retry_s":     (120, 10, 3600),
+    "keepalive_s":         (30, 5, 300),
+    "server_timeout_s":    (120, 30, 900),
+    "queue_max":           (1000, 50, 20000), # packets kept while the server is unreachable
+    "tile_source":         ("server", None, None),       # server = via the Ura server, then OpenStreetMap; or a URL with {z}/{x}/{y}
+    "tile_cache_days":     (14, 1, 365),
+    "tile_backoff_s":      (60, 5, 3600),
+    "page_refresh_s":      (30, 5, 600),
+    "diag_timeout_s":      (120, 10, 600),    # how long Diagnostics waits for an answer
+}
 
 log = logging.getLogger("ura-hub")
 
@@ -46,6 +71,7 @@ DEFAULT_CONFIG = {
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
+    "advanced": {k: v[0] for k, v in ADV_SPEC.items()},
     "peer_keys": {},              # peer hub id -> pinned end-to-end public key (base64)
     "web_password": None,
 }
@@ -95,6 +121,44 @@ class Config:
 
 cfg: Config = None
 loop: asyncio.AbstractEventLoop = None
+
+
+def adv(key):
+    """Current value of an advanced setting (falls back to its default)."""
+    v = cfg.get()["advanced"].get(key) if cfg else None
+    return ADV_SPEC[key][0] if v is None else v
+
+
+def clean_advanced(new):
+    """Validate a posted advanced-settings dict against ADV_SPEC. Returns (values, errors)."""
+    out, errors = {}, []
+    for k, (default, lo, hi) in ADV_SPEC.items():
+        if k not in new:
+            continue
+        v = new[k]
+        try:
+            if isinstance(default, bool):
+                v = bool(v)
+            elif isinstance(default, int):
+                v = int(float(v))
+            elif isinstance(default, float):
+                v = float(v)
+            else:
+                v = str(v).strip()[:300]
+        except (TypeError, ValueError):
+            errors.append(k)
+            continue
+        if lo is not None and not (lo <= v <= hi):
+            errors.append(k)
+            continue
+        if k == "mqtt_address" and not re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+(\.\d+)?$", v):
+            errors.append(k)
+            continue
+        if k == "tile_source" and v != "server" and not (v.startswith("https://") and "{z}" in v and "{x}" in v and "{y}" in v):
+            errors.append(k)
+            continue
+        out[k] = v
+    return out, errors
 
 
 # ───────────────────────── end-to-end identity ─────────────────────────
@@ -191,10 +255,11 @@ origins: Origins = None
 class SeenCache:
     """Drop replays (same box nonce) and duplicates (same packet from two routes) for 10 minutes."""
 
-    def __init__(self, ttl=600):
-        self.ttl, self.d, self.lock = ttl, {}, threading.Lock()
+    def __init__(self):
+        self.d, self.lock = {}, threading.Lock()
 
     def seen(self, key):
+        self.ttl = adv("replay_window_s")
         t = time.time()
         with self.lock:
             if len(self.d) > 5000:
@@ -331,6 +396,7 @@ class Radio:
         self.error, self.connected_at = "", 0
         self.stop = False
         self.stats = {}                   # what the radio reports about its own reception
+        self.own_fix = None               # the radio's own position at full precision
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
         pub.subscribe(self._on_lost, "meshtastic.connection.lost")
         pub.subscribe(self._on_packet, "meshtastic.receive")
@@ -357,6 +423,9 @@ class Radio:
             if not packet.get("viaMqtt"):
                 counters.add("heard")
             return
+        pos = packet.get("decoded", {}).get("position")
+        if pos and pos.get("precisionBits") in (None, 0, 32):
+            self._set_fix(pos)                # precise own fix (e.g. GPS); privacy-rounded copies are ignored
         tel = packet.get("decoded", {}).get("telemetry", {})
         if "deviceMetrics" in tel or "localStats" in tel:
             st = dict(self.stats)
@@ -395,19 +464,22 @@ class Radio:
                     with self.lock:
                         self.iface, self.error, self.connected_at = iface, "", time.time()
                     time_set = 0
+                    p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
+                    self._set_fix(p)
                     log.info("radio connected: %s (%s)", self.info().get("name"), self.conf.get("address"))
                 except Exception as e:
                     self.error = str(e)
             # Radios without GPS/internet drift or keep an old clock; their "last heard" times and message
             # timestamps then go wrong. Give the radio this computer's clock on connect and every hour.
-            if self.iface is not None and time.time() - time_set > 3600 and time.gmtime().tm_year >= 2025:
+            if adv("clock_sync") and self.iface is not None and time.time() - time_set > adv("clock_sync_min") * 60 \
+                    and time.gmtime().tm_year >= 2025:
                 try:
                     self.iface.localNode.setTime(int(time.time()))
                     time_set = time.time()
                     log.info("radio clock set from this computer")
                 except Exception as e:
                     log.warning("setting radio clock failed: %s", e)
-                    time_set = time.time() - 3300
+                    time_set = time.time() - adv("clock_sync_min") * 60 + 300
             time.sleep(5)
 
     def close(self):
@@ -443,7 +515,7 @@ class Radio:
                               "primary": ch.role == 1})
             checks = {
                 "mqtt_enabled": mc.mqtt.enabled, "proxy_to_client": mc.mqtt.proxy_to_client_enabled,
-                "private_address": mc.mqtt.address == URA_MQTT_ADDRESS or bool(re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.", mc.mqtt.address or "")),
+                "private_address": mc.mqtt.address == adv("mqtt_address") or bool(re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.", mc.mqtt.address or "")),
                 "encryption": mc.mqtt.encryption_enabled, "ignore_mqtt_off": not lc.lora.ignore_mqtt,
                 "channels_linked": all(c["uplink"] and c["downlink"] for c in chans) if chans else False,
                 "debug_log_off": not lc.security.debug_log_api_enabled}
@@ -500,9 +572,11 @@ class Radio:
         out = []
         my = iface.myInfo.my_node_num
         for num, n in list((iface.nodesByNum or {}).items()):
-            if num != my and (n.get("viaMqtt") or not n.get("lastHeard") or time.time() - n["lastHeard"] > NODE_MAX_AGE):
+            if num != my and (n.get("viaMqtt") or not n.get("lastHeard") or time.time() - n["lastHeard"] > adv("node_max_age_days") * 86400):
                 continue                      # remote nodes belong to the hub that heard them; old/no time = stale memory
             u, p = n.get("user", {}), n.get("position", {})
+            if num == my and self.own_fix:
+                p = {"latitude": self.own_fix["lat"], "longitude": self.own_fix["lon"], "altitude": self.own_fix["alt"]}
             out.append({"id": u.get("id") or f"!{num:08x}", "name": u.get("longName"), "short": u.get("shortName"),
                         "hw": u.get("hwModel"), "role": u.get("role"),
                         "lat": p.get("latitude") if share_positions else None,
@@ -512,15 +586,14 @@ class Radio:
                         "hops": n.get("hopsAway"), "own": num == my})
         return out
 
+    def _set_fix(self, p):
+        if p and p.get("latitude") is not None and p.get("longitude") is not None and not (p["latitude"] == 0 and p["longitude"] == 0):
+            self.own_fix = {"lat": p["latitude"], "lon": p["longitude"], "alt": p.get("altitude")}
+
     def own_position(self):
-        with self.lock:
-            iface = self.iface
-        if iface is None:
-            return None
-        p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
-        if p.get("latitude") is None or p.get("longitude") is None or (p["latitude"] == 0 and p["longitude"] == 0):
-            return None
-        return {"lat": p["latitude"], "lon": p["longitude"], "alt": p.get("altitude")}
+        """The radio's own position at full precision. Its broadcasts are rounded by the channel's
+        position precision (privacy), so those copies are not used for the hub's location."""
+        return self.own_fix if self.iface is not None else None
 
     def all_nodes(self):
         with self.lock:
@@ -531,6 +604,8 @@ class Radio:
         out = []
         for num, n in list((iface.nodesByNum or {}).items()):
             u, p = n.get("user", {}), n.get("position", {})
+            if num == my and self.own_fix:
+                p = {"latitude": self.own_fix["lat"], "longitude": self.own_fix["lon"]}
             out.append({"id": u.get("id") or f"!{num:08x}", "name": u.get("longName"), "short": u.get("shortName"),
                         "hw": u.get("hwModel"), "lat": p.get("latitude"), "lon": p.get("longitude"),
                         "last_heard": n.get("lastHeard"), "hops": n.get("hopsAway"), "snr": n.get("snr"),
@@ -563,6 +638,263 @@ class Radio:
         log.info("announced own node info%s", " (asking neighbours to reply)" if want_response else "")
         return True
 
+    def diagnose(self, node, kind, text=""):
+        """Send a test to a node from this radio and wait for the answer (Radio → Diagnostics)."""
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            raise RuntimeError("no_radio")
+        if kind == "broadcast":                    # test message to a channel (group); no answer expected
+            ch = int(node) if str(node).isdigit() else 0
+            iface.sendText(text[:200] or "Ura test", channelIndex=ch)
+            log.info("diagnostics broadcast on channel %s", ch)
+            return {"answered": True, "seconds": 0, "result": "sent"}
+        ev, out, sent = threading.Event(), {}, {}
+        target = int(node.lstrip("!"), 16)
+
+        def on_packet(packet, interface):
+            # Answers carry request_id = our packet id. Accept: a reply/ack FROM THE TARGET, or a routing
+            # error from anyone (e.g. our own radio giving up). Our own radio's local "ok" ack is ignored.
+            if interface is not iface or not sent.get("id"):
+                return
+            d = packet.get("decoded", {})
+            if d.get("requestId") != sent["id"]:
+                return
+            reason = d.get("routing", {}).get("errorReason", "NONE") if d.get("portnum") == "ROUTING_APP" else None
+            if packet.get("from") == target or (reason not in (None, "NONE")):
+                out["packet"] = packet
+                ev.set()
+        pub.subscribe(on_packet, "meshtastic.receive")
+        kw = {"destinationId": node}
+        try:
+            if kind == "dm":
+                pkt = iface.sendData(text.encode()[:200] or b"Ura test", portNum=portnums_pb2.PortNum.TEXT_MESSAGE_APP, wantAck=True, **kw)
+            elif kind == "trace":
+                pkt = iface.sendData(mesh_pb2.RouteDiscovery(), portNum=portnums_pb2.PortNum.TRACEROUTE_APP, wantResponse=True, hopLimit=7, **kw)
+            elif kind == "telemetry":
+                from meshtastic.protobuf import telemetry_pb2
+                # a telemetry request must name the kind wanted, otherwise nodes do not answer
+                pkt = iface.sendData(telemetry_pb2.Telemetry(device_metrics=telemetry_pb2.DeviceMetrics()),
+                                     portNum=portnums_pb2.PortNum.TELEMETRY_APP, wantResponse=True, **kw)
+            elif kind == "position":
+                pkt = iface.sendData(mesh_pb2.Position(), portNum=portnums_pb2.PortNum.POSITION_APP, wantResponse=True, **kw)
+            else:
+                raise ValueError("bad_kind")
+            sent["id"] = pkt.id
+            t0 = time.time()
+            answered = ev.wait(adv("diag_timeout_s"))
+        finally:
+            pub.unsubscribe(on_packet, "meshtastic.receive")
+        res = {"answered": answered, "seconds": round(time.time() - t0, 1)}
+        if answered:
+            d = out["packet"].get("decoded", {})
+            res["from"] = out["packet"].get("fromId")
+            if d.get("portnum") == "ROUTING_APP":
+                reason = d.get("routing", {}).get("errorReason", "NONE")
+                res["result"] = "delivered" if reason == "NONE" else reason
+            elif "traceroute" in d:
+                names = lambda ids: [(iface.nodesByNum.get(i, {}).get("user", {}).get("longName") or f"!{i:08x}") for i in ids]
+                tr = d["traceroute"]
+                res["route_to"] = names(tr.get("route", []))
+                res["route_back"] = names(tr.get("routeBack", []))
+                res["result"] = "route"
+            elif "telemetry" in d:
+                res["telemetry"] = {k: v for k, v in d["telemetry"].items() if k != "time"}
+                res["result"] = "telemetry"
+            elif "position" in d:
+                pos = d["position"]
+                res["position"] = {"lat": pos.get("latitude"), "lon": pos.get("longitude"), "alt": pos.get("altitude")}
+                res["result"] = "position"
+            else:
+                res["result"] = d.get("portnum")
+        log.info("diagnostics %s -> %s: %s", kind, node, res.get("result", "no answer"))
+        return res
+
+    # ───── programming the radio (Radio → Device settings) ─────
+    HIDDEN_FIELDS = {"security.private_key"}           # never leaves the radio through Ura
+    REBOOT_SECTIONS = {"device", "lora", "network", "bluetooth", "security", "position", "power", "display"}
+
+    @staticmethod
+    def _schema_of(msg, prefix=""):
+        """Describe every field of a protobuf config section (built from Meshtastic's own definitions)."""
+        from google.protobuf.descriptor import FieldDescriptor as F
+        out = []
+        for f in msg.DESCRIPTOR.fields:
+            name = prefix + f.name
+            repeated = f.is_repeated if hasattr(f, "is_repeated") else f.label == F.LABEL_REPEATED
+            if f.type == F.TYPE_MESSAGE and not repeated:
+                out += Radio._schema_of(getattr(msg, f.name), name + ".")
+                continue
+            kind = ("bool" if f.type == F.TYPE_BOOL else "enum" if f.type == F.TYPE_ENUM else
+                    "string" if f.type == F.TYPE_STRING else "float" if f.type in (F.TYPE_FLOAT, F.TYPE_DOUBLE) else
+                    "bytes" if f.type == F.TYPE_BYTES else "message" if f.type == F.TYPE_MESSAGE else "int")
+            item = {"name": name, "type": kind, "repeated": repeated,
+                    "readonly": repeated or kind in ("bytes", "message"),
+                    "unsigned": f.type in (F.TYPE_UINT32, F.TYPE_UINT64, F.TYPE_FIXED32, F.TYPE_FIXED64)}
+            if kind == "enum":
+                item["options"] = [v.name for v in f.enum_type.values]
+            out.append(item)
+        return out
+
+    @staticmethod
+    def _get(msg, dotted):
+        for part in dotted.split(".")[:-1]:
+            msg = getattr(msg, part)
+        return msg, dotted.split(".")[-1]
+
+    def _section(self, kind, section):
+        ln = self.iface.localNode
+        root = ln.localConfig if kind == "config" else ln.moduleConfig
+        if section not in [f.name for f in root.DESCRIPTOR.fields] or section == "version":
+            raise ValueError("bad_section")
+        return getattr(root, section)
+
+    def settings(self):
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            raise RuntimeError("no_radio")
+        ln = iface.localNode
+        from google.protobuf.descriptor import FieldDescriptor as F
+        out = {"sections": []}
+        for kind, root in (("config", ln.localConfig), ("module", ln.moduleConfig)):
+            for f in root.DESCRIPTOR.fields:
+                if f.name == "version" or f.type != F.TYPE_MESSAGE:
+                    continue
+                sec = getattr(root, f.name)
+                fields, values = [], {}
+                for item in self._schema_of(sec):
+                    full = f"{f.name}.{item['name']}"
+                    if full in self.HIDDEN_FIELDS:
+                        continue
+                    m, leaf = self._get(sec, item["name"])
+                    v = getattr(m, leaf)
+                    if item["repeated"]:
+                        v = [base64.b64encode(bytes(x)).decode() if isinstance(x, bytes) else str(x) for x in v]
+                    elif item["type"] == "enum":
+                        ev = m.DESCRIPTOR.fields_by_name[leaf].enum_type.values_by_number
+                        v = ev[v].name if v in ev else v
+                    elif item["type"] == "bytes":
+                        v = base64.b64encode(bytes(v)).decode()
+                    elif item["type"] == "message":
+                        v = str(v)
+                    fields.append(item)
+                    values[item["name"]] = v
+                out["sections"].append({"kind": kind, "name": f.name, "fields": fields, "values": values,
+                                        "reboot": f.name in self.REBOOT_SECTIONS})
+        me = iface.getMyUser() or {}
+        out["owner"] = {"long_name": me.get("longName", ""), "short_name": me.get("shortName", ""),
+                        "is_licensed": bool(me.get("isLicensed"))}
+        chans = []
+        for ch in ln.channels or []:
+            psk = bytes(ch.settings.psk)
+            chans.append({"index": ch.index, "role": ["DISABLED", "PRIMARY", "SECONDARY"][ch.role],
+                          "name": ch.settings.name, "psk": "default" if psk == b"\x01" else "none" if not psk else base64.b64encode(psk).decode(),
+                          "uplink": ch.settings.uplink_enabled, "downlink": ch.settings.downlink_enabled,
+                          "position_precision": ch.settings.module_settings.position_precision,
+                          "muted": ch.settings.module_settings.is_muted})
+        out["channels"] = chans
+        out["fixed"] = {"enabled": ln.localConfig.position.fixed_position, **(self.own_fix or {})}
+        try:
+            out["url"] = ln.getURL(includeAll=True)
+        except Exception:
+            out["url"] = ""
+        return out
+
+    def set_section(self, kind, section, values):
+        """Validate and write one config section. Returns True if the radio will restart."""
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            raise RuntimeError("no_radio")
+        sec = self._section(kind, section)
+        schema = {i["name"]: i for i in self._schema_of(sec)}
+        for name, v in values.items():
+            item = schema.get(name)
+            if not item or item["readonly"] or f"{section}.{name}" in self.HIDDEN_FIELDS:
+                raise ValueError(f"field:{name}")
+            m, leaf = self._get(sec, name)
+            try:
+                if item["type"] == "bool":
+                    v = bool(v)
+                elif item["type"] == "enum":
+                    v = m.DESCRIPTOR.fields_by_name[leaf].enum_type.values_by_name[str(v)].number
+                elif item["type"] == "float":
+                    v = float(v)
+                elif item["type"] == "int":
+                    v = int(float(v))
+                    if item["unsigned"] and v < 0:
+                        raise ValueError
+                else:
+                    v = str(v)
+                setattr(m, leaf, v)
+            except Exception:
+                raise ValueError(f"field:{name}")
+        iface.localNode.writeConfig(section)
+        log.info("radio settings written: %s.%s (%d fields)", kind, section, len(values))
+        return section in self.REBOOT_SECTIONS
+
+    def set_owner(self, long_name, short_name, is_licensed=False):
+        long_name, short_name = str(long_name or "").strip(), str(short_name or "").strip()
+        if not (1 <= len(long_name) <= 39 and 1 <= len(short_name) <= 4):
+            raise ValueError("owner")
+        self.iface.localNode.setOwner(long_name, short_name, is_licensed=bool(is_licensed))
+        log.info("radio owner set: %s (%s)", long_name, short_name)
+
+    def set_channel(self, data):
+        ln = self.iface.localNode
+        idx = int(data.get("index", -1))
+        if not 0 <= idx < 8:
+            raise ValueError("channel_index")
+        role = str(data.get("role", "SECONDARY")).upper()
+        if role == "DISABLED":
+            if idx == 0:
+                raise ValueError("primary_needed")
+            ln.deleteChannel(idx)
+            log.info("radio channel %d deleted", idx)
+            return
+        if (idx == 0) != (role == "PRIMARY"):
+            raise ValueError("channel_role")
+        name = str(data.get("name") or "").strip()
+        if len(name.encode()) > 11:
+            raise ValueError("channel_name")
+        psk = str(data.get("psk") or "default")
+        if psk == "default":
+            key = b"\x01"
+        elif psk == "none":
+            key = b""
+        elif psk == "random":
+            key = os.urandom(32)
+        else:
+            key = base64.b64decode(psk, validate=True)
+            if len(key) not in (1, 16, 32):
+                raise ValueError("channel_psk")
+        ch = ln.channels[idx]
+        ch.role = 1 if role == "PRIMARY" else 2
+        ch.settings.name, ch.settings.psk = name, key
+        ch.settings.uplink_enabled = bool(data.get("uplink", True))
+        ch.settings.downlink_enabled = bool(data.get("downlink", True))
+        pp = int(data.get("position_precision", ch.settings.module_settings.position_precision) or 0)
+        if not 0 <= pp <= 32:
+            raise ValueError("position_precision")
+        ch.settings.module_settings.position_precision = pp
+        ch.settings.module_settings.is_muted = bool(data.get("muted", False))
+        ln.writeChannel(idx)
+        log.info("radio channel %d written: %s", idx, name or "(preset name)")
+
+    def set_fixed(self, data):
+        ln = self.iface.localNode
+        if not data.get("enabled"):
+            ln.removeFixedPosition()
+            log.info("radio fixed position removed")
+            return
+        lat, lon, alt = float(data["lat"]), float(data["lon"]), int(float(data.get("alt") or 0))
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError("position")
+        ln.setFixedPosition(lat, lon, alt)
+        self.own_fix = {"lat": lat, "lon": lon, "alt": alt}
+        log.info("radio fixed position set: %s, %s", lat, lon)
+
     def prepare(self):
         """Configure the radio for Ura in one settings transaction (one reboot)."""
         with self.lock:
@@ -573,7 +905,7 @@ class Radio:
         ln.beginSettingsTransaction()
         m = ln.moduleConfig.mqtt
         m.enabled, m.proxy_to_client_enabled, m.encryption_enabled = True, True, True
-        m.address, m.map_reporting_enabled = URA_MQTT_ADDRESS, False
+        m.address, m.map_reporting_enabled = adv("mqtt_address"), False
         ln.writeConfig("mqtt")
         ln.localConfig.lora.ignore_mqtt = False
         ln.writeConfig("lora")
@@ -654,7 +986,7 @@ class Link:
             c = cfg.get()["server"]
             if not (c["address"] and c["fingerprint"] and c["hub_id"] and c["key"]):
                 self.state = "not_configured" if not c["hub_id"] else self.state
-                await self._wait(30)
+                await self._wait(adv("refused_retry_s"))
                 continue
             try:
                 self.state, self.detail = "connecting", ""
@@ -666,7 +998,7 @@ class Link:
                     self.state, self.detail = "refused", first.get("reason", "")
                     cfg.update(lambda d: d["server"].update(status=self.detail))
                     writer.close()
-                    await self._wait(120)
+                    await self._wait(adv("refused_retry_s"))
                     continue
                 self.writer = writer
                 self.state = "connected"
@@ -678,7 +1010,7 @@ class Link:
                          asyncio.create_task(self._nodes()), asyncio.create_task(self._location())]
                 try:
                     await self._push_info_soon()
-                    while line := await asyncio.wait_for(reader.readline(), 120):
+                    while line := await asyncio.wait_for(reader.readline(), adv("server_timeout_s")):
                         await self._on_message(json.loads(line))
                 finally:
                     for tk in tasks:
@@ -690,11 +1022,11 @@ class Link:
                 self.state, self.detail = "error", f"TLS: {e}"
             except FingerprintMismatch:
                 self.state, self.detail = "fingerprint_mismatch", ""
-                await self._wait(300)
+                await self._wait(adv("refused_retry_s"))
             except Exception as e:
                 self.state, self.detail = "error", str(e) or e.__class__.__name__
             self.writer = None
-            await self._wait(5)
+            await self._wait(adv("server_retry_s"))
 
     async def _wait(self, seconds):
         self.reconnect.clear()
@@ -733,21 +1065,21 @@ class Link:
 
     async def _keepalive(self):
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(adv("keepalive_s"))
             await self.send({"t": "ping"})
 
     async def _nodes(self):
-        """Report local nodes to the server: as soon as the radio is connected, then every NODES_EVERY s.
+        """Report local nodes to the server: as soon as the radio is connected, then at least every "nodes_report_min" minutes.
         Never report while the radio is down (an empty list would wipe the hub's nodes from the map)."""
         last, last_sig, checked = 0, None, 0
         while True:
             r = mt_radio()
-            if r and r.iface is not None and time.time() - checked >= 60:
+            if r and r.iface is not None and time.time() - checked >= adv("nodes_check_s"):
                 checked = time.time()
                 nodes = await asyncio.to_thread(r.nodes, cfg.get()["share_positions_on_map"])
                 sig = hashlib.sha256(json.dumps(sorted((n["id"], n["name"], n["lat"], n["lon"]) for n in nodes),
                                                 default=str).encode()).digest()
-                if nodes and (sig != last_sig or time.time() - last >= NODES_EVERY):
+                if nodes and (sig != last_sig or time.time() - last >= adv("nodes_report_min") * 60):
                     await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
                     last, last_sig = time.time(), sig
             await asyncio.sleep(10)
@@ -760,7 +1092,7 @@ class Link:
             r = mt_radio()
             if h.get("location_mode", "radio") == "radio" and r:
                 pos = await asyncio.to_thread(r.own_position)
-                if pos and (h["lat"] is None or abs(pos["lat"] - h["lat"]) > 0.0005 or abs(pos["lon"] - h["lon"]) > 0.0005):
+                if pos and (h["lat"] is None or distance_m(pos["lat"], pos["lon"], h["lat"], h["lon"]) > adv("location_follow_m")):
                     cfg.update(lambda d: d["hub"].update(lat=round(pos["lat"], 6), lon=round(pos["lon"], 6)))
                     h = cfg.get()["hub"]
                     log.info("hub position taken from the radio: %s, %s", h["lat"], h["lon"])
@@ -768,7 +1100,14 @@ class Link:
             if cur != sent and None not in cur:
                 if await self.send({"t": "location", "lat": cur[0], "lon": cur[1]}):
                     sent = cur
-            await asyncio.sleep(30)
+            await asyncio.sleep(adv("location_check_s"))
+
+
+def distance_m(lat1, lon1, lat2, lon2):
+    r = 6371000
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 class FingerprintMismatch(Exception):
@@ -830,7 +1169,7 @@ def receive_box(peer, box):
         counters.peer_add(peer, "blocked_recv", "key_" + state)
         return
     try:
-        inner, nonce = open_box(keys, box)
+        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
         m = json.loads(inner)
         data = base64.b64decode(m["data"])
     except Exception:
@@ -874,7 +1213,6 @@ def receive_from_peer(peer, topic, data):
 # ───────────────────────── website ─────────────────────────
 
 sessions = {}
-SESSION_TTL = 12 * 3600
 login_fail = {}                    # ip -> [failure times]
 SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; "
@@ -883,8 +1221,8 @@ SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "
 
 def locked_out(ip):
     t = time.time()
-    login_fail[ip] = [x for x in login_fail.get(ip, []) if t - x < 900]
-    return len(login_fail[ip]) >= 5
+    login_fail[ip] = [x for x in login_fail.get(ip, []) if t - x < adv("lockout_minutes") * 60]
+    return len(login_fail[ip]) >= adv("lockout_attempts")
 
 
 def hash_pw(pw, salt=None):
@@ -924,7 +1262,7 @@ def status_payload():
                                                        "limits": c["airtime"]},
             "links": [dict(l, e2e=identity.safety(l["peer"])) for l in link.links], "directory": link.directory,
             "my_key": safety_code(identity.public, identity.public)[:11], "radio_stats": r.stats if r else {},
-            "radio_position": r.own_position() if r else None}
+            "radio_position": r.own_position() if r else None, "node_max_age_days": adv("node_max_age_days")}
 
 
 class Web(http.server.BaseHTTPRequestHandler):
@@ -976,9 +1314,9 @@ class Web(http.server.BaseHTTPRequestHandler):
         return bool(m and sessions.get(m.group(1), 0) > time.time())
 
     def login_ok(self):
-        tok = secrets.token_urlsafe(24)
-        sessions[tok] = time.time() + SESSION_TTL
-        self.reply({"ok": True}, headers={"Set-Cookie": f"ura_hub={tok}; Max-Age={SESSION_TTL}; Path=/; HttpOnly; Secure; SameSite=Strict"})
+        tok, ttl = secrets.token_urlsafe(24), adv("session_hours") * 3600
+        sessions[tok] = time.time() + ttl
+        self.reply({"ok": True}, headers={"Set-Cookie": f"ura_hub={tok}; Max-Age={ttl}; Path=/; HttpOnly; Secure; SameSite=Strict"})
 
     def do_GET(self):
         p = urllib.parse.urlparse(self.path).path
@@ -997,7 +1335,8 @@ class Web(http.server.BaseHTTPRequestHandler):
             if not p.startswith("/api/"):
                 return self.static(p)
             if p == "/api/session":
-                return self.reply({"setup_needed": not cfg.get()["web_password"], "logged_in": self.authed(), "version": VERSION})
+                return self.reply({"setup_needed": not cfg.get()["web_password"], "logged_in": self.authed(), "version": VERSION,
+                                   "password_min": adv("password_min"), "page_refresh_s": adv("page_refresh_s")})
             if not self.authed():
                 return self.reply({"error": "login"}, 401)
             if p == "/api/status":
@@ -1005,11 +1344,18 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/nodes":
                 r = mt_radio()
                 return self.reply(r.all_nodes() if r else [])
+            if p == "/api/advanced_spec":
+                return self.reply({k: {"default": v[0], "min": v[1], "max": v[2]} for k, v in ADV_SPEC.items()})
             if p == "/api/config":
                 c = cfg.get()
                 c.pop("web_password", None)
                 c["server"].pop("key", None)
                 return self.reply(c)
+            if p == "/api/radio/settings":
+                r = mt_radio()
+                if not r or r.iface is None:
+                    return self.reply({"error": "no_radio"}, 400)
+                return self.reply(r.settings())
             if p == "/api/ports":
                 return self.reply(sorted(glob.glob("/dev/serial/by-id/*")) or sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")))
             self.reply({"error": "not_found"}, 404)
@@ -1027,7 +1373,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/setup":
                 if cfg.get()["web_password"]:
                     return self.reply({"error": "already_set"}, 400)
-                if len(b.get("password") or "") < 8:
+                if len(b.get("password") or "") < adv("password_min"):
                     return self.reply({"error": "password_short"}, 400)
                 cfg.update(lambda d: d.update(web_password=hash_pw(b["password"])))
                 return self.login_ok()
@@ -1052,8 +1398,21 @@ class Web(http.server.BaseHTTPRequestHandler):
             self.reply({"error": str(e)}, 500)
 
     def action(self, p, b):
+        if p == "/api/advanced":
+            vals, errors = clean_advanced(b.get("advanced") or {})
+            if errors:
+                return self.reply({"error": "invalid", "fields": errors}, 400)
+            cfg.update(lambda d: d["advanced"].update(vals))
+            if "server_web_port" in b:
+                try:
+                    port = int(b["server_web_port"])
+                    assert 1 <= port <= 65535
+                except Exception:
+                    return self.reply({"error": "invalid", "fields": ["server_web_port"]}, 400)
+                cfg.update(lambda d: d["server"].update(web_port=port))
+            return self.reply({"ok": True})
         if p == "/api/password":
-            if len(b.get("password") or "") < 8:
+            if len(b.get("password") or "") < adv("password_min"):
                 return self.reply({"error": "password_short"}, 400)
             cfg.update(lambda d: d.update(web_password=hash_pw(b["password"])))
             return self.reply({"ok": True})
@@ -1149,12 +1508,41 @@ class Web(http.server.BaseHTTPRequestHandler):
                                                        "enabled": bool(rc.get("enabled", True))}]))
             loop.call_soon_threadsafe(apply_radios)
             return self.reply({"ok": True})
+        if p in ("/api/radio/section", "/api/radio/owner", "/api/radio/channel", "/api/radio/fixed"):
+            r = mt_radio()
+            if not r or r.iface is None:
+                return self.reply({"error": "no_radio"}, 400)
+            try:
+                reboot = False
+                if p == "/api/radio/section":
+                    reboot = r.set_section(str(b.get("kind")), str(b.get("section")), b.get("values") or {})
+                elif p == "/api/radio/owner":
+                    r.set_owner(b.get("long_name"), b.get("short_name"), b.get("is_licensed"))
+                elif p == "/api/radio/channel":
+                    r.set_channel(b.get("channel") or {})
+                else:
+                    r.set_fixed(b.get("fixed") or {})
+            except ValueError as e:
+                return self.reply({"error": "invalid", "fields": [str(e).split(":", 1)[-1]]}, 400)
+            return self.reply({"ok": True, "reboot": reboot})
         if p == "/api/radio/prepare":
             r = mt_radio()
             if not r:
                 return self.reply({"error": "no_radio"}, 400)
             r.prepare()
             return self.reply({"ok": True})
+        if p == "/api/diag":
+            r = mt_radio()
+            if not r:
+                return self.reply({"error": "no_radio"}, 400)
+            node = str(b.get("node") or "")
+            if b.get("kind") == "broadcast":
+                node = str(int(b.get("channel") or 0))
+            elif not re.match(r"^!?[0-9a-fA-F]{8}$", node):
+                return self.reply({"error": "bad_node"}, 400)
+            else:
+                node = "!" + node.lstrip("!").lower()
+            return self.reply(r.diagnose(node, str(b.get("kind")), str(b.get("text") or "")))
         if p == "/api/radio/announce":
             r = mt_radio()
             if not r or not r.announce(bool(b.get("ask"))):
@@ -1163,7 +1551,6 @@ class Web(http.server.BaseHTTPRequestHandler):
         return self.reply({"error": "not_found"}, 404)
 
 
-TILE_MAX_AGE = 14 * 86400
 TILE_UA = f"Ura-hub/{VERSION} (+https://github.com/ximi87/Ura-mesh)"
 tile_lock = threading.Semaphore(4)
 tile_down = {}                    # source url prefix -> time until which it is skipped after a failure
@@ -1175,14 +1562,17 @@ def get_tile(z, x, y):
     if not (0 <= z <= 19 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
         return None
     path = os.path.join(DATA_DIR, "tiles", str(z), str(x), f"{y}.png")
-    if os.path.exists(path) and time.time() - os.path.getmtime(path) < TILE_MAX_AGE:
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < adv("tile_cache_days") * 86400:
         return open(path, "rb").read()
     srv = cfg.get()["server"]
     sources = []
-    if srv["address"] and srv["fingerprint"]:
+    if adv("tile_source") != "server":
+        sources.append((adv("tile_source").format(z=z, x=x, y=y), None))
+    elif srv["address"] and srv["fingerprint"]:
         host = srv["address"].rpartition(":")[0]
         sources.append((f"https://{host}:{srv.get('web_port') or 8443}/tiles/{z}/{x}/{y}.png", srv["fingerprint"]))
-    sources.append((f"https://tile.openstreetmap.org/{z}/{x}/{y}.png", None))
+    if adv("tile_source") == "server":
+        sources.append((f"https://tile.openstreetmap.org/{z}/{x}/{y}.png", None))
     for url, fp in sources:
         src = url.split("/tiles/")[0] if "/tiles/" in url else "osm"
         if time.time() < tile_down.get(src, 0):
@@ -1204,7 +1594,7 @@ def get_tile(z, x, y):
             os.replace(path + ".tmp", path)
             return data
         except Exception:
-            tile_down[src] = time.time() + 60
+            tile_down[src] = time.time() + adv("tile_backoff_s")
             continue
     return open(path, "rb").read() if os.path.exists(path) else None
 
@@ -1273,7 +1663,7 @@ async def main():
     identity = Identity()
     origins = Origins()
     loop = asyncio.get_running_loop()
-    radio_queue = asyncio.Queue(maxsize=1000)
+    radio_queue = asyncio.Queue(maxsize=adv("queue_max"))
     link = Link()
     apply_radios()
     threading.Thread(target=run_web, daemon=True).start()

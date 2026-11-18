@@ -126,7 +126,10 @@ with sync_playwright() as pw:
     nav(a, A + "/#/radio"); a.wait_for_selector("text=Radio connection"); check("hub radio page", True)
 
     # server public pages
-    nav(s, S + "/#/"); s.wait_for_selector(".hubitem"); check("map lists 2 hubs", s.locator(".hubitem").count() == 2)
+    nav(s, S + "/#/"); s.wait_for_selector("#map path.leaflet-interactive"); time.sleep(1)
+    check("home page is only the map (2 hub markers, no side panel)", s.locator("#map path.leaflet-interactive").count() >= 2 and s.locator(".hubitem").count() == 0)
+    nav(a, A + "/#/device"); a.wait_for_selector("#app .msg")
+    check("device page without radio says so", "radio" in a.inner_text("#app").lower())
     nav(s, S + "/#/hubs"); s.wait_for_selector("text=AL-TR"); check("hubs table", "DE-LB" in s.inner_text("#app"))
     s.click("text=AL-TR"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
     nav(s, S + "/#/stats"); s.wait_for_selector("text=Traffic between hubs"); check("stats page", "Active links" in s.inner_text("#app"))
@@ -139,6 +142,26 @@ with sync_playwright() as pw:
     s.wait_for_selector("text=✓ Saved")
     nav(s, S + "/#/complaints"); s.wait_for_selector("text=Checked, fixed."); check("complaint resolution public", "resolved" in s.inner_text("#app"))
 
+    # advanced settings: hub (valid value persists, invalid rejected + marked)
+    nav(a, A + "/#/settings"); a.wait_for_selector("[data-adv=node_max_age_days]")
+    a.fill("[data-adv=node_max_age_days]", "5"); a.click("#advsave"); a.wait_for_selector("#advmsg .msg.ok")
+    nav(a, A + "/#/settings"); a.wait_for_selector("[data-adv=node_max_age_days]")
+    check("hub advanced value persisted", a.input_value("[data-adv=node_max_age_days]") == "5")
+    a.fill("[data-adv=keepalive_s]", "1"); a.click("#advsave"); a.wait_for_selector("#advmsg .msg.bad")
+    check("hub advanced invalid value rejected + marked", "red" not in "" and a.locator("[data-adv-row=keepalive_s]").evaluate("e => e.style.outline").startswith("2px"))
+    nav(a, A + "/#/settings"); a.wait_for_selector("[data-adv=keepalive_s]")
+    check("hub invalid value not stored", a.input_value("[data-adv=keepalive_s]") == "30")
+    # advanced settings: server
+    nav(s, S + "/#/admin"); s.wait_for_selector("[data-adv=registrations_open]")
+    s.uncheck("[data-adv=registrations_open]"); s.fill("[data-adv=stats_retention_days]", "30"); s.click("#advsave"); s.wait_for_selector("#advmsg .msg.ok")
+    info = s.evaluate("fetch('/api/public/info').then(r => r.json())")
+    check("server registrations closed", info["registrations_open"] is False)
+    nav(s, S + "/#/admin"); s.wait_for_selector("[data-adv=registrations_open]")
+    check("server advanced persisted", s.input_value("[data-adv=stats_retention_days]") == "30")
+    s.check("[data-adv=registrations_open]"); s.click("#advsave"); s.wait_for_selector("#advmsg .msg.ok")
+    s.fill("[data-adv=tile_upstream]", "http://evil/x"); s.click("#advsave"); s.wait_for_selector("#advmsg .msg.bad")
+    check("server rejects non-https tile source", True)
+
     # login lockout after 5 wrong passwords (fresh browser context)
     lc = br.new_context(ignore_https_errors=True); lp = new_page(lc, "lock")
     for i in range(6):
@@ -147,8 +170,8 @@ with sync_playwright() as pw:
     lc.close()
 
     # language switch
-    nav(s, S + "/#/"); s.wait_for_selector(".lang button[data-l=sq]"); s.click(".lang button[data-l=sq]")
-    s.wait_for_selector("text=Hub-et dhe nyjet"); check("server Albanian", True)
+    nav(s, S + "/#/hubs"); s.wait_for_selector(".lang button[data-l=sq]"); s.click(".lang button[data-l=sq]")
+    s.wait_for_selector("text=Hub-et e regjistruar"); check("server Albanian", True)
     s.screenshot(path="/tmp/ura-t/shot_server_map_sq.png", full_page=True)
     nav(a, A + "/#/"); a.click(".lang button[data-l=sq]"); a.wait_for_selector("text=Lidhja me serverin"); check("hub Albanian", True)
     a.screenshot(path="/tmp/ura-t/shot_hub_status_sq.png", full_page=True)

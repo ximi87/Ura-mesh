@@ -26,6 +26,7 @@ Ura.add({
   "login": { en: "Log in", sq: "Hyr" }, "logout": { en: "Log out", sq: "Dil" }, "password": { en: "Password", sq: "Fjalëkalimi" },
   "password.new": { en: "New password", sq: "Fjalëkalim i ri" },
   "password.short": { en: "At least 8 characters.", sq: "Të paktën 8 karaktere." },
+  "password.min": { en: "At least {n} characters.", sq: "Të paktën {n} karaktere." },
   "password.wrong": { en: "Wrong password.", sq: "Fjalëkalim i gabuar." },
   "setup.title": { en: "First start: choose the admin password", sq: "Nisja e parë: zgjidhni fjalëkalimin e administratorit" },
   "setup.btn": { en: "Set password", sq: "Vendos fjalëkalimin" },
@@ -120,3 +121,25 @@ function barChart(el, labels, series) {
   labels.forEach((l, i) => { if (i % step === 0) s += `<text x="${P + i * bw}" y="${H - 4}">${esc(l)}</text>`; });
   el.innerHTML = s + "</svg>";
 }
+
+/* Advanced settings form. spec: {key: {default, min, max}}, values: {key: v}. Labels come from
+   translations "adv.<key>" and "adv.<key>.hint". Returns a function that reads the form. */
+function advancedForm(el, spec, values) {
+  const rows = Object.entries(spec).map(([k, sp]) => {
+    const v = values[k] == null ? sp.default : values[k];
+    const hint = t("adv." + k + ".hint") !== "adv." + k + ".hint" ? t("adv." + k + ".hint") : "";
+    const lim = sp.min != null ? ` <span class="muted small">(${sp.min}–${sp.max}; ${t("adv.default")} ${sp.default})</span>` : ` <span class="muted small">(${t("adv.default")} ${esc(String(sp.default))})</span>`;
+    if (typeof sp.default === "boolean")
+      return `<label class="check" data-adv-row="${k}"><input type="checkbox" data-adv="${k}" ${v ? "checked" : ""}> ${t("adv." + k)}${lim}</label>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+    const type = typeof sp.default === "number" ? "number" : "text";
+    return `<div data-adv-row="${k}"><label>${t("adv." + k)}${lim}</label><input type="${type}" data-adv="${k}" value="${esc(v)}" ${sp.min != null ? `min="${sp.min}" max="${sp.max}"` : ""}>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
+  });
+  el.innerHTML = rows.join("");
+  return {
+    read() { const o = {}; $$("[data-adv]", el).forEach(i => o[i.dataset.adv] = i.type === "checkbox" ? i.checked : (i.type === "number" ? Number(i.value) : i.value)); return o; },
+    mark(fields) { $$("[data-adv-row]", el).forEach(r => r.style.outline = (fields || []).includes(r.dataset.advRow) ? "2px solid var(--bad)" : ""); },
+  };
+}
+Ura.add({ "adv.title": { en: "Advanced settings", sq: "Cilësime të avancuara" }, "adv.default": { en: "default", sq: "parazgjedhur" },
+          "adv.invalid": { en: "Some values are outside their limits (marked red).", sq: "Disa vlera janë jashtë kufijve (të shënuara me të kuqe)." },
+          "adv.intro": { en: "Every operational value of this program. The defaults are sensible; change them only if you know why.", sq: "Çdo vlerë operative e këtij programi. Parazgjedhjet janë të arsyeshme; ndryshojini vetëm nëse e dini pse." } });

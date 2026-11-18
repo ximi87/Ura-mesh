@@ -93,6 +93,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .msg.info { background: var(--info-soft); color: var(--info); }
 
 #map { height: calc(100vh - 170px); min-height: 420px; border-radius: var(--radius); border: 1px solid var(--line); }
+.fullmap { height: calc(100vh - 150px); min-height: 420px; border-radius: var(--radius); border: 1px solid var(--line); }
 .minimap { height: 320px; border-radius: var(--radius); border: 1px solid var(--line); }
 .maplayout { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; }
 .maplayout .side { max-height: calc(100vh - 170px); overflow: auto; }
