@@ -7,7 +7,8 @@ sealed boxes through it. It shows the public map and statistics. It needs **only
 ## What you need
 
 - A small Linux server (1 CPU, 512 MB RAM is plenty) with a public address, Debian/Ubuntu.
-- Optional: a domain name pointing to it (e.g. `ura.example.org`).
+- A domain name pointing to it (e.g. `ura.example.org`) — recommended; Ura then gets its own
+  browser-trusted certificate automatically.
 - Two open TCP ports: **8100** (hubs) and **8443** (website). Both can be changed.
 
 ## 1. Install
@@ -81,15 +82,22 @@ links** shown on the *Register a hub* page.
 
 ## Domain and certificates
 
-The server uses its own self-signed certificate on both ports. That is deliberate: hubs pin
-its fingerprint, so a certificate authority is not needed for security, and the fingerprint
-never changes.
+Point a name (e.g. `ura.example.org`) at the server and forward the public ports to it — for
+example public **443 → server 8443** (website) and **8100 → 8100** (hubs).
 
-With a domain you can point it at the server and keep the ports. If you want a browser-trusted
-certificate for the **website**, put a reverse proxy (nginx, Caddy) with Let's Encrypt in
-front of port 8443 — but leave port **8100** (hubs) on Ura's own certificate, because a
-Let's Encrypt certificate changes every few months and every hub would stop at the changed
-fingerprint.
+**Website certificate — built in, nothing to install.** In *Admin → Advanced settings* turn on
+*Let's Encrypt certificate for the website*, enter the public name (and optionally an e-mail) and
+save. Ura obtains a free, browser-trusted certificate from Let's Encrypt by itself (ACME with the
+TLS-ALPN-01 check, which runs over the website port — no port 80 needed) and renews it 30 days
+before it expires. *Admin → Website certificate* shows its state; *Get / renew certificate now*
+runs it at once. Use *Test mode* first if you want to try without touching Let's Encrypt's limits.
+
+The Let's Encrypt certificate is used only for visitors who open the website **by its name**.
+Hubs, and anyone connecting by IP address, keep getting Ura's own certificate — so the
+fingerprint hubs pinned never changes, also not when Let's Encrypt renews.
+
+Requirements: the name resolves to your public address, and that address's port 443 reaches the
+server's website port.
 
 ## Map tiles
 

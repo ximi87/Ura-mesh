@@ -11,6 +11,12 @@ private groups, positions, telemetry and traceroute all work across the bridge.
 **Status:** Meshtastic — working and tested end-to-end with real radios between two countries.
 MeshCore — planned next.
 
+![A Ura network: hubs on several continents, their links, and packets moving live along them](docs/img/map-world.jpg)
+
+**New here? Read [the complete guide](docs/GUIDE.md)** — from installation to the first confirmed
+message, what is transmitted, who decides what, multi-hop, and how the encryption keeps the server
+blind.
+
 ```
    mesh A                                                                       mesh B
  nodes ~~LoRa~~ radio ==USB/IP== ura-hub ==TLS== ura-server ==TLS== ura-hub ==USB/IP== radio ~~LoRa~~ nodes
@@ -31,6 +37,31 @@ MeshCore — planned next.
 - Hubs connect *out* to the server — no port forwarding, no public address needed at a site.
 - Two hubs exchange traffic only after **both** accepted a link. A hub can also pass traffic on
   between its partners (**multi-hop**), but only to destinations the sending hub allowed.
+
+### Everything is in the hands of the hubs
+
+| | each **hub** | the **server** |
+|---|---|---|
+| chooses its partners (both sides must accept) | ✅ | ❌ |
+| decides what it sends: public channel, each group, private messages, positions | ✅ | ❌ |
+| decides what it lets onto its own air from each partner | ✅ | ❌ |
+| decides where its packets may travel further (multi-hop) and how far | ✅ | ❌ |
+| limits airtime, ends a link at any moment | ✅ | ❌ |
+| can read the traffic | its own mesh only | **never** — boxes are sealed end-to-end between the two hubs |
+| knows | its own radio and rules | that hub A sent hub B *N* boxes — not what is in them |
+
+The server is only the **meeting point**: it registers hubs (with an administrator's approval),
+passes on sealed boxes along links that both hubs accepted, and draws the public map and
+statistics. It holds no key that opens the traffic.
+
+### Multi-hop
+
+```
+ hub A ──── hub B ──── hub C          B offers: "I can pass your packets to C (and D, E…)"
+   │                                  A ticks:  "my packets may go to C" — sealed in every box
+   └── A decides, B passes,           C may still refuse packets that did not start at B
+       C accepts — all three agree    packets never loop, duplicates are dropped
+```
 
 ## Features
 
@@ -55,6 +86,17 @@ MeshCore — planned next.
 between hubs (X25519, AES-256, HMAC) with safety codes and key-change protection, replay
 protection, flood and airtime limits, login lockout, strict web security headers.
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security-model).
+
+### Screenshots
+
+| | |
+|---|---|
+| ![Nodes heard by one hub, on the live map](docs/img/map-nodes.jpg) | ![Statistics per link, both directions](docs/img/server-stats.jpg) |
+| *Live map: the nodes one hub hears* | *Statistics: every link, both directions* |
+| ![A hub's Links & rules page](docs/img/hub-links.jpg) | ![A hub's public page with its rules](docs/img/server-hub.jpg) |
+| *Hub: safety code, send/receive rules, multi-hop destinations* | *Server: a hub's public page — links, published rules, traffic, nodes* |
+
+*Screenshots show a demonstration network with made-up hubs.*
 
 Both websites are available in English and Albanian; more languages are welcome
 (see `common/ura.js` and the `Ura.add({...})` blocks in `server/web/app.js` and `hub/web/app.js`).
@@ -101,7 +143,9 @@ sudo bash contrib/install-server.sh
 ```
 
 Open `https://<server>:8443/#/admin`, choose the admin password, and publish the certificate
-fingerprint (shown on the *Register a hub* page) so hub operators can check it.
+fingerprint (shown on the *Register a hub* page) so hub operators can check it. With a domain name,
+turn on the built-in **Let's Encrypt** certificate in *Admin → Advanced settings* — Ura gets and
+renews it by itself, nothing extra to install.
 
 Full guide: [docs/INSTALL-SERVER.md](docs/INSTALL-SERVER.md)
 
@@ -121,6 +165,7 @@ Startup options are only the data folder and the ports (`URA_DATA`, `URA_WEB_POR
 
 | | |
 |---|---|
+| [docs/GUIDE.md](docs/GUIDE.md) | **start here:** the whole procedure, what is transmitted, who decides, multi-hop, encryption |
 | [docs/INSTALL-HUB.md](docs/INSTALL-HUB.md) | install and configure a hub, step by step |
 | [docs/INSTALL-SERVER.md](docs/INSTALL-SERVER.md) | install and run a server, domain and certificates |
 | [docs/FIRMWARE.md](docs/FIRMWARE.md) | the hub-radio firmware patch: why, build, flash, go back |
