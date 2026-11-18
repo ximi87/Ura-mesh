@@ -1,0 +1,23 @@
+# /etc/systemd/system/ura-server.service — Ura server (Python standard library only)
+[Unit]
+Description=Ura server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ura
+Group=ura
+Environment=URA_DATA=/var/lib/ura-server
+Environment=URA_PORT=8100
+Environment=URA_WEB_PORT=8443
+ExecStart=/usr/bin/python3 -u /opt/ura/server/ura_server.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ura-server
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

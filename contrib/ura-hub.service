@@ -1,0 +1,23 @@
+# /etc/systemd/system/ura-hub.service — Ura hub (radio over USB needs the dialout group)
+[Unit]
+Description=Ura hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ura
+Group=ura
+SupplementaryGroups=dialout
+Environment=URA_DATA=/var/lib/ura-hub
+Environment=URA_WEB_PORT=8091
+ExecStart=/opt/ura/venv/bin/python -u /opt/ura/hub/ura_hub.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ura-hub
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,9 @@
 Chain A-B-C: transit off at B -> stops; transit on -> reaches C with origin A. Triangle: no loop, no duplicates."""
 import json, os, random, ssl, subprocess, sys, time, urllib.request, http.cookiejar
 from meshtastic.protobuf import mqtt_pb2
-T = "/tmp/ura-mh"; PW = "TestPass123"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+T = os.environ.get("URA_TEST_DIR", "/tmp/ura-mh"); PW = "TestPass123"
+HUBPY = os.environ.get("URA_HUB_PYTHON", sys.executable)
 S = "https://127.0.0.1:8189"; HUBS = {"A": 8187, "B": 8186, "C": 8185}
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
 results = []
@@ -17,9 +19,9 @@ def client(base):
     return call
 def start():
     subprocess.run(f"for p in 8189 8188 8187 8186 8185; do pid=$(ss -ltnp \"sport = :$p\" | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid; done; rm -rf {T}/d*; sleep 1", shell=True)
-    subprocess.Popen(f"cd /tmp/ura-t/server && URA_DATA={T}/ds URA_PORT=8188 URA_WEB_PORT=8189 setsid nohup python3 -u ura_server.py > {T}/server.log 2>&1 < /dev/null &", shell=True)
+    subprocess.Popen(f"cd {REPO}/server && URA_DATA={T}/ds URA_PORT=8188 URA_WEB_PORT=8189 setsid nohup python3 -u ura_server.py > {T}/server.log 2>&1 < /dev/null &", shell=True)
     for n, port in HUBS.items():
-        subprocess.Popen(f"cd /tmp/ura-t/hub && URA_TEST_INJECT=1 URA_DATA={T}/d{n} URA_WEB_PORT={port} setsid nohup /opt/fleet/venv/bin/python -u ura_hub.py > {T}/hub{n}.log 2>&1 < /dev/null &", shell=True)
+        subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_DATA={T}/d{n} URA_WEB_PORT={port} setsid nohup {HUBPY} -u ura_hub.py > {T}/hub{n}.log 2>&1 < /dev/null &", shell=True)
     time.sleep(5)
 os.makedirs(T, exist_ok=True); start()
 s = client(S); s("/api/setup", {"password": PW})

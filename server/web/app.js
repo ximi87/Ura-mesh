@@ -85,6 +85,12 @@ Ura.add({
                sq: "Administratori e kontrollon kërkesën. Pasi të miratohet, hub-i juaj dhe nyjet e tij shfaqen në hartë. Ende nuk kalon trafik." },
   "join.s5": { en: "Ask another hub for a link. Traffic starts only when both hubs accept, and each hub's own rules always apply.",
                sq: "Kërkoni lidhje me një hub tjetër. Trafiku nis vetëm kur të dy hub-et pranojnë, dhe rregullat e secilit hub zbatohen gjithmonë." },
+  "join.guide": { en: "Install guide", sq: "Udhëzuesi i instalimit" },
+  "join.project": { en: "Source code & documentation", sq: "Kodi burimor & dokumentacioni" },
+  "join.closed": { en: "This server does not accept new hubs at the moment.", sq: "Ky server nuk pranon hub-e të reja për momentin." },
+  "foot.project": { en: "Ura is open source", sq: "Ura është me kod të hapur" },
+  "adv.project_url": { en: "Project page (source code, documentation)", sq: "Faqja e projektit (kodi, dokumentacioni)" },
+  "adv.install_guide_url": { en: "Install guide for hub operators", sq: "Udhëzuesi i instalimit për operatorët e hub-eve" },
   "join.server": { en: "This server", sq: "Ky server" }, "join.address": { en: "Address for hubs", sq: "Adresa për hub-et" },
   "join.fp": { en: "Certificate fingerprint (SHA-256)", sq: "Gjurma e certifikatës (SHA-256)" },
   "join.email_note": { en: "Your e-mail address is only visible to the administrator. It is used for questions about your hub and for complaints.",
@@ -348,6 +354,9 @@ async function pageStats() {
 function pageJoin() {
   const host = location.hostname;
   app().innerHTML = `<div class="grid g2"><div class="card"><h1>${t("join.title")}</h1><p>${t("join.intro")}</p>
+      <p><a class="btn primary" href="${esc(INFO.install_guide_url)}" target="_blank" rel="noopener">${t("join.guide")}</a>
+         <a class="btn" href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("join.project")}</a></p>
+      ${INFO.registrations_open ? "" : `<div class="msg warn">${t("join.closed")}</div>`}
       <ol class="steps"><li>${t("join.s1")}</li><li>${t("join.s2")}</li><li>${t("join.s3")}</li><li>${t("join.s4")}</li><li>${t("join.s5")}</li></ol>
       <p class="muted small">${t("join.email_note")}</p></div>
     <div class="card"><h2>${t("join.server")}</h2><dl class="kv">
@@ -440,12 +449,13 @@ async function pageAdmin() {
 
 async function route() {
   renderHeader(t("site.title"), MENU);
-  $("#foot").textContent = (location.hash.replace(/^#\/?/, "") === "") ? "" : t("foot");
   if (mapObj) { mapObj.remove(); mapObj = null; }
   const parts = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").map(decodeURIComponent);
   app().innerHTML = `<p class="muted">${t("loading")}</p>`;
   try {
     if (!INFO.version) INFO = await api("GET", "/api/public/info");
+    $("#foot").innerHTML = (location.hash.replace(/^#\/?/, "") === "") ? "" :
+      esc(t("foot")) + (INFO.project_url ? ` · <a href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("foot.project")}</a>` : "");
     switch (parts[0]) {
       case "": return await pageMap();
       case "hubs": return await pageHubs();

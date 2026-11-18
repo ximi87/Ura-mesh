@@ -1,0 +1,2 @@
+# ura-hub needs only the Meshtastic Python package (it brings pyserial, protobuf, pypubsub).
+meshtastic>=2.7

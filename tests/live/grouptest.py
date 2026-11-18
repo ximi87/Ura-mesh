@@ -1,7 +1,10 @@
 """Private-group test through the hub APIs (same calls the pages make)."""
 import json, os, ssl, sys, time, urllib.request, http.cookiejar
-T, L = "https://192.168.99.165:8091", "https://127.0.0.1:8091"
-TID, LID = "h_62fbbb06cca1", "h_c1fd7f91665e"
+# Two live hubs that are linked with each other:
+#   URA_HUB_A / URA_HUB_B  = their website URLs, URA_HUB_A_ID / URA_HUB_B_ID = their hub ids, URA_HUB_PW = password
+#   usage: grouptest.py setup | check | send '{"t": ["UraTest"], "l": []}' | cleanup
+T, L = os.environ["URA_HUB_A"], os.environ["URA_HUB_B"]
+TID, LID = os.environ["URA_HUB_A_ID"], os.environ["URA_HUB_B_ID"]
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
 def client(base):
     jar = http.cookiejar.CookieJar()

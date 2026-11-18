@@ -1,4 +1,7 @@
-import re, sys, time
+import os, re, sys, time
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+T = os.environ.get("URA_TEST_DIR", "/tmp/ura-t")
+HUBPY = os.environ.get("URA_HUB_PYTHON", "python3")
 from playwright.sync_api import sync_playwright
 
 S, A, B = "https://127.0.0.1:8199", "https://127.0.0.1:8197", "https://127.0.0.1:8196"
@@ -102,8 +105,8 @@ with sync_playwright() as pw:
     # key change: hub B gets a new identity (reinstall / impersonation) -> A must stop + warn
     pid = subprocess.run("ss -ltnp 'sport = :8196' | grep -oP 'pid=\\K[0-9]+' | head -1", shell=True, capture_output=True, text=True).stdout.strip()
     subprocess.run(["kill", pid]); time.sleep(1.5)
-    os.remove("/tmp/ura-t/hB/identity.key")
-    subprocess.Popen("cd /tmp/ura-t/hub && URA_DATA=/tmp/ura-t/hB URA_WEB_PORT=8196 setsid nohup /opt/fleet/venv/bin/python -u ura_hub.py >> /tmp/ura-t/hubB.log 2>&1 < /dev/null &", shell=True)
+    os.remove(f"{T}/hB/identity.key")
+    subprocess.Popen(f"cd {REPO}/hub && URA_DATA={T}/hB URA_WEB_PORT=8196 setsid nohup {HUBPY} -u ura_hub.py >> {T}/hubB.log 2>&1 < /dev/null &", shell=True)
     time.sleep(7)
     nav(b, B + "/#/"); b.wait_for_selector("#pw"); b.fill("#pw", PW); b.click("#lbtn"); b.wait_for_selector("text=Server connection")
     nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
@@ -175,11 +178,11 @@ with sync_playwright() as pw:
     # language switch
     nav(s, S + "/#/hubs"); s.wait_for_selector(".lang button[data-l=sq]"); s.click(".lang button[data-l=sq]")
     s.wait_for_selector("text=Hub-et e regjistruar"); check("server Albanian", True)
-    s.screenshot(path="/tmp/ura-t/shot_server_map_sq.png", full_page=True)
+    s.screenshot(path=f"{T}/shot_server_map_sq.png", full_page=True)
     nav(a, A + "/#/"); a.click(".lang button[data-l=sq]"); a.wait_for_selector("text=Lidhja me serverin"); check("hub Albanian", True)
-    a.screenshot(path="/tmp/ura-t/shot_hub_status_sq.png", full_page=True)
+    a.screenshot(path=f"{T}/shot_hub_status_sq.png", full_page=True)
     a.click(".lang button[data-l=en]")
-    nav(b, B + "/#/links"); b.wait_for_selector("text=My rules"); b.screenshot(path="/tmp/ura-t/shot_hub_links.png", full_page=True)
+    nav(b, B + "/#/links"); b.wait_for_selector("text=My rules"); b.screenshot(path=f"{T}/shot_hub_links.png", full_page=True)
     s.click(".lang button[data-l=en]"); nav(s, S + "/#/hub/" + "x"); time.sleep(1)
 
     # removal: admin removes hub B -> link gone at A

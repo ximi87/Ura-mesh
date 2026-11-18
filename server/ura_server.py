@@ -24,6 +24,8 @@ COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(os.path.d
 # ports are startup options. key: (default, min, max); strings/bools have None limits.
 ADV_SPEC = {
     "registrations_open":   (True, None, None),   # accept new hub registrations
+    "project_url":          ("https://github.com/ximi87/Ura-mesh", None, None),
+    "install_guide_url":    ("https://github.com/ximi87/Ura-mesh/blob/main/docs/INSTALL-HUB.md", None, None),
     "node_max_age_days":    (7, 1, 90),           # nodes older than this are not shown
     "max_nodes_per_report": (2000, 10, 20000),
     "relay_rate_per_s":     (30, 1, 1000),        # sealed boxes per second per hub (flood limit)
@@ -140,6 +142,8 @@ def clean_advanced(new):
         if lo is not None and not (lo <= v <= hi):
             errors.append(k)
         elif k == "tile_upstream" and not (v.startswith("https://") and all(x in v for x in ("{z}", "{x}", "{y}"))):
+            errors.append(k)
+        elif k in ("project_url", "install_guide_url") and not re.match(r"^https://\S+$", v):
             errors.append(k)
         elif k == "tile_contact" and not re.match(r"^(https?://|mailto:)\S+$", v):
             errors.append(k)
@@ -575,6 +579,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/public/info":
                 return self.reply({"version": VERSION, "fingerprint": FINGERPRINT, "hub_port": HUB_PORT,
                                    "password_min": adv("password_min"), "registrations_open": adv("registrations_open"),
+                                   "project_url": adv("project_url"), "install_guide_url": adv("install_guide_url"),
                                    "node_max_age_days": adv("node_max_age_days"), "complaint_min_chars": adv("complaint_min_chars"),
                                    "setup_needed": db.setting("admin_pw") is None, "admin": self.is_admin()})
             if p == "/api/public/hubs":

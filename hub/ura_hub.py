@@ -1716,6 +1716,8 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     os.makedirs(DATA_DIR, exist_ok=True)
     os.chmod(DATA_DIR, 0o700)
+    import meshcrypto
+    meshcrypto._selftest() and meshcrypto._selftest_e2e()   # FIPS-197, SP 800-38A, RFC 7748 vectors; raises if broken
     cfg = Config()
     global identity, origins
     identity = Identity()
