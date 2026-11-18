@@ -85,7 +85,8 @@ The radio's own settings (name, position, channels, LoRa, everything) are under
 
 - **Hub details:** a name, your e-mail address (visible only to the server's
   administrator), a **country code** and a **place code** (2–3 letters each, e.g.
-  `AL` + `TR`). Only one hub per place: a code always names exactly one hub.
+  `XX` + `YY` — use the ISO code of your country). Only one hub per place: a code always
+  names exactly one hub.
 - **Location of this hub:** *take the position from the radio* (follows the radio) or
   *enter manually*. If the radio has no GPS fix and no fixed position, set a fixed position
   under Device settings, or enter it here.
@@ -118,8 +119,8 @@ Once approved, your hub and its nodes appear on the server's map. **No traffic f
 
 ## 8. Multi-hop (optional)
 
-If your hub has several links, you can let traffic pass *through* it — e.g. Hamburg →
-Ludwigsburg → Tirana. Each hub decides for itself:
+If your hub has several links, you can let traffic pass *through* it — e.g. hub A → your hub →
+hub C. Each hub decides for itself:
 
 - **Settings → Multi-hop:** *Pass traffic between my linked hubs* + the maximum number of
   hub-to-hub hops. Then, per link, *Pass other hubs' packets to this hub*. Your hub then

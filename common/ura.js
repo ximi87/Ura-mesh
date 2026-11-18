@@ -53,7 +53,6 @@ Ura.add({
   "map": { en: "Map", sq: "Harta" }, "statistics": { en: "Statistics", sq: "Statistika" },
   "open_page": { en: "Open page", sq: "Hap faqen" }, "details": { en: "Details", sq: "Detaje" },
   "remote": { en: "remote", sq: "në distancë" }, "local": { en: "local", sq: "lokal" },
-  "albanian_note": { en: "", sq: "" },
 });
 
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }

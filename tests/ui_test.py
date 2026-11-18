@@ -55,10 +55,10 @@ with sync_playwright() as pw:
     nav(s, S + "/#/join"); s.wait_for_selector("text=Certificate fingerprint")
     server_fp = s.inner_text("dd.mono.small")
 
-    fpA, msgA = hub_register(a, A, "Test Tirana", "AL", "TR", 41.3485, 19.8976)
+    fpA, msgA = hub_register(a, A, "Test Hub A", "XA", "AAA", 10.5, 20.5)
     check("hub A sees same fingerprint as server page", fpA.strip() == server_fp.strip())
     check("hub A join request sent", "Request sent" in msgA)
-    fpB, msgB = hub_register(b, B, "Test Ludwigsburg", "DE", "LB", 48.8899, 9.1488)
+    fpB, msgB = hub_register(b, B, "Test Hub B", "XB", "BBB", 30.5, 40.5)
     check("hub B join request sent", "Request sent" in msgB)
 
     # duplicate code refused (hub C on fresh context against hub A's code) -> via API of server not needed; check error text path later
@@ -74,9 +74,9 @@ with sync_playwright() as pw:
 
     # hubs see each other, request + accept link
     time.sleep(3)
-    nav(a, A + "/#/links"); a.wait_for_selector("text=DE-LB")
+    nav(a, A + "/#/links"); a.wait_for_selector("text=XB-BBB")
     a.click("button[data-ask]"); time.sleep(2)
-    nav(a, A + "/#/links"); a.wait_for_selector("text=waiting for DE-LB to accept")
+    nav(a, A + "/#/links"); a.wait_for_selector("text=waiting for XB-BBB to accept")
     check("hub A requested link", True)
     nav(b, B + "/#/links"); b.wait_for_selector("button[data-acc]")
     check("hub B sees request", "asks to link" in b.inner_text("#app"))
@@ -92,7 +92,7 @@ with sync_playwright() as pw:
     nav(a, A + "/#/links"); a.wait_for_selector("text=My rules for this link")
     check("A send-positions rule persisted", not a.locator('input[data-dir=send][data-k=positions]').is_checked())
     time.sleep(2)
-    nav(b, B + "/#/links"); b.wait_for_selector("text=Rules of AL-TR")
+    nav(b, B + "/#/links"); b.wait_for_selector("text=Rules of XA-AAA")
     check("B sees A's published rules", "Not published" not in b.inner_text("[data-peer]"))
 
     # end-to-end encryption: same safety code on both hubs
@@ -115,14 +115,14 @@ with sync_playwright() as pw:
     a.click("button[data-trust]"); time.sleep(1.5)
     nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
     check("after trusting, link sealed again", "Everything on this link is sealed" in a.inner_text("#app"))
-    nav(s, S + "/#/hubs"); s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub")
+    nav(s, S + "/#/hubs"); s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
     check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
 
     # location change after registration reaches the server
-    nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "41.3301"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
+    nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "10.6123"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
     time.sleep(35)
-    nav(s, S + "/#/hubs"); s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub")
-    check("new hub location shown on server", "41.33010" in s.inner_text("#app"))
+    nav(s, S + "/#/hubs"); s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
+    check("new hub location shown on server", "10.61230" in s.inner_text("#app"))
 
     # status + radio pages (no radio)
     nav(a, A + "/#/"); a.wait_for_selector("text=Server connection"); check("hub status page", "connected" in a.inner_text("#app"))
@@ -135,10 +135,10 @@ with sync_playwright() as pw:
     check("live traffic switch on the map", s.locator("#liveon").count() == 1)
     nav(a, A + "/#/device"); a.wait_for_selector("#app .msg")
     check("device page without radio says so", "radio" in a.inner_text("#app").lower())
-    nav(s, S + "/#/hubs"); s.wait_for_selector("text=AL-TR"); check("hubs table", "DE-LB" in s.inner_text("#app"))
-    s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
+    nav(s, S + "/#/hubs"); s.wait_for_selector("text=XA-AAA"); check("hubs table", "XB-BBB" in s.inner_text("#app"))
+    s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
     nav(s, S + "/#/stats"); s.wait_for_selector("text=Traffic between hubs"); check("stats page", "Active links" in s.inner_text("#app"))
-    nav(s, S + "/#/hubs"); s.wait_for_selector("text=AL-TR"); check("hubs page explains codes", "One hub per place" in s.inner_text("#app"))
+    nav(s, S + "/#/hubs"); s.wait_for_selector("text=XA-AAA"); check("hubs page explains codes", "One hub per place" in s.inner_text("#app"))
     check("no shortcodes menu", s.locator("nav.menu >> text=Shortcodes").count() == 0)
     nav(s, S + "/#/complaints"); s.wait_for_selector("#csend")
     s.fill("#cem", "x@example.org"); s.fill("#ctx", "Test complaint about interference"); s.click("#csend")
@@ -188,7 +188,7 @@ with sync_playwright() as pw:
     # removal: admin removes hub B -> link gone at A
     nav(s, S + "/#/admin"); s.wait_for_selector("button[data-a=remove]")
     s.on("dialog", lambda d: d.accept())
-    s.locator("button[data-a=remove][data-code='DE-LB']").click(); time.sleep(4)
+    s.locator("button[data-a=remove][data-code='XB-BBB']").click(); time.sleep(4)
     nav(a, A + "/#/links"); a.wait_for_selector("text=Other hubs on the server")
     check("after removal A has no links", "No links yet" in a.inner_text("#app"))
     nav(b, B + "/#/settings"); b.wait_for_selector("text=Registration"); check("B shows removed", "removed" in b.inner_text("#app"))

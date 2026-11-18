@@ -9,8 +9,8 @@ line** (UTF-8, `\n`-terminated). The hub always connects; the server never conne
 ### Registration (one-off connection)
 
 ```
-hub → {"t":"join","name":"Tirana","email":"op@example.org","country":"AL","city":"TR",
-       "lat":41.34847,"lon":19.897555,"description":""}
+hub → {"t":"join","name":"Example hub","email":"op@example.org","country":"XX","city":"YY",
+       "lat":12.345,"lon":67.891,"description":""}
 srv → {"t":"joined","hub":"h_0123456789ab","key":"<48 hex>","status":"pending"}
    or {"t":"join_refused","reason":"name_required|email_required|code_invalid|code_taken|registrations_closed"}
 ```
@@ -74,7 +74,7 @@ nonce seen before.
 **Plaintext** (JSON):
 
 ```json
-{"topic": "msh/EU_868/2/e/LongFast/!36cb40cc",
+{"topic": "msh/EU_868/2/e/LongFast/!a1b2c3d4",
  "data": "<base64 Meshtastic ServiceEnvelope, packet still channel-encrypted>",
  "path": ["h_origin", "h_transit"],
  "allow": ["h_dest1", "h_dest2"],

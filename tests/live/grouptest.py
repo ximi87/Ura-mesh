@@ -24,13 +24,13 @@ RULE = lambda groups: {"send": {"on": True, "public": True, "private": True, "po
 def peer(c, pid): return c("/api/status")["counters"]["peers"].get(pid, {})
 step = sys.argv[1]
 if step == "setup":
-    print("tirana add ch:", t("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "UraTest", "psk": "random", "uplink": True, "downlink": True, "position_precision": 0}}))
+    print("hub A add ch:", t("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "UraTest", "psk": "random", "uplink": True, "downlink": True, "position_precision": 0}}))
     time.sleep(8)
     key = [c for c in t("/api/radio/settings")["channels"] if c["index"] == 1][0]["psk"]
     print("key length (base64 chars):", len(key))
     print("lb add ch:", l("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "UraTest", "psk": key, "uplink": True, "downlink": True, "position_precision": 0}}))
 elif step == "check":
-    print("tirana ch:", [(c["index"], c["name"], c["psk"][:8]) for c in t("/api/radio/settings")["channels"] if c["role"] != "DISABLED"])
+    print("hub A ch:", [(c["index"], c["name"], c["psk"][:8]) for c in t("/api/radio/settings")["channels"] if c["role"] != "DISABLED"])
     print("lb ch:    ", [(c["index"], c["name"], c["psk"][:8]) for c in l("/api/radio/settings")["channels"] if c["role"] != "DISABLED"])
     print("radio ready:", t("/api/status")["radio"]["ready"], l("/api/status")["radio"]["ready"])
 elif step == "send":
@@ -41,7 +41,7 @@ elif step == "send":
     time.sleep(15)
     after = peer(l, TID)
     print("LB before:", before); print("LB after: ", after)
-    print("tirana blocked_send:", peer(t, LID).get("blocked_send"))
+    print("hub A blocked_send:", peer(t, LID).get("blocked_send"))
 elif step == "cleanup":
     print("rules:", t("/api/rules", {"peer": LID, "rules": RULE([])}), l("/api/rules", {"peer": TID, "rules": RULE([])}))
     print("del:", t("/api/radio/channel", {"channel": {"index": 1, "role": "DISABLED"}}), l("/api/radio/channel", {"channel": {"index": 1, "role": "DISABLED"}}))

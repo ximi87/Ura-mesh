@@ -26,10 +26,10 @@
   links both sides accepted, relays sealed boxes only along those links, stores public node data
   for the map, counts traffic, handles complaints. Python standard library only.
 
-## A message from Tirana to Ludwigsburg
+## A message from mesh A to mesh B
 
-1. A phone in Tirana sends on LongFast. Tirane-1 (hub radio) hears it and, as an MQTT proxy,
-   hands the encrypted packet (a Meshtastic `ServiceEnvelope`) to the Tirana hub.
+1. A phone in mesh A sends on the public channel. Hub A's radio hears it and, as an MQTT proxy,
+   hands the encrypted packet (a Meshtastic `ServiceEnvelope`) to hub A.
 2. The hub **classifies** it: channel (public / which group / private message), and — by
    decrypting a copy in memory with the channel key from its own radio — its type (text,
    position, node info, telemetry, routing, traceroute). Nothing decrypted is stored or sent.
@@ -38,9 +38,9 @@
    sends `{"t":"mesh","boxes":{partner: box}}` to the server.
 4. The server checks the link is active in both directions' acceptance, rate-limits, counts, and
    passes the box to the partner. It cannot open it.
-5. The Ludwigsburg hub opens the box, drops replays/duplicates, applies **its receive rule** and
+5. Hub B opens the box, drops replays/duplicates, applies **its receive rule** and
    the **airtime limit**, and hands the packet to its radio as MQTT downlink.
-6. The patched tracker sends it on LoRa as a normal packet. The phone in Ludwigsburg sees the
+6. Hub B's patched radio sends it on LoRa as a normal packet. A phone in mesh B sees the
    message; the node appears in its node list with position, and can be messaged directly.
    Private messages (PKI-encrypted end-to-end by Meshtastic) and their delivery
    acknowledgements travel the same way.
