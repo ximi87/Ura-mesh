@@ -1494,7 +1494,10 @@ class Web(http.server.BaseHTTPRequestHandler):
             return self.reply({"ok": True})
         if p == "/api/server/check":
             addr = normalize_addr(b.get("address"))
-            return self.reply({"address": addr, "fingerprint": run_coro(server_check(addr))})
+            try:
+                return self.reply({"address": addr, "fingerprint": run_coro(server_check(addr))})
+            except Exception as e:           # unreachable / wrong port / not a Ura server: a normal situation, not a crash
+                return self.reply({"error": "unreachable", "detail": f"{addr}: {e.__class__.__name__} {e}".strip()}, 400)
         if p == "/api/server/trust":
             addr, fp = normalize_addr(b.get("address")), str(b.get("fingerprint") or "").upper()
             def upd(d):
@@ -1509,8 +1512,13 @@ class Web(http.server.BaseHTTPRequestHandler):
             h = c["hub"]
             if c["server"]["hub_id"]:
                 return self.reply({"error": "already_registered"}, 400)
-            reply = run_coro(server_join(c["server"]["address"], c["server"]["fingerprint"],
-                                         {k: h[k] for k in ("name", "email", "country", "city", "lat", "lon", "description")}))
+            try:
+                reply = run_coro(server_join(c["server"]["address"], c["server"]["fingerprint"],
+                                             {k: h[k] for k in ("name", "email", "country", "city", "lat", "lon", "description")}))
+            except FingerprintMismatch:
+                return self.reply({"error": "fingerprint_mismatch"}, 400)
+            except Exception as e:
+                return self.reply({"error": "unreachable", "detail": f"{e.__class__.__name__} {e}".strip()}, 400)
             if reply.get("t") != "joined":
                 return self.reply({"error": reply.get("reason", "refused")}, 400)
             cfg.update(lambda d: d["server"].update(hub_id=reply["hub"], key=reply["key"], status=reply["status"]))

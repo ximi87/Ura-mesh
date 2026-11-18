@@ -166,6 +166,9 @@ Ura.add({
   "adv.page_refresh_s": { en: "Refresh the status page every (seconds)", sq: "Rifresko faqen e gjendjes çdo (sekonda)" },
   "adv.diag_timeout_s": { en: "Diagnostics waits for an answer (seconds)", sq: "Diagnostikimi pret përgjigje (sekonda)" },
   "adv.server_web_port": { en: "Web port of the Ura server (for map tiles)", sq: "Porta web e serverit Ura (për pllakat e hartës)" },
+  "err.unreachable": { en: "The server could not be reached. Check the address and port. If the server is in your own network and you use its public name, your router may not support connections from inside to its own public address (“hairpin NAT”) — use the server's internal address instead, or add a hairpin rule on the router.",
+                       sq: "Serveri nuk u arrit. Kontrolloni adresën dhe portën. Nëse serveri është në rrjetin tuaj dhe përdorni emrin e tij publik, ruteri juaj mund të mos i lejojë lidhjet nga brenda drejt adresës së vet publike (“hairpin NAT”) — përdorni adresën e brendshme të serverit, ose shtoni një rregull hairpin në ruter." },
+  "err.fingerprint_mismatch": { en: "The server's certificate is not the one you trusted. Do not continue unless the server's administrator confirms a change.", sq: "Certifikata e serverit nuk është ajo që keni besuar. Mos vazhdoni nëse administratori i serverit nuk konfirmon një ndryshim." },
   "err.registrations_closed": { en: "The server does not accept new registrations at the moment.", sq: "Serveri nuk pranon regjistrime të reja për momentin." },
   "err.invalid": { en: "Some values are outside their limits (marked red).", sq: "Disa vlera janë jashtë kufijve (të shënuara me të kuqe)." },
   "dg.title": { en: "Diagnostics", sq: "Diagnostikimi" },
@@ -258,7 +261,7 @@ const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.r
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
-function errText(e) { const k = "err." + e.message; return t(k) !== k ? t(k) : esc(e.message); }
+function errText(e) { const k = "err." + e.message; return (t(k) !== k ? t(k) : esc(e.message)) + (e.data && e.data.detail ? ` <span class="small mono">(${esc(e.data.detail)})</span>` : ""); }
 function srvState(s) { return `srv.${s.link_state}`; }
 function regText(st) { return st ? t("reg." + st) : t("reg.none"); }
 function ruleRow(lbl, dir, key, rule) { return `<label class="check"><input type="checkbox" data-dir="${dir}" data-k="${key}" ${rule[key] ? "checked" : ""}> ${lbl}</label>`; }

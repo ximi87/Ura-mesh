@@ -99,6 +99,18 @@ fingerprint hubs pinned never changes, also not when Let's Encrypt renews.
 Requirements: the name resolves to your public address, and that address's port 443 reaches the
 server's website port.
 
+**Hubs inside the server's own network.** If a hub sits in the same network as the server and uses
+the public name, many routers cannot send a connection from inside back in to their own public
+address ("hairpin NAT") — the hub's *Check server* then reports that the server could not be
+reached. Either let such hubs use the server's internal address (just as secure: they pin the same
+fingerprint), or add a hairpin rule on the router. MikroTik example (internal network
+192.168.0.0/16, server 192.168.77.20):
+
+```
+/ip firewall nat add chain=srcnat action=masquerade protocol=tcp src-address=192.168.0.0/16 \
+    dst-address=192.168.77.20 dst-port=8100,8443 connection-nat-state=dstnat comment="Ura hairpin"
+```
+
 ## Map tiles
 
 Map tiles come from OpenStreetMap through the server's own cache (OpenStreetMap blocks

@@ -41,6 +41,11 @@ times become right as nodes are heard again.
 After the hub or the radio restarts, the radio needs up to a minute to reconnect. Packets arriving
 in that window are counted as *radio not connected*.
 
+**"The server could not be reached"**
+Check address and port (`name:8100`). If the hub is in the server's own network and uses the public
+name, the router probably lacks hairpin NAT — use the internal address or see
+[INSTALL-SERVER.md](INSTALL-SERVER.md#domain-and-certificates).
+
 **Server shows "certificate changed!"**
 The server's certificate fingerprint is not the one you trusted. Do not accept it blindly — ask
 the server administrator. Only if they confirm a planned change: Settings → Check server → trust.
