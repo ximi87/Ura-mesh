@@ -14,7 +14,7 @@ Ura.add({
   "map.legend.node": { en: "Node heard by a hub", sq: "Nyje e dëgjuar nga një hub" },
   "map.legend.link": { en: "Active link", sq: "Lidhje aktive" },
   "map.nohubs": { en: "No hub is registered yet.", sq: "Ende nuk ka asnjë hub të regjistruar." },
-  "map.nodes_on": { en: "{n} nodes", sq: "{n} nyje" },
+  "map.nodes_on": { en: "{n} nodes (heard in the last 7 days)", sq: "{n} nyje (dëgjuar në 7 ditët e fundit)" },
   "map.nopos": { en: "{n} nodes have no position and are not on the map.", sq: "{n} nyje nuk kanë pozicion dhe nuk shfaqen në hartë." },
   "hubs.title": { en: "Registered hubs", sq: "Hub-et e regjistruar" },
   "hubs.where": { en: "Place", sq: "Vendi" }, "hubs.links": { en: "Linked with", sq: "I lidhur me" },
@@ -173,7 +173,7 @@ async function pageMap() {
 async function pageHubs() {
   const hubs = await api("GET", "/api/public/hubs");
   app().innerHTML = `<div class="card"><h2>${t("hubs.title")}</h2><div class="tablewrap"><table>
-    <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")}</th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
+    <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")} <span class="muted small">(7 d)</span></th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
     ${hubs.map(h => `<tr><td><a href="#/hub/${h.id}"><b>${esc(h.code)}</b></a></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td>
       <td>${h.nodes}</td><td>${(h.links || []).map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)}</a>`).join(", ") || "–"}</td><td>${h.online ? t("online") : ago(h.last_seen)}</td></tr>`).join("")
       || `<tr><td colspan="6" class="muted">${t("map.nohubs")}</td></tr>`}

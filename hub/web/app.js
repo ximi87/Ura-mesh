@@ -126,6 +126,18 @@ Ura.add({
   "s.registration": { en: "Registration", sq: "Regjistrimi" },
   "s.forget": { en: "Forget registration", sq: "Harro regjistrimin" },
   "s.forget_q": { en: "Forget this hub's registration on the server? You would need to register again.", sq: "Ta harroj regjistrimin e këtij hub-i në server? Do t'ju duhet të regjistroheni përsëri." },
+  "loc.title": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
+  "loc.hint": { en: "Where the hub is shown on the Ura map. It should be where the radio is.", sq: "Ku shfaqet hub-i në hartën e Ura. Duhet të jetë aty ku ndodhet radio." },
+  "loc.radio": { en: "Take the position from the radio automatically (follows it if it moves)", sq: "Merre pozicionin nga radio automatikisht (e ndjek nëse lëviz)" },
+  "loc.manual": { en: "Enter the position manually", sq: "Vendose pozicionin manualisht" },
+  "loc.radio_pos": { en: "Position reported by the radio", sq: "Pozicioni i raportuar nga radio" },
+  "loc.use": { en: "Use it", sq: "Përdore" },
+  "loc.no_radio_pos": { en: "none — the radio has no GPS fix and no fixed position. Set a fixed position on the radio, or enter one manually here.",
+                        sq: "asnjë — radio nuk ka sinjal GPS dhe as pozicion fiks. Vendosni një pozicion fiks në radio ose shkruajeni manualisht këtu." },
+  "nc.title": { en: "Nodes", sq: "Nyjet" },
+  "nc.map": { en: "On the Ura map", sq: "Në hartën e Ura" }, "nc.map.hint": { en: "heard here in the last 7 days, incl. this radio — same number as on the server", sq: "dëgjuar këtu në 7 ditët e fundit, përfshirë këtë radio — i njëjti numër si në server" },
+  "nc.remote": { en: "From linked hubs", sq: "Nga hub-et e lidhur" },
+  "nc.memory": { en: "In the radio's memory", sq: "Në kujtesën e radios" }, "nc.memory.hint": { en: "everything the radio remembers, incl. {n} older or without time", sq: "gjithçka që radio mban mend, përfshirë {n} më të vjetra ose pa kohë" },
   "s.limits": { en: "Airtime and sharing", sq: "Koha në ajër dhe ndarja" },
   "s.air_hour": { en: "Max. airtime for remote packets, % of each hour (0 = no limit)", sq: "Koha maksimale në ajër për paketat e largëta, % e çdo ore (0 = pa kufi)" },
   "s.air_day": { en: "Max. airtime, % of each day (0 = no limit)", sq: "Koha maksimale në ajër, % e çdo dite (0 = pa kufi)" },
@@ -211,7 +223,11 @@ async function pageStatus() {
       <div class="stat"><div class="v">${g.received}</div><div class="l">${t("st.received")}</div></div>
       <div class="stat"><div class="v">${g.to_radio}</div><div class="l">${t("st.to_radio")}</div></div>
     </div>
-    <div class="grid g2" style="margin-top:1rem">
+    <div class="card" style="margin-top:1rem"><h2>${t("nc.title")}</h2><div class="grid g3">
+      <div class="stat"><div class="v">${localRecent.length + (own ? 1 : 0)}</div><div class="l">${t("nc.map")}<br><span class="small">${t("nc.map.hint")}</span></div></div>
+      <div class="stat"><div class="v">${nodes.filter(n => n.remote).length}</div><div class="l">${t("nc.remote")}</div></div>
+      <div class="stat"><div class="v">${nodes.length}</div><div class="l">${t("nc.memory")}<br><span class="small">${t("nc.memory.hint", { n: hidden })}</span></div></div></div></div>
+    <div class="grid g2">
       <div class="card"><h2>${t("rx.title")}</h2>${receptionHtml(s.radio_stats)}</div>
       <div class="card"><h2>${t("st.airtime")}</h2>
         <p>${t("st.hour")}: <b>${pct(a.used_hour, 3600)}</b> (${a.limits.pct_hour ? t("st.limit", { x: a.limits.pct_hour + " %" }) : t("st.nolimit")})<br>
@@ -365,7 +381,6 @@ async function pageSettings() {
     <div class="card"><h2>${t("s.hub")}</h2>
       ${inp("hname", "s.name", "text", h.name, reg)}${inp("hemail", "s.email", "email", h.email, reg)}
       <div class="grid g2" style="gap:.5rem">${inp("hcountry", "s.country", "text", h.country, reg)}${inp("hcity", "s.city", "text", h.city, reg)}</div>
-      <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat, reg)}${inp("hlon", "s.lon", "number", h.lon, reg)}</div>
       <label>${t("s.desc")}</label><textarea id="hdesc" ${reg ? "disabled" : ""}>${esc(h.description || "")}</textarea>
       ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}</div>
     <div class="card"><h2>${t("s.server")}</h2>
@@ -377,6 +392,13 @@ async function pageSettings() {
       <div id="jmsg"></div>
       ${!reg && c.server.fingerprint ? `<button class="primary" id="sjoin">${t("s.join")}</button>` : ""}
       ${reg ? `<button class="danger" id="sforget">${t("s.forget")}</button>` : ""}</div>
+    <div class="card"><h2>${t("loc.title")}</h2>
+      <p class="muted small">${t("loc.hint")}</p>
+      <label class="check"><input type="radio" name="lmode" value="radio" ${h.location_mode !== "manual" ? "checked" : ""}> ${t("loc.radio")}</label>
+      <label class="check"><input type="radio" name="lmode" value="manual" ${h.location_mode === "manual" ? "checked" : ""}> ${t("loc.manual")}</label>
+      <p class="small">${t("loc.radio_pos")}: ${s.radio_position ? `<b>${fmtPos(s.radio_position.lat, s.radio_position.lon)}</b> <button class="small" id="luse">${t("loc.use")}</button>` : `<span class="muted">${t("loc.no_radio_pos")}</span>`}</p>
+      <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat)}${inp("hlon", "s.lon", "number", h.lon)}</div>
+      <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button></div>
     <div class="card"><h2>${t("s.limits")}</h2>
       ${inp("ahour", "s.air_hour", "number", c.airtime.pct_hour)}${inp("aday", "s.air_day", "number", c.airtime.pct_day)}
       <p class="hint">${t("s.air_hint")}</p>
@@ -386,7 +408,16 @@ async function pageSettings() {
     <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.short")}</div><div id="pwmsg"></div>
       <button id="pwsave">${t("save")}</button> <button id="logout">${t("logout")}</button></div></div>`;
   const hubBody = () => ({ hub: { name: $("#hname").value, email: $("#hemail").value, country: $("#hcountry").value, city: $("#hcity").value,
-                                  lat: $("#hlat").value, lon: $("#hlon").value, description: $("#hdesc").value } });
+                                  description: $("#hdesc").value } });
+  const lmode = () => ($$("input[name=lmode]").find(i => i.checked) || {}).value;
+  const syncMode = () => { const auto = lmode() === "radio"; $("#hlat").disabled = auto; $("#hlon").disabled = auto; };
+  $$("input[name=lmode]").forEach(i => i.onchange = syncMode); syncMode();
+  if ($("#luse")) $("#luse").onclick = () => { $("#hlat").value = s.radio_position.lat; $("#hlon").value = s.radio_position.lon; };
+  $("#locsave").onclick = async () => {
+    try { await api("POST", "/api/hub", { hub: { location_mode: lmode(), lat: $("#hlat").value, lon: $("#hlon").value } });
+          $("#locmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(pageSettings, 1500); }
+    catch (e) { $("#locmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
   if ($("#hsave")) $("#hsave").onclick = async () => { await api("POST", "/api/hub", hubBody()); $("#hmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; };
   $("#scheck").onclick = async () => {
     $("#sfp").innerHTML = `<p class="muted">…</p>`;

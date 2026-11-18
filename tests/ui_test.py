@@ -28,8 +28,12 @@ def hub_register(p, base, name, country, city, lat, lon):
     p.wait_for_selector("text=Server connection")
     p.goto(base + "/#/settings"); p.wait_for_selector("#hname")
     p.fill("#hname", name); p.fill("#hemail", f"{name.replace(' ','').lower()}@example.org")
-    p.fill("#hcountry", country); p.fill("#hcity", city); p.fill("#hlat", str(lat)); p.fill("#hlon", str(lon))
+    p.fill("#hcountry", country); p.fill("#hcity", city)
     p.click("#hsave"); p.wait_for_selector("#hmsg .msg.ok")
+    # location card: no radio in the test -> manual position
+    p.check("input[name=lmode][value=manual]"); p.fill("#hlat", str(lat)); p.fill("#hlon", str(lon))
+    p.click("#locsave"); p.wait_for_selector("#locmsg .msg.ok"); time.sleep(1.8); p.wait_for_selector("#hname")
+    check(f"{name}: manual location saved", p.input_value("#hlat").startswith(str(lat)[:5]))
     p.fill("#saddr", "127.0.0.1:8198"); p.click("#scheck")
     p.wait_for_selector("#strust")
     fp = p.inner_text("#sfp .mono")
@@ -110,6 +114,12 @@ with sync_playwright() as pw:
     check("after trusting, link sealed again", "Everything on this link is sealed" in a.inner_text("#app"))
     nav(s, S + "/#/hubs"); s.click("text=AL-TR"); s.wait_for_selector("text=About this hub")
     check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
+
+    # location change after registration reaches the server
+    nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "41.3301"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
+    time.sleep(35)
+    nav(s, S + "/#/hubs"); s.click("text=AL-TR"); s.wait_for_selector("text=About this hub")
+    check("new hub location shown on server", "41.33010" in s.inner_text("#app"))
 
     # status + radio pages (no radio)
     nav(a, A + "/#/"); a.wait_for_selector("text=Server connection"); check("hub status page", "connected" in a.inner_text("#app"))

@@ -11,7 +11,7 @@
 Python standard library only. Settings: environment variables (see README).
 """
 import asyncio, base64, hashlib, hmac, http.server, json, logging, os, re, secrets, socketserver
-import sqlite3, ssl, subprocess, threading, time, urllib.parse
+import sqlite3, ssl, subprocess, threading, time, urllib.parse, urllib.request
 
 VERSION = "0.3.0"
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
@@ -314,6 +314,11 @@ async def handle(reader, writer):
                 db.x("UPDATE hubs SET rules=?, radios=?, pubkey=COALESCE(?, pubkey) WHERE id=?",
                      (json.dumps(info.get("rules")), json.dumps(info.get("radios") or []), pubkey_of(info), hub_id))
                 await push_directory()                     # other hubs see changed rules at once
+            elif t == "location":
+                lat, lon = num(msg.get("lat")), num(msg.get("lon"))
+                if lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
+                    db.x("UPDATE hubs SET lat=?, lon=? WHERE id=?", (lat, lon, hub_id))
+                    await push_directory()
             elif status != "approved":
                 continue                                   # pending hubs: no nodes, links or traffic yet
             elif t == "nodes":
@@ -352,6 +357,38 @@ async def handle(reader, writer):
 
 
 RATE, BURST = 30.0, 200.0                              # mesh frames per second per hub
+
+# Map tiles: OpenStreetMap blocks anonymous browser requests; apps must identify themselves and cache.
+TILE_UPSTREAM = os.environ.get("URA_TILES", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+TILE_UA = f"Ura-server/{VERSION} (+https://github.com/ximi87/Ura-mesh)"
+TILE_MAX_AGE = 14 * 86400
+tile_lock = threading.Semaphore(4)
+tile_down_until = 0.0                                  # after a failure, don't make pages wait for a dead upstream
+
+
+def get_tile(z, x, y):
+    """Return PNG bytes for a tile from the disk cache or OpenStreetMap (None if unavailable)."""
+    if not (0 <= z <= 19 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        return None
+    path = os.path.join(DATA_DIR, "tiles", str(z), str(x), f"{y}.png")
+    global tile_down_until
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < TILE_MAX_AGE:
+        return open(path, "rb").read()
+    if time.time() < tile_down_until:
+        return open(path, "rb").read() if os.path.exists(path) else None
+    try:
+        with tile_lock:
+            req = urllib.request.Request(TILE_UPSTREAM.format(z=z, x=x, y=y), headers={"User-Agent": TILE_UA})
+            data = urllib.request.urlopen(req, timeout=6).read()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(path + ".tmp", path)
+        return data
+    except Exception as e:
+        log.warning("tile %s/%s/%s: %s (not retrying for 60 s)", z, x, y, e)
+        tile_down_until = time.time() + 60
+        return open(path, "rb").read() if os.path.exists(path) else None
 
 
 def pubkey_of(info):
@@ -399,7 +436,7 @@ async def link_remove(hub, link_id):
 sessions = {}          # token -> expiry
 login_fail = {}        # ip -> [failure times]
 SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-               "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; "
+               "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; "
                                           "style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"}
 complaint_times = {}   # ip -> [times]
 SESSION_TTL = 12 * 3600
@@ -460,6 +497,17 @@ class Web(http.server.BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         p, qs = u.path, urllib.parse.parse_qs(u.query)
         try:
+            m = re.match(r"^/tiles/(\d+)/(\d+)/(\d+)\.png$", p)
+            if m:
+                data = get_tile(*map(int, m.groups()))
+                if data is None:
+                    return self.reply({"error": "tile_unavailable"}, 502)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "public, max-age=604800")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if not p.startswith("/api/"):
                 return self.static(p)
             if p == "/api/public/info":

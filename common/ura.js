@@ -98,7 +98,8 @@ function renderHeader(title, items, extraRight) {
 function makeMap(el, center, zoom) {
   // no zoom animation: removing a map mid-animation (page change) throws inside Leaflet
   const m = L.map(el, { worldCopyJump: true, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false }).setView(center || [45, 15], zoom || 4);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap" }).addTo(m);
+  // tiles come through Ura's own cache (OpenStreetMap blocks anonymous browser requests)
+  L.tileLayer("/tiles/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(m);
   return m;
 }
 const HUB_COLORS = ["#0f7b6c", "#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];

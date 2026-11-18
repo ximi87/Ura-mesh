@@ -14,7 +14,7 @@
 Needs the `meshtastic` Python package (already present with the Meshtastic CLI).
 """
 import asyncio, base64, copy, glob, hashlib, hmac, http.server, json, logging, math, os, re, secrets
-import signal, socketserver, ssl, subprocess, threading, time, urllib.parse
+import signal, socketserver, ssl, subprocess, threading, time, urllib.parse, urllib.request
 
 from pubsub import pub
 import meshtastic.serial_interface, meshtastic.tcp_interface
@@ -31,14 +31,16 @@ WEB_DIR = os.path.join(HERE, "web")
 COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(HERE), "common"))
 CONFIG = os.path.join(DATA_DIR, "config.json")
 URA_MQTT_ADDRESS = "127.0.0.1"          # private => firmware passes every packet; never contacted (proxy mode)
-NODES_EVERY = 300
+NODES_EVERY = 600                 # full node report at least this often (seconds); changes go out within a minute
+NODE_MAX_AGE = 7 * 86400          # same rule as the server: nodes heard in the last 7 days
 
 log = logging.getLogger("ura-hub")
 
 RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True}
 DEFAULT_CONFIG = {
-    "hub": {"name": "", "email": "", "country": "", "city": "", "lat": None, "lon": None, "description": ""},
-    "server": {"address": "", "fingerprint": "", "hub_id": "", "key": "", "status": ""},
+    "hub": {"name": "", "email": "", "country": "", "city": "", "lat": None, "lon": None, "description": "",
+            "location_mode": "radio"},            # radio = follow the connected radio's position, manual = typed in
+    "server": {"address": "", "fingerprint": "", "hub_id": "", "key": "", "status": "", "web_port": 8443},
     "radios": [],                 # [{"id","net":"mt","transport":"serial|tcp","address","enabled"}]
     "airtime": {"pct_hour": 10.0, "pct_day": 0.0},
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
@@ -498,8 +500,8 @@ class Radio:
         out = []
         my = iface.myInfo.my_node_num
         for num, n in list((iface.nodesByNum or {}).items()):
-            if num != my and (n.get("viaMqtt") or not n.get("lastHeard")):
-                continue                      # remote nodes belong to the hub that heard them; no time = stale memory
+            if num != my and (n.get("viaMqtt") or not n.get("lastHeard") or time.time() - n["lastHeard"] > NODE_MAX_AGE):
+                continue                      # remote nodes belong to the hub that heard them; old/no time = stale memory
             u, p = n.get("user", {}), n.get("position", {})
             out.append({"id": u.get("id") or f"!{num:08x}", "name": u.get("longName"), "short": u.get("shortName"),
                         "hw": u.get("hwModel"), "role": u.get("role"),
@@ -509,6 +511,16 @@ class Radio:
                         "last_heard": n.get("lastHeard") or (int(time.time()) if num == my else None),
                         "hops": n.get("hopsAway"), "own": num == my})
         return out
+
+    def own_position(self):
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            return None
+        p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
+        if p.get("latitude") is None or p.get("longitude") is None or (p["latitude"] == 0 and p["longitude"] == 0):
+            return None
+        return {"lat": p["latitude"], "lon": p["longitude"], "alt": p.get("altitude")}
 
     def all_nodes(self):
         with self.lock:
@@ -663,7 +675,7 @@ class Link:
                 cfg.update(lambda d: d["server"].update(status=first.get("status")))
                 log.info("connected to server %s as %s (%s)", c["address"], c["hub_id"], first.get("status"))
                 tasks = [asyncio.create_task(self._uplink()), asyncio.create_task(self._keepalive()),
-                         asyncio.create_task(self._nodes())]
+                         asyncio.create_task(self._nodes()), asyncio.create_task(self._location())]
                 try:
                     await self._push_info_soon()
                     while line := await asyncio.wait_for(reader.readline(), 120):
@@ -727,15 +739,36 @@ class Link:
     async def _nodes(self):
         """Report local nodes to the server: as soon as the radio is connected, then every NODES_EVERY s.
         Never report while the radio is down (an empty list would wipe the hub's nodes from the map)."""
-        last = 0
+        last, last_sig, checked = 0, None, 0
         while True:
             r = mt_radio()
-            if r and r.iface is not None and time.time() - last >= NODES_EVERY:
+            if r and r.iface is not None and time.time() - checked >= 60:
+                checked = time.time()
                 nodes = await asyncio.to_thread(r.nodes, cfg.get()["share_positions_on_map"])
-                if nodes:
+                sig = hashlib.sha256(json.dumps(sorted((n["id"], n["name"], n["lat"], n["lon"]) for n in nodes),
+                                                default=str).encode()).digest()
+                if nodes and (sig != last_sig or time.time() - last >= NODES_EVERY):
                     await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
-                    last = time.time()
+                    last, last_sig = time.time(), sig
             await asyncio.sleep(10)
+
+    async def _location(self):
+        """Keep the hub's map position in step: follow the radio (automatic) or the typed-in one."""
+        sent = None
+        while True:
+            h = cfg.get()["hub"]
+            r = mt_radio()
+            if h.get("location_mode", "radio") == "radio" and r:
+                pos = await asyncio.to_thread(r.own_position)
+                if pos and (h["lat"] is None or abs(pos["lat"] - h["lat"]) > 0.0005 or abs(pos["lon"] - h["lon"]) > 0.0005):
+                    cfg.update(lambda d: d["hub"].update(lat=round(pos["lat"], 6), lon=round(pos["lon"], 6)))
+                    h = cfg.get()["hub"]
+                    log.info("hub position taken from the radio: %s, %s", h["lat"], h["lon"])
+            cur = (h["lat"], h["lon"])
+            if cur != sent and None not in cur:
+                if await self.send({"t": "location", "lat": cur[0], "lon": cur[1]}):
+                    sent = cur
+            await asyncio.sleep(30)
 
 
 class FingerprintMismatch(Exception):
@@ -844,7 +877,7 @@ sessions = {}
 SESSION_TTL = 12 * 3600
 login_fail = {}                    # ip -> [failure times]
 SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-               "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; "
+               "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; "
                                           "style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"}
 
 
@@ -890,7 +923,8 @@ def status_payload():
             "counters": counters.snapshot(), "airtime": {"used_hour": counters.air_used(3600), "used_day": counters.air_used(86400),
                                                        "limits": c["airtime"]},
             "links": [dict(l, e2e=identity.safety(l["peer"])) for l in link.links], "directory": link.directory,
-            "my_key": safety_code(identity.public, identity.public)[:11], "radio_stats": r.stats if r else {}}
+            "my_key": safety_code(identity.public, identity.public)[:11], "radio_stats": r.stats if r else {},
+            "radio_position": r.own_position() if r else None}
 
 
 class Web(http.server.BaseHTTPRequestHandler):
@@ -949,6 +983,17 @@ class Web(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = urllib.parse.urlparse(self.path).path
         try:
+            m = re.match(r"^/tiles/(\d+)/(\d+)/(\d+)\.png$", p)
+            if m:
+                data = get_tile(*map(int, m.groups()))
+                if data is None:
+                    return self.reply({"error": "tile_unavailable"}, 502)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "public, max-age=604800")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if not p.startswith("/api/"):
                 return self.static(p)
             if p == "/api/session":
@@ -1014,10 +1059,13 @@ class Web(http.server.BaseHTTPRequestHandler):
             return self.reply({"ok": True})
         if p == "/api/hub":
             h = b.get("hub") or {}
+            registered = bool(cfg.get()["server"]["hub_id"])
             def upd(d):
                 for k in ("name", "email", "country", "city", "description"):
-                    if k in h:
+                    if k in h and not registered:
                         d["hub"][k] = str(h[k] or "").strip()[:500]
+                if h.get("location_mode") in ("radio", "manual"):
+                    d["hub"]["location_mode"] = h["location_mode"]
                 d["hub"]["country"], d["hub"]["city"] = d["hub"]["country"].upper()[:3], d["hub"]["city"].upper()[:3]
                 for k in ("lat", "lon"):
                     if k in h:
@@ -1113,6 +1161,52 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "no_radio"}, 400)
             return self.reply({"ok": True})
         return self.reply({"error": "not_found"}, 404)
+
+
+TILE_MAX_AGE = 14 * 86400
+TILE_UA = f"Ura-hub/{VERSION} (+https://github.com/ximi87/Ura-mesh)"
+tile_lock = threading.Semaphore(4)
+tile_down = {}                    # source url prefix -> time until which it is skipped after a failure
+
+
+def get_tile(z, x, y):
+    """Map tile from the local cache, else from the Ura server's tile cache (certificate pinned),
+    else straight from OpenStreetMap. Hubs without internet still get maps through the server."""
+    if not (0 <= z <= 19 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        return None
+    path = os.path.join(DATA_DIR, "tiles", str(z), str(x), f"{y}.png")
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < TILE_MAX_AGE:
+        return open(path, "rb").read()
+    srv = cfg.get()["server"]
+    sources = []
+    if srv["address"] and srv["fingerprint"]:
+        host = srv["address"].rpartition(":")[0]
+        sources.append((f"https://{host}:{srv.get('web_port') or 8443}/tiles/{z}/{x}/{y}.png", srv["fingerprint"]))
+    sources.append((f"https://tile.openstreetmap.org/{z}/{x}/{y}.png", None))
+    for url, fp in sources:
+        src = url.split("/tiles/")[0] if "/tiles/" in url else "osm"
+        if time.time() < tile_down.get(src, 0):
+            continue
+        try:
+            with tile_lock:
+                ctx = ssl.create_default_context()
+                if fp:
+                    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+                resp = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": TILE_UA}), timeout=6, context=ctx)
+                if fp and fp_of(resp.fp.raw._sock.getpeercert(binary_form=True)) != fp:
+                    continue
+                data = resp.read()
+            if not data.startswith(b"\x89PNG"):
+                continue
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(path + ".tmp", path)
+            return data
+        except Exception:
+            tile_down[src] = time.time() + 60
+            continue
+    return open(path, "rb").read() if os.path.exists(path) else None
 
 
 def normalize_addr(a):
