@@ -4,7 +4,7 @@
 Ura.add({
   "site.title": { en: "server", sq: "server" },
   "nav.map": { en: "Map", sq: "Harta" }, "nav.hubs": { en: "Hubs", sq: "Hub-et" },
-  "nav.stats": { en: "Statistics", sq: "Statistika" }, "nav.codes": { en: "Shortcodes", sq: "Kodet" },
+  "nav.stats": { en: "Statistics", sq: "Statistika" },
   "nav.join": { en: "Register a hub", sq: "Regjistro një hub" }, "nav.complaints": { en: "Complaints", sq: "Ankesat" },
   "nav.admin": { en: "Admin", sq: "Admin" },
   "foot": { en: "Ura links separate Meshtastic and MeshCore networks over the internet. The server only lets hubs find each other and counts traffic; traffic between hubs is end-to-end encrypted, so it cannot read or store messages. Every rule lives in the hubs.",
@@ -39,6 +39,16 @@ Ura.add({
   "hub.title": { en: "Hub {code}", sq: "Hub {code}" },
   "hub.about": { en: "About this hub", sq: "Për këtë hub" },
   "hub.registered": { en: "Registered", sq: "Regjistruar" }, "hub.last_seen": { en: "Last seen", sq: "Parë së fundi" },
+  "rule.onward": { en: "Further hubs its packets may reach (multi-hop)", sq: "Hub-e të tjera ku mund të arrijnë paketat e tij (shumë-hop)" },
+  "rule.transit": { en: "Passes other hubs' packets on", sq: "Kalon paketat e hub-eve të tjerë" },
+  "rule.from_beyond": { en: "Accepts packets from hubs further away", sq: "Pranon paketa nga hub-e më larg" },
+  "live.on": { en: "Live traffic", sq: "Trafiku drejtpërdrejt" },
+  "live.count": { en: "{n} packets since you opened the map", sq: "{n} paketa që kur hapët hartën" },
+  "hubs.codes": { en: "Code = country (2–3 letters) + place (2–3 letters), e.g. AL-TR = Albania, Tirana. One hub per place, so a code always names exactly one hub. Remote nodes appear in your Meshtastic/MeshCore app like any other node — to message one, open it and choose “Send message”.",
+                  sq: "Kodi = shteti (2–3 shkronja) + vendi (2–3 shkronja), p.sh. AL-TR = Shqipëri, Tiranë. Një hub për vend, ndaj një kod tregon gjithmonë saktësisht një hub. Nyjet në distancë shfaqen në aplikacionin tuaj Meshtastic/MeshCore si çdo nyje tjetër — për t'i shkruar, hapeni dhe zgjidhni “Dërgo mesazh”." },
+  "hub.transit": { en: "Passes traffic between its linked hubs (multi-hop)", sq: "Kalon trafikun ndërmjet hub-eve të lidhur (shumë-hop)" },
+  "hub.transit_to": { en: "offered towards {n} linked hub(s)", sq: "ofruar drejt {n} hub-eve të lidhur" },
+  "hub.transit.on": { en: "yes, up to {n} hops", sq: "po, deri në {n} kalime" },
   "hub.e2e": { en: "End-to-end encryption", sq: "Enkriptim skaj-më-skaj" },
   "hub.e2e.hint": { en: "traffic between hubs is sealed; this server cannot read it", sq: "trafiku ndërmjet hub-eve është i mbyllur; ky server nuk mund ta lexojë" },
   "a.locked": { en: "Too many wrong passwords. Try again in 15 minutes.", sq: "Shumë fjalëkalime të gabuara. Provoni përsëri pas 15 minutash." },
@@ -64,17 +74,6 @@ Ura.add({
   "stats.total": { en: "Total", sq: "Gjithsej" }, "stats.none": { en: "No traffic in this period.", sq: "Nuk ka trafik në këtë periudhë." },
   "stats.links_active": { en: "Active links", sq: "Lidhje aktive" }, "stats.hubs_online": { en: "Hubs online", sq: "Hub-e në linjë" },
   "stats.nodes": { en: "Nodes seen", sq: "Nyje të para" }, "stats.packets": { en: "Packets", sq: "Paketa" },
-  "codes.title": { en: "Shortcodes", sq: "Kodet e shkurtra" },
-  "codes.intro": { en: "Every hub has a shortcode made of a country code (2–3 letters) and a place code (2–3 letters), for example AL-TR = Albania, Tirana. Only one hub per place is allowed, so a shortcode always names exactly one hub.",
-                   sq: "Çdo hub ka një kod të shkurtër të përbërë nga kodi i shtetit (2–3 shkronja) dhe kodi i vendit (2–3 shkronja), për shembull AL-TR = Shqipëri, Tiranë. Lejohet vetëm një hub për vend, kështu që një kod i shkurtër tregon gjithmonë saktësisht një hub." },
-  "codes.use": { en: "How they are used", sq: "Si përdoren" },
-  "codes.use1": { en: "Remote nodes show up in your Meshtastic or MeshCore app like any other node. To send a private message, open the node and choose “Send message” — no code needed.",
-                  sq: "Nyjet në distancë shfaqen në aplikacionin tuaj Meshtastic ose MeshCore si çdo nyje tjetër. Për të dërguar një mesazh privat, hapni nyjen dhe zgjidhni “Dërgo mesazh” — nuk nevojitet kod." },
-  "codes.use2": { en: "The shortcode tells you where a hub stands and appears on the map, the hub pages and the statistics.",
-                  sq: "Kodi i shkurtër tregon se ku ndodhet një hub dhe shfaqet në hartë, në faqet e hub-eve dhe në statistika." },
-  "codes.use3": { en: "Codes are chosen by the hub operator when registering. The server refuses a code that is already taken.",
-                  sq: "Kodet zgjidhen nga operatori i hub-it gjatë regjistrimit. Serveri refuzon një kod që është i zënë." },
-  "codes.country": { en: "Country", sq: "Shteti" }, "codes.place": { en: "Place", sq: "Vendi" },
   "join.title": { en: "Register a hub", sq: "Regjistro një hub" },
   "join.intro": { en: "A hub is a small computer (mini PC or Raspberry Pi) next to a Meshtastic or MeshCore radio. It connects out to this server — no port forwarding needed at your site.",
                   sq: "Hub-i është një kompjuter i vogël (mini PC ose Raspberry Pi) pranë një radioje Meshtastic ose MeshCore. Ai lidhet me këtë server nga brenda — nuk nevojitet hapje portash në vendin tuaj." },
@@ -120,7 +119,7 @@ Ura.add({
   "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
 });
 
-const MENU = [["#/", "nav.map"], ["#/hubs", "nav.hubs"], ["#/stats", "nav.stats"], ["#/codes", "nav.codes"],
+const MENU = [["#/", "nav.map"], ["#/hubs", "nav.hubs"], ["#/stats", "nav.stats"],
               ["#/join", "nav.join"], ["#/complaints", "nav.complaints"], ["#/admin", "nav.admin"]];
 const app = () => document.getElementById("app");
 let INFO = {};
@@ -138,8 +137,12 @@ function rulesHtml(r) {
       <tr><td>${t("rule.public")}</td><td>${yn(x.send && x.send.public)}</td><td>${yn(x.receive && x.receive.public)}</td></tr>
       <tr><td>${t("rule.groups")}</td><td>${esc(((x.send && x.send.groups) || []).join(", ") || t("none"))}</td><td>${esc(((x.receive && x.receive.groups) || []).join(", ") || t("none"))}</td></tr>
       <tr><td>${t("rule.private")}</td><td>${yn(x.send && x.send.private)}</td><td>${yn(x.receive && x.receive.private)}</td></tr>
-      <tr><td>${t("rule.positions")}</td><td>${yn(x.send && x.send.positions)}</td><td>${yn(x.receive && x.receive.positions)}</td></tr></table>` : "";
+      <tr><td>${t("rule.positions")}</td><td>${yn(x.send && x.send.positions)}</td><td>${yn(x.receive && x.receive.positions)}</td></tr>
+      <tr><td>${t("rule.onward")}</td><td>${esc(((x.send && x.send.onward_to) || []).length)}</td><td></td></tr>
+      <tr><td>${t("rule.transit")}</td><td>${yn(x.send && x.send.transit !== false)}</td><td></td></tr>
+      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(!x.receive || x.receive.from_beyond !== false)}</td></tr></table>` : "";
   let s = "";
+  if (r.transit) s += `<p>${t("hub.transit")}: <b>${r.transit.enabled ? t("hub.transit.on", { n: r.transit.max_hops }) : t("rule.off")}</b>${(r.transit_to || []).length ? ` — ${t("hub.transit_to", { n: r.transit_to.length })}` : ""}</p>`;
   if (r.airtime) s += `<p>${t("rule.airtime")}: <b>${r.airtime.pct_hour}${t("pct_hour")}</b>${r.airtime.pct_day ? `, <b>${r.airtime.pct_day}${t("pct_day")}</b>` : ""}</p>`;
   if (r.links) for (const code in r.links) s += `<h3>${t("link")} ↔ ${esc(code)}</h3>` + one(r.links[code]);
   return s || `<p class="muted">${t("hub.rules.none")}</p>`;
@@ -177,11 +180,49 @@ async function pageMap() {
     bounds.push([h.lat, h.lon]);
   });
   if (bounds.length) mapObj.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  liveTraffic(mapObj, byId, color);
+}
+
+/* Live traffic: every packet passed between two hubs runs as a dot along their link (no content). */
+let liveTimer = null;
+function liveTraffic(m, byId, color) {
+  clearInterval(liveTimer);
+  let seq = null, running = 0;
+  const box = L.control({ position: "topright" });
+  box.onAdd = () => { const d = L.DomUtil.create("div", "livebox"); d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>`; L.DomEvent.disableClickPropagation(d); return d; };
+  box.addTo(m);
+  let shown = 0;
+  const run = (src, dst, c) => {
+    if (running > 40) return;
+    running++;
+    const a = L.latLng(src.lat, src.lon), b = L.latLng(dst.lat, dst.lon), t0 = performance.now(), dur = 1800;
+    const dot = L.circleMarker(a, { radius: 5, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: 1, interactive: false }).addTo(m);
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur);
+      dot.setLatLng([a.lat + (b.lat - a.lat) * k, a.lng + (b.lng - a.lng) * k]);
+      if (k < 1 && mapObj === m) requestAnimationFrame(step); else { m.removeLayer(dot); running--; }
+    };
+    requestAnimationFrame(step);
+  };
+  const poll = async () => {
+    if (mapObj !== m) { clearInterval(liveTimer); return; }
+    try {
+      const r = await api("GET", "/api/public/live?after=" + (seq == null ? 0 : seq));
+      if (seq != null && $("#liveon") && $("#liveon").checked) r.events.forEach((e, i) => {
+        const s = byId[e.src], d = byId[e.dst];
+        if (s && d && s.lat != null && d.lat != null) { shown++; setTimeout(() => run(s, d, color[e.src] || "#0f7b6c"), i * 150); }
+      });
+      seq = r.seq;
+      if ($("#livecount")) $("#livecount").textContent = t("live.count", { n: shown });
+    } catch (e) {}
+  };
+  poll();
+  liveTimer = setInterval(poll, 3000);
 }
 
 async function pageHubs() {
   const hubs = await api("GET", "/api/public/hubs");
-  app().innerHTML = `<div class="card"><h2>${t("hubs.title")}</h2><div class="tablewrap"><table>
+  app().innerHTML = `<div class="card"><h2>${t("hubs.title")}</h2><p class="muted small">${t("hubs.codes")}</p><div class="tablewrap"><table>
     <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span></th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
     ${hubs.map(h => `<tr><td><a href="#/hub/${h.id}"><b>${esc(h.code)}</b></a></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td>
       <td>${h.nodes}</td><td>${(h.links || []).map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)}</a>`).join(", ") || "–"}</td><td>${h.online ? t("online") : ago(h.last_seen)}</td></tr>`).join("")
@@ -225,7 +266,15 @@ async function pageHub(id) {
         <h3>${t("hub.complaints")}</h3>${d.complaints.length ? d.complaints.map(c => `<div>#${c.id} · ${dt(c.created)} · ${cStatus(c.status)}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}
         <p><a href="#/complaints?hub=${encodeURIComponent(h.id)}">${t("hub.complain")} →</a></p></div>
     </div>
-    <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2>${nodesTable(d.nodes)}</div>`;
+    <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2><div id="hubnodes"></div></div>`;
+  dataTable($("#hubnodes"), d.nodes, [
+    { key: "name", label: t("name"), render: n => `<a href="${nodeHref(n)}">${esc(n.name || n.id)}</a> <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
+    { key: "id", label: t("id"), render: n => `<span class="mono">${esc(n.id)}</span>` },
+    { key: "net", label: t("network"), render: n => netBadge(n.net) },
+    { key: "hw", label: t("hardware") },
+    { key: "lat", label: t("position"), render: n => fmtPos(n.lat, n.lon), sort: n => n.lat != null ? 1 : 0 },
+    { key: "last_heard", label: t("last_heard"), render: n => ago(n.last_heard) }],
+    { searchKeys: ["name", "short", "id", "hw"], initialSort: "last_heard" });
   const m = makeMap("hubmap", h.lat != null ? [h.lat, h.lon] : [45, 15], h.lat != null ? 10 : 4);
   const b = [];
   if (h.lat != null) { L.circleMarker([h.lat, h.lon], { radius: 11, color: "#0f7b6c", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(esc(h.name)).addTo(m); b.push([h.lat, h.lon]); }
@@ -283,19 +332,17 @@ async function pageStats() {
       <div class="stat"><div class="v">${nodes.length}</div><div class="l">${t("stats.nodes")}</div></div>
       <div class="stat"><div class="v">${total}</div><div class="l">${t("stats.packets")}</div></div>
     </div><div id="charts" style="margin-top:1rem"></div>`;
-  const keys = Object.keys(pairs).sort((a, b) => pairs[b].total - pairs[a].total);
-  $("#charts").innerHTML = keys.length ? keys.map((k, i) => `<div class="card"><div class="spread"><h2>${esc(name(pairs[k].src))} → ${esc(name(pairs[k].dst))}</h2><span>${t("stats.total")}: <b>${pairs[k].total}</b> ${t("frames")}</span></div><div class="chart" id="ch${i}"></div></div>`).join("")
-    : `<div class="card muted">${t("stats.none")}</div>`;
-  keys.forEach((k, i) => barChart($("#ch" + i), labels, [{ values: series(k) }]));
-}
-
-async function pageCodes() {
-  const hubs = await api("GET", "/api/public/hubs");
-  app().innerHTML = `<div class="card"><h1>${t("codes.title")}</h1><p>${t("codes.intro")}</p>
-    <h3>${t("codes.use")}</h3><ul><li>${t("codes.use1")}</li><li>${t("codes.use2")}</li><li>${t("codes.use3")}</li></ul></div>
-    <div class="card"><div class="tablewrap"><table><tr><th>${t("code")}</th><th>${t("codes.country")}</th><th>${t("codes.place")}</th><th>${t("hub")}</th><th>${t("status")}</th></tr>
-    ${hubs.map(h => `<tr><td><b class="mono">${esc(h.code)}</b></td><td>${esc(h.country)}</td><td>${esc(h.city)}</td><td>${hubLink(h)}</td><td>${onlineBadge(h.online)}</td></tr>`).join("")
-      || `<tr><td colspan="5" class="muted">${t("map.nohubs")}</td></tr>`}</table></div></div>`;
+  // one chart per link: both directions in two colours
+  const linksSeen = {};
+  Object.values(pairs).forEach(p => { const [a, b] = [p.src, p.dst].sort(); (linksSeen[a + "|" + b] = linksSeen[a + "|" + b] || { a, b, total: 0 }).total += p.total; });
+  const lk = Object.values(linksSeen).sort((x, y) => y.total - x.total);
+  const ser = (src, dst) => pairs[src + ">" + dst] ? series(src + ">" + dst) : Array(n).fill(0);
+  const tot = (src, dst) => pairs[src + ">" + dst] ? pairs[src + ">" + dst].total : 0;
+  $("#charts").innerHTML = lk.length ? lk.map((x, i) => `<div class="card"><div class="spread"><h2>${esc(name(x.a))} ⇄ ${esc(name(x.b))}</h2>
+      <div class="legend" style="margin:0"><span><span class="dot" style="background:var(--accent)"></span>${esc(name(x.a))} → ${esc(name(x.b))}: <b>${tot(x.a, x.b)}</b></span>
+      <span><span class="dot" style="background:var(--info)"></span>${esc(name(x.b))} → ${esc(name(x.a))}: <b>${tot(x.b, x.a)}</b></span></div></div>
+      <div class="chart" id="ch${i}"></div></div>`).join("") : `<div class="card muted">${t("stats.none")}</div>`;
+  lk.forEach((x, i) => barChart($("#ch" + i), labels, [{ values: ser(x.a, x.b) }, { values: ser(x.b, x.a) }]));
 }
 
 function pageJoin() {
@@ -405,7 +452,6 @@ async function route() {
       case "hub": return await pageHub(parts[1]);
       case "node": return await pageNode(parts[1], parts[2], parts.slice(3).join("/"));
       case "stats": return await pageStats();
-      case "codes": return await pageCodes();
       case "join": return pageJoin();
       case "complaints": return await pageComplaints();
       case "admin": return await pageAdmin();

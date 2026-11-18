@@ -112,13 +112,13 @@ with sync_playwright() as pw:
     a.click("button[data-trust]"); time.sleep(1.5)
     nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
     check("after trusting, link sealed again", "Everything on this link is sealed" in a.inner_text("#app"))
-    nav(s, S + "/#/hubs"); s.click("text=AL-TR"); s.wait_for_selector("text=About this hub")
+    nav(s, S + "/#/hubs"); s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub")
     check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
 
     # location change after registration reaches the server
     nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "41.3301"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
     time.sleep(35)
-    nav(s, S + "/#/hubs"); s.click("text=AL-TR"); s.wait_for_selector("text=About this hub")
+    nav(s, S + "/#/hubs"); s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub")
     check("new hub location shown on server", "41.33010" in s.inner_text("#app"))
 
     # status + radio pages (no radio)
@@ -126,14 +126,17 @@ with sync_playwright() as pw:
     nav(a, A + "/#/radio"); a.wait_for_selector("text=Radio connection"); check("hub radio page", True)
 
     # server public pages
-    nav(s, S + "/#/"); s.wait_for_selector("#map path.leaflet-interactive"); time.sleep(1)
-    check("home page is only the map (2 hub markers, no side panel)", s.locator("#map path.leaflet-interactive").count() >= 2 and s.locator(".hubitem").count() == 0)
+    nav(s, S + "/#/"); s.wait_for_selector("#map .leaflet-control-zoom"); time.sleep(2)
+    markers = s.evaluate("() => { let n = 0; mapObj.eachLayer(l => { if (l instanceof L.CircleMarker) n++; }); return n; }")
+    check("home page is only the map (hub markers, no side panel)", markers >= 2 and s.locator(".hubitem").count() == 0)
+    check("live traffic switch on the map", s.locator("#liveon").count() == 1)
     nav(a, A + "/#/device"); a.wait_for_selector("#app .msg")
     check("device page without radio says so", "radio" in a.inner_text("#app").lower())
     nav(s, S + "/#/hubs"); s.wait_for_selector("text=AL-TR"); check("hubs table", "DE-LB" in s.inner_text("#app"))
-    s.click("text=AL-TR"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
+    s.click("table a >> text=AL-TR"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
     nav(s, S + "/#/stats"); s.wait_for_selector("text=Traffic between hubs"); check("stats page", "Active links" in s.inner_text("#app"))
-    nav(s, S + "/#/codes"); s.wait_for_selector("text=AL-TR"); check("codes page", True)
+    nav(s, S + "/#/hubs"); s.wait_for_selector("text=AL-TR"); check("hubs page explains codes", "One hub per place" in s.inner_text("#app"))
+    check("no shortcodes menu", s.locator("nav.menu >> text=Shortcodes").count() == 0)
     nav(s, S + "/#/complaints"); s.wait_for_selector("#csend")
     s.fill("#cem", "x@example.org"); s.fill("#ctx", "Test complaint about interference"); s.click("#csend")
     s.wait_for_selector("#cmsg .msg.ok"); check("complaint sent", "case #1" in s.inner_text("#cmsg"))

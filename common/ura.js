@@ -98,7 +98,8 @@ function renderHeader(title, items, extraRight) {
 /* Leaflet map with OpenStreetMap tiles. */
 function makeMap(el, center, zoom) {
   // no zoom animation: removing a map mid-animation (page change) throws inside Leaflet
-  const m = L.map(el, { worldCopyJump: true, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false }).setView(center || [45, 15], zoom || 4);
+  // canvas renderer: hundreds of node markers stay fast
+  const m = L.map(el, { worldCopyJump: true, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false, preferCanvas: true }).setView(center || [45, 15], zoom || 4);
   // tiles come through Ura's own cache (OpenStreetMap blocks anonymous browser requests)
   L.tileLayer("/tiles/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(m);
   return m;
@@ -143,3 +144,38 @@ function advancedForm(el, spec, values) {
 Ura.add({ "adv.title": { en: "Advanced settings", sq: "Cilësime të avancuara" }, "adv.default": { en: "default", sq: "parazgjedhur" },
           "adv.invalid": { en: "Some values are outside their limits (marked red).", sq: "Disa vlera janë jashtë kufijve (të shënuara me të kuqe)." },
           "adv.intro": { en: "Every operational value of this program. The defaults are sensible; change them only if you know why.", sq: "Çdo vlerë operative e këtij programi. Parazgjedhjet janë të arsyeshme; ndryshojini vetëm nëse e dini pse." } });
+
+/* Table for long lists (hundreds of nodes): search box, sortable columns, pages.
+   columns: [{key, label, render?(row), sort?(row)}]; opts: {pageSize, searchKeys, initialSort, empty} */
+function dataTable(el, rows, columns, opts) {
+  opts = Object.assign({ pageSize: 50, searchKeys: [], initialSort: null, desc: true, empty: t("none") }, opts || {});
+  const st = { q: "", sort: opts.initialSort, desc: opts.desc, page: 0 };
+  el.innerHTML = `<div class="row dt-tools"><input type="text" class="dt-q" placeholder="${t("dt.search")}" style="max-width:280px">
+    <span class="muted small dt-info"></span></div><div class="tablewrap"><table class="dt"></table></div><div class="row dt-pager"></div>`;
+  const val = (r, c) => c.sort ? c.sort(r) : r[c.key];
+  const draw = () => {
+    const q = st.q.toLowerCase();
+    let list = q ? rows.filter(r => opts.searchKeys.some(k => String(r[k] == null ? "" : r[k]).toLowerCase().includes(q))) : rows.slice();
+    if (st.sort) {
+      const c = columns.find(x => x.key === st.sort);
+      // empty values (e.g. "never heard") always go last, whatever the direction
+      list.sort((a, b) => { const x = val(a, c), y = val(b, c); if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+                            const r = (x > y) - (x < y); return st.desc ? -r : r; });
+    }
+    const pages = Math.max(1, Math.ceil(list.length / opts.pageSize));
+    st.page = Math.min(st.page, pages - 1);
+    const view = list.slice(st.page * opts.pageSize, (st.page + 1) * opts.pageSize);
+    $(".dt", el).innerHTML = `<tr>${columns.map(c => `<th data-k="${c.key}" style="cursor:pointer">${c.label}${st.sort === c.key ? (st.desc ? " ▼" : " ▲") : ""}</th>`).join("")}</tr>` +
+      (view.map(r => `<tr>${columns.map(c => `<td>${c.render ? c.render(r) : esc(r[c.key] == null ? "–" : r[c.key])}</td>`).join("")}</tr>`).join("")
+       || `<tr><td colspan="${columns.length}" class="muted">${opts.empty}</td></tr>`);
+    $(".dt-info", el).textContent = t("dt.count", { n: list.length, m: rows.length });
+    $(".dt-pager", el).innerHTML = pages > 1 ? `<button class="small" data-p="-1" ${st.page ? "" : "disabled"}>‹</button>
+      <span class="small">${t("dt.page", { p: st.page + 1, n: pages })}</span><button class="small" data-p="1" ${st.page < pages - 1 ? "" : "disabled"}>›</button>` : "";
+    $$("th[data-k]", el).forEach(th => th.onclick = () => { st.desc = st.sort === th.dataset.k ? !st.desc : true; st.sort = th.dataset.k; draw(); });
+    $$("[data-p]", el).forEach(b => b.onclick = () => { st.page += +b.dataset.p; draw(); });
+  };
+  $(".dt-q", el).oninput = e => { st.q = e.target.value; st.page = 0; draw(); };
+  draw();
+}
+Ura.add({ "dt.search": { en: "Search name or ID…", sq: "Kërko emër ose ID…" },
+          "dt.count": { en: "{n} of {m}", sq: "{n} nga {m}" }, "dt.page": { en: "page {p} of {n}", sq: "faqja {p} nga {n}" } });

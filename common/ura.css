@@ -121,3 +121,9 @@ footer { max-width: 1200px; margin: 1rem auto 2rem; padding: 0 1rem; color: var(
 .center { min-height: 70vh; display: grid; place-items: center; }
 .narrow { max-width: 420px; width: 100%; }
 .hidden { display: none !important; }
+table.dt .mono { overflow-wrap: normal; white-space: nowrap; }
+table.dt td { white-space: nowrap; } table.dt td:first-child { white-space: normal; min-width: 180px; }
+.livebox { background: var(--card); padding: .3rem .6rem; border-radius: 8px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.livebox .check { margin: 0; }
+details.grp, details.chbox, details.secbox { border-top: 1px solid var(--line); padding: .45rem 0; }
+details > summary { cursor: pointer; }

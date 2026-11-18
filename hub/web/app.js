@@ -220,6 +220,23 @@ Ura.add({
   "sec.network": { en: "Network (Wi-Fi/Ethernet)", sq: "Rrjeti (Wi-Fi/Ethernet)" }, "sec.display": { en: "Display", sq: "Ekrani" },
   "sec.lora": { en: "LoRa (region, preset, power)", sq: "LoRa (rajoni, preseti, fuqia)" }, "sec.bluetooth": { en: "Bluetooth", sq: "Bluetooth" },
   "sec.security": { en: "Security", sq: "Siguria" }, "sec.mqtt": { en: "MQTT (used by Ura)", sq: "MQTT (përdoret nga Ura)" }, "sec.telemetry": { en: "Telemetry", sq: "Telemetria" },
+  "st.transit": { en: "Passed on for other hubs (multi-hop)", sq: "Kaluar për hub-e të tjerë (shumë-hop)" },
+  "tr.title": { en: "Multi-hop (transit)", sq: "Shumë-hop (tranzit)" },
+  "tr.hint": { en: "Let traffic between your linked hubs pass through this hub — e.g. Hamburg → Ludwigsburg → Tirana. A packet is passed on only if the hub it started at ticked that destination in its list, your per-link rules allow it, and the receiving hub accepts packets from further away. Packets never go back to a hub they already passed. The hop limit below also caps how far YOUR packets may travel.",
+               sq: "Lejo që trafiku ndërmjet hub-eve të tua të lidhura të kalojë përmes këtij hub-i — p.sh. Hamburg → Ludwigsburg → Tiranë. Një paketë kalohet vetëm nëse hub-i ku nisi e ka shënuar atë destinacion në listën e tij, rregullat e tua për lidhjen e lejojnë dhe hub-i marrës pranon paketa nga më larg. Paketat nuk kthehen kurrë te një hub ku kanë kaluar. Kufiri më poshtë kufizon edhe sa larg mund të shkojnë paketat E TUA." },
+  "tr.on": { en: "Pass traffic between my linked hubs", sq: "Kalo trafikun ndërmjet hub-eve të mia të lidhura" },
+  "tr.hops": { en: "Maximum hub-to-hub hops of a packet", sq: "Numri maksimal i kalimeve hub-në-hub i një pakete" },
+  "tr.hops.hint": { en: "2 = origin → this hub → next hub. Higher values reach further but use more airtime everywhere.", sq: "2 = origjina → ky hub → hub-i tjetër. Vlera më të larta arrijnë më larg, por përdorin më shumë kohë në ajër kudo." },
+  "rule.onward": { en: "Further hubs my packets may reach", sq: "Hub-e të tjera ku mund të arrijnë paketat e mia" },
+  "rule.onward_to": { en: "{x} offers to pass your packets on to these hubs — tick where your packets may go (multi-hop):", sq: "{x} ofron t'i kalojë paketat tuaja te këto hub-e — shënoni ku mund të shkojnë paketat tuaja (shumë-hop):" },
+  "rule.onward_to.none": { en: "{x} offers no further hubs (it has no other links, or multi-hop is off there). Your packets stop at {x}.", sq: "{x} nuk ofron hub-e të tjera (nuk ka lidhje të tjera, ose shumë-hop është joaktiv atje). Paketat tuaja ndalojnë te {x}." },
+  "rule.transit": { en: "Pass other hubs' packets to this hub", sq: "Kalo paketat e hub-eve të tjerë te ky hub" },
+  "rule.transit.hint": { en: "only if multi-hop is on in Settings", sq: "vetëm nëse shumë-hop është aktiv te Cilësimet" },
+  "rule.from_beyond": { en: "Accept packets from hubs beyond this one", sq: "Prano paketa nga hub-et përtej këtij" },
+  "rule.from_beyond.hint": { en: "traffic that started at a hub further away and was passed on by this hub", sq: "trafik që nisi te një hub më larg dhe u kalua nga ky hub" },
+  "why.transit_off": { en: "transit not allowed on this link", sq: "tranziti i palejuar në këtë lidhje" },
+  "why.from_beyond": { en: "from a hub further away", sq: "nga një hub më larg" },
+  "why.loop": { en: "went round in a circle", sq: "bëri një rreth" },
   "s.limits": { en: "Airtime and sharing", sq: "Koha në ajër dhe ndarja" },
   "s.air_hour": { en: "Max. airtime for remote packets, % of each hour (0 = no limit)", sq: "Koha maksimale në ajër për paketat e largëta, % e çdo ore (0 = pa kufi)" },
   "s.air_day": { en: "Max. airtime, % of each day (0 = no limit)", sq: "Koha maksimale në ajër, % e çdo dite (0 = pa kufi)" },
@@ -304,6 +321,7 @@ async function pageStatus() {
       <div class="stat"><div class="v">${g.sent}</div><div class="l">${t("st.sent")}</div></div>
       <div class="stat"><div class="v">${g.received}</div><div class="l">${t("st.received")}</div></div>
       <div class="stat"><div class="v">${g.to_radio}</div><div class="l">${t("st.to_radio")}</div></div>
+      ${g.transit ? `<div class="stat"><div class="v">${g.transit}</div><div class="l">${t("st.transit")}</div></div>` : ""}
     </div>
     <div class="card" style="margin-top:1rem"><h2>${t("nc.title")}</h2><div class="grid g3">
       <div class="stat"><div class="v">${localRecent.length + (own ? 1 : 0)}</div><div class="l">${t("nc.map")}<br><span class="small">${t("nc.map.hint")}</span></div></div>
@@ -319,18 +337,30 @@ async function pageStatus() {
     <div class="card"><div id="map" class="minimap" style="height:440px"></div>
       <div class="legend"><span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span>
         ${gkeys.map(k => `<span><span class="dot" style="background:${color[k]}"></span>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</span>`).join("")}</div></div>
-    <div class="grid g2">
+    <div>
       <div class="card"><div class="spread"><h2>${t("nl.local")} (${localRecent.length})</h2>
         ${hidden ? `<label class="check small"><input type="checkbox" id="showold" ${showOld ? "checked" : ""}> ${t("nl.show_old", { n: hidden })}</label>` : ""}</div>
         <p class="muted small">${t("nl.local.hint")}</p>
         ${own ? `<p class="small">${t("st.radio")}: <b>${esc(own.name || own.id)}</b> ${own.lat != null ? "📍" : `<span class="muted">(${t("nl.nopos")})</span>`}</p>` : ""}
-        <div class="tablewrap"><table>${head}${local.map(row).join("") || `<tr><td colspan="6" class="muted">${t("nl.none_local")}</td></tr>`}</table></div></div>
+        <div id="localtable"></div></div>
       <div class="card"><h2>${t("nl.remote")} (${nodes.filter(n => n.remote).length})</h2>
         <p class="muted small">${t("nl.remote.hint")}</p>
-        ${gkeys.length ? gkeys.map(k => `<h3><span class="dot" style="background:${color[k]}"></span>${esc(k === "?" ? t("nl.unknown") : codeOf(k))} (${groups[k].length})</h3>
-          <div class="tablewrap"><table>${head}${groups[k].sort((x, y) => (y.last_heard || 0) - (x.last_heard || 0)).map(row).join("")}</table></div>`).join("")
+        ${gkeys.length ? gkeys.map((k, i) => `<details class="grp" data-g="${esc(k)}" ${i === 0 && k !== "?" ? "open" : ""}><summary><span class="dot" style="background:${color[k]}"></span><b>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</b> (${groups[k].length})</summary><div class="grptable"></div></details>`).join("")
           : `<p class="muted">${t("none")}</p>`}</div>
     </div>`;
+  const cols = [
+    { key: "name", label: t("name"), render: n => `${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
+    { key: "id", label: t("id"), render: n => `<span class="mono small">${esc(n.id)}</span>` },
+    { key: "last_heard", label: t("last_heard"), render: n => ago(n.last_heard) },
+    { key: "hops", label: t("hops") }, { key: "snr", label: "SNR", render: n => n.snr != null ? n.snr + " dB" : "–" },
+    { key: "lat", label: "📍", render: n => n.lat != null ? "📍" : "", sort: n => n.lat != null ? 1 : 0 }];
+  const dtOpts = { searchKeys: ["name", "short", "id"], initialSort: "last_heard", pageSize: 50 };
+  dataTable($("#localtable"), local, cols, Object.assign({ empty: t("nl.none_local") }, dtOpts));
+  $$("details.grp").forEach(d => {
+    const fill = () => { if (!d.dataset.done) { d.dataset.done = 1; dataTable($(".grptable", d), groups[d.dataset.g], cols, dtOpts); } };
+    if (d.open) fill();
+    d.addEventListener("toggle", fill);
+  });
   const b = [];
   mapObj = makeMap("map");
   const dot = (n, c, rad) => { if (n.lat == null) return; L.circleMarker([n.lat, n.lon], { radius: rad, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: .95 })
@@ -362,17 +392,29 @@ async function pageLinks() {
       ${ruleRow(t("rule.public") + ` <span class="muted small">${t("l.public.hint", { x: esc(pubName) })}</span>`, dir, "public", rule)}
       ${ruleRow(t("rule.private"), dir, "private", rule)}
       ${ruleRow(t("rule.positions"), dir, "positions", rule)}
+      ${dir === "send" ? onwardBox(peer, rule) + ruleRow(t("rule.transit") + ` <span class="muted small">${t("rule.transit.hint")}</span>`, dir, "transit", rule)
+                       : ruleRow(t("rule.from_beyond") + ` <span class="muted small">${t("rule.from_beyond.hint")}</span>`, dir, "from_beyond", rule)}
       <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
       ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)}</label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
+  // the hubs this peer offers to pass my packets on to (its published transit list), each with a tick box
+  const onwardBox = (peer, rule) => {
+    const h = s.directory.find(x => x.id === peer), offered = ((h && h.rules && h.rules.transit_to) || []).filter(x => x !== s.server.hub_id);
+    const pc = (h && h.code) || peer;
+    return `<div class="small muted" style="margin-top:.4rem">${t("rule.onward_to", { x: esc(pc) })}</div>` + (offered.length
+      ? offered.map(id => { const o = s.directory.find(x => x.id === id); return `<label class="check"><input type="checkbox" data-onward="${esc(id)}" ${(rule.onward_to || []).includes(id) ? "checked" : ""}> ${esc(o ? o.code + " · " + o.name : id)}</label>`; }).join("")
+      : `<div class="muted small">${t("rule.onward_to.none", { x: esc(pc) })}</div>`);
+  };
   const peerRules = l => { const h = s.directory.find(x => x.id === l.peer); const pr = h && h.rules && h.rules.links && h.rules.links[s.hub.country + "-" + s.hub.city]; return pr; };
   const countsHtml = peer => { const p = peerCounts[peer]; if (!p) return `<p class="muted small">–</p>`;
     const bl = o => Object.entries(o).map(([k, v]) => `${t("why." + k)}: ${v}`).join(", ");
-    return `<p class="small">${t("rule.send")}: <b>${p.sent}</b>${Object.keys(p.blocked_send).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_send)}` : ""}<br>
+    return `<p class="small">${p.transit ? `${t("st.transit")}: <b>${p.transit}</b><br>` : ""}${t("rule.send")}: <b>${p.sent}</b>${Object.keys(p.blocked_send).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_send)}` : ""}<br>
       ${t("rule.receive")}: <b>${p.received}</b>${Object.keys(p.blocked_recv).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_recv)}` : ""}</p>`; };
   const yn = v => v ? `<span class="badge ok">${t("rule.on")}</span>` : `<span class="badge bad">${t("rule.off")}</span>`;
   const prHtml = pr => !pr ? `<p class="muted small">${t("l.peer_rules.none")}</p>` :
     `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
      ${["on", "public", "private", "positions"].map(k => `<tr><td>${t(k === "on" ? "link" : "rule." + k)}</td><td>${yn(pr.send[k])}</td><td>${yn(pr.receive[k])}</td></tr>`).join("")}
+     <tr><td>${t("rule.onward")}</td><td>${(pr.send.onward_to || []).length}</td><td></td></tr><tr><td>${t("rule.transit")}</td><td>${yn(pr.send.transit !== false)}</td><td></td></tr>
+     <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(pr.receive.from_beyond !== false)}</td></tr>
      <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>`;
   app().innerHTML = `${ok ? "" : `<div class="msg warn">${t("l.not_connected")}</div>`}
     <div class="card"><h2>${t("l.mylinks")}</h2>${s.links.length ? s.links.map(l => `
@@ -406,6 +448,7 @@ async function pageLinks() {
     const peer = b.dataset.save, box = b.closest("[data-peer]"), rules = { send: { groups: [] }, receive: { groups: [] } };
     $$("input[data-k]", box).forEach(i => rules[i.dataset.dir][i.dataset.k] = i.checked);
     $$("input[data-g]", box).forEach(i => { if (i.checked) rules[i.dataset.dir].groups.push(i.dataset.g); });
+    rules.send.onward_to = $$("input[data-onward]", box).filter(i => i.checked).map(i => i.dataset.onward);
     b.disabled = true;
     try { await api("POST", "/api/rules", { peer, rules }); $(`[data-saved="${peer}"]`).textContent = "✓ " + t("saved"); }
     catch (e) { $(`[data-saved="${peer}"]`).textContent = errText(e); }
@@ -578,7 +621,8 @@ async function pageSettings() {
   const [s, c] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
   const reg = !!c.server.hub_id, h = c.hub;
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
-      ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}</div>`;
+      ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
+      ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
   const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
   app().innerHTML = `<div class="grid g2">
     <div class="card"><h2>${t("s.hub")}</h2>
@@ -606,6 +650,9 @@ async function pageSettings() {
       ${inp("ahour", "s.air_hour", "number", c.airtime.pct_hour)}${inp("aday", "s.air_day", "number", c.airtime.pct_day)}
       <p class="hint">${t("s.air_hint")}</p>
       <label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
+      <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
+      <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
+      <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
       <h3>${t("s.defaults")}</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button></div>
     <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
@@ -651,7 +698,8 @@ async function pageSettings() {
   $("#lsave").onclick = async () => {
     const defaults = { send: { groups: [] }, receive: { groups: [] } };
     $$("#defs input[data-k]").forEach(i => defaults[i.dataset.dir][i.dataset.k] = i.checked);
-    try { await api("POST", "/api/hub", { airtime: { pct_hour: $("#ahour").value, pct_day: $("#aday").value }, share_positions_on_map: $("#spos").checked, defaults });
+    try { await api("POST", "/api/hub", { airtime: { pct_hour: $("#ahour").value, pct_day: $("#aday").value }, share_positions_on_map: $("#spos").checked, defaults,
+                                           transit: { enabled: $("#tron").checked, max_hops: $("#trhops").value } });
           $("#lmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: SESS.password_min })}</div>`; } };

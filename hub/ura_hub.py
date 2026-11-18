@@ -61,7 +61,11 @@ ADV_SPEC = {
 
 log = logging.getLogger("ura-hub")
 
-RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True}
+RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True,
+                # multi-hop, decided by each hub for itself:
+                "onward_to": [],      # send:    hubs (offered by this peer) to which it may pass MY packets on
+                "transit": True,      # send:    I pass other hubs' packets on to this peer (if transit is on)
+                "from_beyond": True}  # receive: accept packets that started at hubs beyond this peer
 DEFAULT_CONFIG = {
     "hub": {"name": "", "email": "", "country": "", "city": "", "lat": None, "lon": None, "description": "",
             "location_mode": "radio"},            # radio = follow the connected radio's position, manual = typed in
@@ -71,6 +75,7 @@ DEFAULT_CONFIG = {
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
+    "transit": {"enabled": False, "max_hops": 2},   # pass traffic between my linked hubs (multi-hop)
     "advanced": {k: v[0] for k, v in ADV_SPEC.items()},
     "peer_keys": {},              # peer hub id -> pinned end-to-end public key (base64)
     "web_password": None,
@@ -278,7 +283,7 @@ seen_cache = SeenCache()
 class Counters:
     def __init__(self):
         self.lock = threading.Lock()
-        self.g = {"heard": 0, "uplinked": 0, "sent": 0, "received": 0, "to_radio": 0}
+        self.g = {"heard": 0, "uplinked": 0, "sent": 0, "received": 0, "to_radio": 0, "transit": 0}
         self.peer = {}          # peer -> {"sent", "received", "blocked_send": {reason: n}, "blocked_recv": {...}}
         self.airtime = []       # [(time, seconds)]
         self.started = time.time()
@@ -288,7 +293,7 @@ class Counters:
             self.g[key] = self.g.get(key, 0) + n
 
     def p(self, peer):
-        return self.peer.setdefault(peer, {"sent": 0, "received": 0, "blocked_send": {}, "blocked_recv": {}})
+        return self.peer.setdefault(peer, {"sent": 0, "received": 0, "transit": 0, "blocked_send": {}, "blocked_recv": {}})
 
     def peer_add(self, peer, key, reason=None):
         with self.lock:
@@ -632,6 +637,7 @@ class Radio:
         me.pop("raw", None)
         iface.sendData(ParseDict(me, mesh_pb2.User(), ignore_unknown_fields=True),
                        portNum=portnums_pb2.PortNum.NODEINFO_APP, wantResponse=want_response)
+        iface.sendTelemetry()        # firmware may drop node info sent by a client; telemetry always goes out
         pos = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
         if "latitude" in pos and "longitude" in pos:
             iface.sendPosition(pos["latitude"], pos["longitude"], pos.get("altitude", 0))
@@ -953,10 +959,13 @@ class Link:
     def public_rules(self):
         c = cfg.get()
         peers = {h["id"]: h.get("code") for h in self.directory}
-        out = {"airtime": c["airtime"], "default": c["defaults"], "links": {}}
+        out = {"airtime": c["airtime"], "default": c["defaults"], "links": {}, "transit": c["transit"], "transit_to": []}
         for l in self.links:
             if l["state"] == "active":
-                out["links"][peers.get(l["peer"], l["peer_code"]) or l["peer"]] = cfg.rules_for(l["peer"])
+                r = cfg.rules_for(l["peer"])
+                out["links"][peers.get(l["peer"], l["peer_code"]) or l["peer"]] = r
+                if c["transit"].get("enabled") and r["send"].get("transit", True) and r["send"].get("on"):
+                    out["transit_to"].append(l["peer"])      # hubs I offer to pass other hubs' traffic to
         return out
 
     def radio_summary(self):
@@ -1138,16 +1147,30 @@ def active_peers():
     return [l["peer"] for l in link.links if l["state"] == "active"]
 
 
-def send_to_peers(topic, data):
-    """Radio -> server: apply each link's SEND rule."""
+def my_id():
+    return cfg.get()["server"]["hub_id"]
+
+
+def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
+    """Radio -> server (path None), or passing on traffic of another hub (transit): apply each link's
+    SEND rule. `path` = hubs the packet already went through (origin first); it is sealed inside the box."""
     r = mt_radio()
     c = classify(data, r.channel_keys() if r else {})
     if c is None:
         return
-    inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode()}).encode()
+    own = path is None
+    if own:                                            # our own radio's packet: we are the origin
+        path = [my_id()]
+        seen_cache.seen(b"p" + hashlib.sha256(data).digest())   # a copy coming back round a loop is dropped
     boxes = {}
     for peer in active_peers():
-        ok, why = allowed(cfg.rules_for(peer)["send"], c)
+        if peer in exclude:
+            continue
+        rule = cfg.rules_for(peer)["send"]
+        if not own and not rule.get("transit", True):
+            counters.peer_add(peer, "blocked_send", "transit_off")
+            continue
+        ok, why = allowed(rule, c)
         if not ok:
             counters.peer_add(peer, "blocked_send", why)
             continue
@@ -1155,10 +1178,17 @@ def send_to_peers(topic, data):
         if keys is None:                               # no end-to-end key (or it changed): never send in clear
             counters.peer_add(peer, "blocked_send", "key_" + state)
             continue
+        if own:      # the origin decides, per link, to which further hubs its packet may go (sealed: nobody can change it)
+            meta = {"allow": list(rule.get("onward_to") or []), "max_hops": int(cfg.get()["transit"].get("max_hops", 2))}
+        else:
+            if peer not in (origin_rules or {}).get("allow", []):
+                continue                               # the origin did not allow this destination
+            meta = origin_rules
+        inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode(), "path": path, **meta}).encode()
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
-        counters.peer_add(peer, "sent")
+        counters.peer_add(peer, "sent" if len(path) == 1 else "transit")
     if boxes:
-        counters.add("sent")
+        counters.add("sent" if len(path) == 1 else "transit")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "boxes": boxes}), loop)
 
 
@@ -1175,13 +1205,28 @@ def receive_box(peer, box):
     except Exception:
         counters.peer_add(peer, "blocked_recv", "bad_box")
         return
+    path = [str(x)[:20] for x in (m.get("path") or [peer])][:16]
+    if my_id() in path:                                # it went round in a circle
+        counters.peer_add(peer, "blocked_recv", "loop")
+        return
     if seen_cache.seen(b"n" + nonce) or seen_cache.seen(b"p" + hashlib.sha256(data).digest()):
         return
-    receive_from_peer(peer, m["topic"], data)
+    if len(path) > 1 and not cfg.rules_for(peer)["receive"].get("from_beyond", True):
+        counters.peer_add(peer, "blocked_recv", "from_beyond")
+        return
+    # multi-hop: pass it on only if the ORIGIN allowed it, I allow transit, and no hop limit is exceeded
+    tr = cfg.get()["transit"]
+    limit = min(int(tr.get("max_hops", 2)), int(m.get("max_hops") or 2))
+    allow = [str(x)[:20] for x in (m.get("allow") or [])][:50]
+    if allow and tr.get("enabled") and len(path) + 1 <= limit:
+        send_to_peers(m["topic"], data, path=path + [my_id()], exclude=set(path) | {peer},
+                      origin_rules={"allow": allow, "max_hops": int(m.get("max_hops") or 2)})
+    receive_from_peer(peer, m["topic"], data, origin=path[0])
 
 
-def receive_from_peer(peer, topic, data):
-    """Server -> radio: apply the RECEIVE rule for this link and the airtime limit."""
+def receive_from_peer(peer, topic, data, origin=None):
+    """Server -> radio: apply the RECEIVE rule for this link and the airtime limit.
+    `origin` = the hub whose radio heard it first (differs from `peer` for multi-hop traffic)."""
     counters.add("received")
     r = mt_radio()
     if r is None:
@@ -1192,7 +1237,7 @@ def receive_from_peer(peer, topic, data):
         counters.peer_add(peer, "blocked_recv", "invalid")
         return
     if c.get("sender"):
-        origins.note(c["sender"], peer)
+        origins.note(c["sender"], origin or peer)
     ok, why = allowed(cfg.rules_for(peer)["receive"], c)
     if not ok:
         counters.peer_add(peer, "blocked_recv", why)
@@ -1439,6 +1484,11 @@ class Web(http.server.BaseHTTPRequestHandler):
                                     "pct_day": max(0.0, min(100.0, float(b["airtime"].get("pct_day") or 0)))}
                 if "defaults" in b:
                     d["defaults"] = clean_rules(b["defaults"])
+                if "transit" in b:
+                    hops = int(b["transit"].get("max_hops") or 2)
+                    if not 2 <= hops <= 8:
+                        raise ValueError("max_hops")
+                    d["transit"] = {"enabled": bool(b["transit"].get("enabled")), "max_hops": hops}
             cfg.update(upd)
             run_coro(link.push_info())
             return self.reply({"ok": True})
@@ -1531,6 +1581,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "no_radio"}, 400)
             r.prepare()
             return self.reply({"ok": True})
+        if p == "/api/test/inject" and os.environ.get("URA_TEST_INJECT") == "1":
+            loop.call_soon_threadsafe(radio_queue.put_nowait, (str(b["topic"]), base64.b64decode(b["data"])))
+            return self.reply({"ok": True})
         if p == "/api/diag":
             r = mt_radio()
             if not r:
@@ -1615,6 +1668,11 @@ def clean_rules(r):
         x = r.get(d) or {}
         out[d] = {"on": bool(x.get("on")), "public": bool(x.get("public")), "private": bool(x.get("private")),
                   "positions": bool(x.get("positions")), "groups": [str(g)[:30] for g in (x.get("groups") or [])][:8]}
+        if d == "send":
+            out[d]["onward_to"] = [str(h)[:20] for h in (x.get("onward_to") or [])][:50]
+            out[d]["transit"] = bool(x.get("transit", True))
+        else:
+            out[d]["from_beyond"] = bool(x.get("from_beyond", True))
     return out
 
 

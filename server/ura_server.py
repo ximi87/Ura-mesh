@@ -264,10 +264,15 @@ def from_thread(coro):
 
 
 _last_cleanup = 0
+live_events, live_seq, live_lock = [], 0, threading.Lock()   # recent relays for the live map (no content)
 
 
 def count(src, dst, net, size):
-    global _last_cleanup
+    global _last_cleanup, live_seq
+    with live_lock:
+        live_seq += 1
+        live_events.append({"seq": live_seq, "t": round(time.time(), 2), "src": src, "dst": dst, "net": net})
+        del live_events[:-500]
     hour = now() // 3600 * 3600
     if time.time() - _last_cleanup > 3600:
         _last_cleanup = time.time()
@@ -609,6 +614,11 @@ class Web(http.server.BaseHTTPRequestHandler):
                 rows = db.q("SELECT src,dst,net,hour,frames,bytes FROM stats WHERE hour>=? ORDER BY hour", (since,))
                 names = {h["id"]: {"name": h["name"], "code": h["code"]} for h in db.q("SELECT id,name,code FROM hubs")}
                 return self.reply({"hours": hours, "since": since, "rows": rows, "hubs": names})
+            if p == "/api/public/live":
+                after = int((qs.get("after") or ["0"])[0] or 0)
+                with live_lock:
+                    ev = [e for e in live_events if e["seq"] > after and time.time() - e["t"] < 60]
+                    return self.reply({"seq": live_seq, "events": ev[-200:]})
             if p == "/api/public/complaints":
                 return self.reply(db.q("""SELECT id,created,subject_type,subject_id,text,status,resolution,updated
                                           FROM complaints ORDER BY id DESC LIMIT 500"""))
