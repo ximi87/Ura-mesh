@@ -88,6 +88,29 @@ with sync_playwright() as pw:
     nav(b, B + "/#/links"); b.wait_for_selector("text=Rules of AL-TR")
     check("B sees A's published rules", "Not published" not in b.inner_text("[data-peer]"))
 
+    # end-to-end encryption: same safety code on both hubs
+    import re as _re, subprocess, os
+    codeA = _re.search(r"Safety code: ([0-9 ]{23})", a.inner_text("#app"))
+    nav(b, B + "/#/links"); b.wait_for_selector("text=Safety code")
+    codeB = _re.search(r"Safety code: ([0-9 ]{23})", b.inner_text("#app"))
+    check("both hubs show the same safety code", codeA and codeB and codeA.group(1) == codeB.group(1))
+    check("link marked end-to-end encrypted", "Everything on this link is sealed" in b.inner_text("#app"))
+    # key change: hub B gets a new identity (reinstall / impersonation) -> A must stop + warn
+    pid = subprocess.run("ss -ltnp 'sport = :8196' | grep -oP 'pid=\\K[0-9]+' | head -1", shell=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["kill", pid]); time.sleep(1.5)
+    os.remove("/tmp/ura-t/hB/identity.key")
+    subprocess.Popen("cd /tmp/ura-t/hub && URA_DATA=/tmp/ura-t/hB URA_WEB_PORT=8196 setsid nohup /opt/fleet/venv/bin/python -u ura_hub.py >> /tmp/ura-t/hubB.log 2>&1 < /dev/null &", shell=True)
+    time.sleep(7)
+    nav(b, B + "/#/"); b.wait_for_selector("#pw"); b.fill("#pw", PW); b.click("#lbtn"); b.wait_for_selector("text=Server connection")
+    nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
+    check("A detects changed key of B", "has CHANGED" in a.inner_text("#app"))
+    a.on("dialog", lambda d: d.accept())
+    a.click("button[data-trust]"); time.sleep(1.5)
+    nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
+    check("after trusting, link sealed again", "Everything on this link is sealed" in a.inner_text("#app"))
+    nav(s, S + "/#/hubs"); s.click("text=AL-TR"); s.wait_for_selector("text=About this hub")
+    check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
+
     # status + radio pages (no radio)
     nav(a, A + "/#/"); a.wait_for_selector("text=Server connection"); check("hub status page", "connected" in a.inner_text("#app"))
     nav(a, A + "/#/radio"); a.wait_for_selector("text=Radio connection"); check("hub radio page", True)
@@ -105,6 +128,13 @@ with sync_playwright() as pw:
     s.select_option("select[data-cs]", "resolved"); s.fill("textarea[data-cr]", "Checked, fixed."); s.click("button[data-csave]")
     s.wait_for_selector("text=✓ Saved")
     nav(s, S + "/#/complaints"); s.wait_for_selector("text=Checked, fixed."); check("complaint resolution public", "resolved" in s.inner_text("#app"))
+
+    # login lockout after 5 wrong passwords (fresh browser context)
+    lc = br.new_context(ignore_https_errors=True); lp = new_page(lc, "lock")
+    for i in range(6):
+        lp.goto(B + "/#/"); lp.reload(); lp.wait_for_selector("#pw"); lp.fill("#pw", "wrong-%d" % i); lp.click("#lbtn"); lp.wait_for_selector("#lmsg .msg")
+    check("login locked after 5 failures", "Too many wrong passwords" in lp.inner_text("#lmsg"))
+    lc.close()
 
     # language switch
     nav(s, S + "/#/"); s.wait_for_selector(".lang button[data-l=sq]"); s.click(".lang button[data-l=sq]")

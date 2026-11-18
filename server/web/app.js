@@ -7,8 +7,8 @@ Ura.add({
   "nav.stats": { en: "Statistics", sq: "Statistika" }, "nav.codes": { en: "Shortcodes", sq: "Kodet" },
   "nav.join": { en: "Register a hub", sq: "Regjistro një hub" }, "nav.complaints": { en: "Complaints", sq: "Ankesat" },
   "nav.admin": { en: "Admin", sq: "Admin" },
-  "foot": { en: "Ura links separate Meshtastic and MeshCore networks over the internet. The server only lets hubs find each other and counts traffic; it never reads or stores messages. Every rule lives in the hubs.",
-            sq: "Ura lidh rrjete të ndara Meshtastic dhe MeshCore përmes internetit. Serveri vetëm i ndihmon hub-et të gjejnë njëri-tjetrin dhe numëron trafikun; ai nuk lexon dhe nuk ruan kurrë mesazhe. Çdo rregull ndodhet te hub-et." },
+  "foot": { en: "Ura links separate Meshtastic and MeshCore networks over the internet. The server only lets hubs find each other and counts traffic; traffic between hubs is end-to-end encrypted, so it cannot read or store messages. Every rule lives in the hubs.",
+            sq: "Ura lidh rrjete të ndara Meshtastic dhe MeshCore përmes internetit. Serveri vetëm i ndihmon hub-et të gjejnë njëri-tjetrin dhe numëron trafikun; trafiku ndërmjet hub-eve është i enkriptuar skaj-më-skaj, ndaj ai nuk mund të lexojë apo ruajë mesazhe. Çdo rregull ndodhet te hub-et." },
   "map.title": { en: "Hubs and nodes", sq: "Hub-et dhe nyjet" },
   "map.legend.hub": { en: "Hub (on-site bridge)", sq: "Hub (ura në vend)" },
   "map.legend.node": { en: "Node heard by a hub", sq: "Nyje e dëgjuar nga një hub" },
@@ -21,6 +21,9 @@ Ura.add({
   "hub.title": { en: "Hub {code}", sq: "Hub {code}" },
   "hub.about": { en: "About this hub", sq: "Për këtë hub" },
   "hub.registered": { en: "Registered", sq: "Regjistruar" }, "hub.last_seen": { en: "Last seen", sq: "Parë së fundi" },
+  "hub.e2e": { en: "End-to-end encryption", sq: "Enkriptim skaj-më-skaj" },
+  "hub.e2e.hint": { en: "traffic between hubs is sealed; this server cannot read it", sq: "trafiku ndërmjet hub-eve është i mbyllur; ky server nuk mund ta lexojë" },
+  "a.locked": { en: "Too many wrong passwords. Try again in 15 minutes.", sq: "Shumë fjalëkalime të gabuara. Provoni përsëri pas 15 minutash." },
   "hub.version": { en: "Software", sq: "Programi" }, "hub.radios": { en: "Radios", sq: "Radiot" },
   "hub.rules": { en: "Rules this hub applies (public)", sq: "Rregullat që zbaton ky hub (publike)" },
   "hub.rules.none": { en: "The hub has not published its rules yet.", sq: "Hub-i nuk i ka publikuar ende rregullat." },
@@ -201,6 +204,7 @@ async function pageHub(id) {
         <dt>${t("hub.registered")}</dt><dd>${dt(h.approved)}</dd>
         <dt>${t("hub.last_seen")}</dt><dd>${h.online ? t("online") : ago(h.last_seen)}</dd>
         <dt>${t("hub.version")}</dt><dd>${esc(h.version || "–")}</dd>
+        <dt>${t("hub.e2e")}</dt><dd>${h.e2e ? `<span class="badge ok">🔒 ${t("yes")}</span> <span class="muted small">${t("hub.e2e.hint")}</span>` : `<span class="badge warn">${t("no")}</span>`}</dd>
         <dt>${t("hub.radios")}</dt><dd>${(h.radios || []).map(r => `${netBadge(r.net)} ${esc(r.name || "")} <span class="muted">${esc(r.hw || "")} ${esc(r.firmware || "")}</span>`).join("<br>") || "–"}</dd>
         <dt>${t("links")}</dt><dd>${d.links.map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)} · ${esc(l.peer_name)}</a>`).join("<br>") || t("none")}</dd>
       </dl>${h.description ? `<p>${esc(h.description)}</p>` : ""}</div>
@@ -330,7 +334,7 @@ async function pageAdmin() {
       <div id="lmsg"></div><button class="primary" id="lbtn">${INFO.setup_needed ? t("setup.btn") : t("login")}</button></div></div>`;
     const go = async () => {
       try { await api("POST", INFO.setup_needed ? "/api/setup" : "/api/login", { password: $("#pw").value }); pageAdmin(); }
-      catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "password_short" ? t("password.short") : esc(e.message)}</div>`; }
+      catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "locked" ? t("a.locked") : e.message === "password_short" ? t("password.short") : esc(e.message)}</div>`; }
     };
     $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
     return;

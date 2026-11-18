@@ -13,13 +13,12 @@ Python standard library only. Settings: environment variables (see README).
 import asyncio, base64, hashlib, hmac, http.server, json, logging, os, re, secrets, socketserver
 import sqlite3, ssl, subprocess, threading, time, urllib.parse
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 HUB_PORT = int(os.environ.get("URA_PORT", "8100"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8443"))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "common"))
-DEDUP_SECONDS = 600
 NODE_MAX_AGE = 7 * 86400
 
 log = logging.getLogger("ura-server")
@@ -55,6 +54,11 @@ class DB:
             id INTEGER PRIMARY KEY AUTOINCREMENT, created INTEGER, email TEXT, subject_type TEXT,
             subject_id TEXT, text TEXT, status TEXT DEFAULT 'open', resolution TEXT, updated INTEGER);
         """)
+        cols = [r[1] for r in self.c.execute("PRAGMA table_info(hubs)")]
+        if "pubkey" not in cols:
+            self.c.execute("ALTER TABLE hubs ADD COLUMN pubkey TEXT")
+        for r in self.c.execute("SELECT id, key FROM hubs WHERE key NOT LIKE 'sha256:%'").fetchall():
+            self.c.execute("UPDATE hubs SET key=? WHERE id=?", (key_hash(r[1]), r[0]))   # never keep hub keys in clear
         self.c.commit()
 
     def q(self, sql, args=()):
@@ -83,7 +87,6 @@ class DB:
 db = None
 loop = None
 online = {}            # hub_id -> asyncio.StreamWriter
-seen = {}              # sha256(payload) -> time
 FINGERPRINT = ""
 
 
@@ -91,6 +94,13 @@ FINGERPRINT = ""
 
 def now():
     return int(time.time())
+
+
+def key_hash(key):
+    return "sha256:" + hashlib.sha256(str(key).encode()).hexdigest()
+
+
+B64_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
 
 def hash_pw(pw, salt=None):
@@ -139,7 +149,8 @@ def hub_public(h):
     return {"id": h["id"], "name": h["name"], "code": h["code"], "country": h["country"], "city": h["city"],
             "lat": h["lat"], "lon": h["lon"], "description": h["description"], "online": h["id"] in online,
             "last_seen": h["last_seen"], "approved": h["approved"], "version": h["version"],
-            "rules": json.loads(h["rules"] or "null"), "radios": json.loads(h["radios"] or "[]")}
+            "rules": json.loads(h["rules"] or "null"), "radios": json.loads(h["radios"] or "[]"),
+            "pubkey": h["pubkey"], "e2e": bool(h["pubkey"])}
 
 
 def links_for(hub):
@@ -200,17 +211,6 @@ def from_thread(coro):
     asyncio.run_coroutine_threadsafe(coro, loop)
 
 
-def duplicate(payload: bytes) -> bool:
-    t = time.time()
-    for k in [k for k, v in seen.items() if t - v > DEDUP_SECONDS]:
-        del seen[k]
-    h = hashlib.sha256(payload).digest()
-    if h in seen:
-        return True
-    seen[h] = t
-    return False
-
-
 def count(src, dst, net, size):
     hour = now() // 3600 * 3600
     db.x("""INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES(?,?,?,?,1,?)
@@ -262,7 +262,7 @@ async def handle_join(msg, writer):
     hub_id, key = "h_" + secrets.token_hex(6), secrets.token_hex(24)
     db.x("""INSERT INTO hubs(id,key,name,email,country,city,code,lat,lon,description,status,created)
             VALUES(?,?,?,?,?,?,?,?,?,?, 'pending', ?)""",
-         (hub_id, key, name, email, country, city, code, num(msg.get("lat")), num(msg.get("lon")),
+         (hub_id, key_hash(key), name, email, country, city, code, num(msg.get("lat")), num(msg.get("lon")),
           clean(msg.get("description"), 500), now()))
     log.info("join request %s %s (%s)", hub_id, name, code)
     await send(writer, {"t": "joined", "hub": hub_id, "key": key, "status": "pending"})
@@ -280,7 +280,7 @@ async def handle(reader, writer):
             await handle_join(first, writer)
             return
         h = db.one("SELECT * FROM hubs WHERE id=?", (first.get("hub"),))
-        if first.get("t") != "hello" or not h or not hmac.compare_digest(h["key"], str(first.get("key"))):
+        if first.get("t") != "hello" or not h or not hmac.compare_digest(h["key"], key_hash(first.get("key"))):
             await send(writer, {"t": "refused", "reason": "unknown_hub"})
             return
         if h["status"] == "removed":
@@ -288,9 +288,10 @@ async def handle(reader, writer):
             return
         hub_id = h["id"]
         info = first.get("info") or {}
-        db.x("UPDATE hubs SET last_seen=?, version=?, rules=?, radios=? WHERE id=?",
+        db.x("UPDATE hubs SET last_seen=?, version=?, rules=?, radios=?, pubkey=COALESCE(?, pubkey) WHERE id=?",
              (now(), clean(first.get("version"), 20), json.dumps(info.get("rules")),
-              json.dumps(info.get("radios") or []), hub_id))
+              json.dumps(info.get("radios") or []), pubkey_of(info), hub_id))
+        bucket = [time.time(), BURST]
         old = online.pop(hub_id, None)
         if old:
             old.close()
@@ -298,6 +299,8 @@ async def handle(reader, writer):
         await send(writer, {"t": "welcome", "hub": hub_id, "status": h["status"], "server_version": VERSION,
                             "hubs": directory(), "links": links_for(hub_id)})
         log.info("hub %s (%s) online from %s, status %s", hub_id, h["name"], peer, h["status"])
+        for p_ in active_peers(hub_id):
+            await send(writer, {"t": "peer_nodes", "hub": p_, "ids": [r["id"] for r in db.q("SELECT id FROM nodes WHERE hub=?", (p_,))]})
         await push_directory()
         while line := await reader.readline():
             msg = json.loads(line)
@@ -308,13 +311,16 @@ async def handle(reader, writer):
                 await send(writer, {"t": "pong"})
             elif t == "info":
                 info = msg.get("info") or {}
-                db.x("UPDATE hubs SET rules=?, radios=? WHERE id=?",
-                     (json.dumps(info.get("rules")), json.dumps(info.get("radios") or []), hub_id))
+                db.x("UPDATE hubs SET rules=?, radios=?, pubkey=COALESCE(?, pubkey) WHERE id=?",
+                     (json.dumps(info.get("rules")), json.dumps(info.get("radios") or []), pubkey_of(info), hub_id))
                 await push_directory()                     # other hubs see changed rules at once
             elif status != "approved":
                 continue                                   # pending hubs: no nodes, links or traffic yet
             elif t == "nodes":
                 store_nodes(hub_id, clean(msg.get("net"), 4) or "mt", msg.get("nodes") or [])
+                ids = [r["id"] for r in db.q("SELECT id FROM nodes WHERE hub=?", (hub_id,))]
+                for peer in active_peers(hub_id):          # linked hubs learn which nodes are this hub's
+                    await push(peer, {"t": "peer_nodes", "hub": hub_id, "ids": ids})
             elif t == "link_request":
                 await link_request(hub_id, clean(msg.get("to"), 20))
             elif t == "link_accept":
@@ -322,15 +328,19 @@ async def handle(reader, writer):
             elif t == "link_remove":
                 await link_remove(hub_id, int(msg.get("link") or 0))
             elif t == "mesh":
-                payload = base64.b64decode(msg["data"])
-                if duplicate(payload):
+                # flood limit per hub (token bucket)
+                tnow = time.time()
+                bucket[1] = min(BURST, bucket[1] + (tnow - bucket[0]) * RATE)
+                bucket[0] = tnow
+                if bucket[1] < 1:
                     continue
+                bucket[1] -= 1
+                # only end-to-end sealed boxes are relayed; the server cannot open them
                 allowed = active_peers(hub_id)
-                for dst in msg.get("to") or []:
-                    if dst in allowed and dst in online:
-                        await push(dst, {"t": "mesh", "net": msg.get("net"), "from": hub_id,
-                                         "topic": msg.get("topic", ""), "data": msg["data"]})
-                        count(hub_id, dst, msg.get("net") or "mt", len(payload))
+                for dst, box in (msg.get("boxes") or {}).items():
+                    if dst in allowed and dst in online and isinstance(box, str) and len(box) < 4000:
+                        await push(dst, {"t": "mesh", "net": msg.get("net"), "from": hub_id, "box": box})
+                        count(hub_id, dst, msg.get("net") or "mt", len(box) * 3 // 4)
     except Exception as e:
         log.warning("hub %s connection error: %s", hub_id or peer, e)
     finally:
@@ -339,6 +349,14 @@ async def handle(reader, writer):
             log.info("hub %s offline", hub_id)
             await push_directory()
         writer.close()
+
+
+RATE, BURST = 30.0, 200.0                              # mesh frames per second per hub
+
+
+def pubkey_of(info):
+    k = (info or {}).get("pubkey")
+    return k if isinstance(k, str) and B64_KEY.match(k) else None
 
 
 async def link_request(src, dst):
@@ -379,6 +397,10 @@ async def link_remove(hub, link_id):
 # ───────────────────────── website (thread) ─────────────────────────
 
 sessions = {}          # token -> expiry
+login_fail = {}        # ip -> [failure times]
+SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+               "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; "
+                                          "style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"}
 complaint_times = {}   # ip -> [times]
 SESSION_TTL = 12 * 3600
 
@@ -400,6 +422,8 @@ class Web(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        for k, v in SEC_HEADERS.items():
+            self.send_header(k, v)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
@@ -422,6 +446,8 @@ class Web(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-cache")
+        for k, v in SEC_HEADERS.items():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -504,9 +530,16 @@ class Web(http.server.BaseHTTPRequestHandler):
                 db.set_setting("admin_pw", hash_pw(b["password"]))
                 return self.login_ok()
             if p == "/api/login":
+                ip = self.client_address[0]
+                login_fail[ip] = [x for x in login_fail.get(ip, []) if time.time() - x < 900]
+                if len(login_fail[ip]) >= 5:
+                    return self.reply({"error": "locked"}, 429)
                 time.sleep(0.5)
                 if check_pw(b.get("password") or "", db.setting("admin_pw")):
+                    login_fail.pop(ip, None)
                     return self.login_ok()
+                login_fail[ip].append(time.time())
+                log.warning("failed admin login from %s", ip)
                 return self.reply({"error": "wrong_password"}, 403)
             if p == "/api/logout":
                 return self.reply({"ok": True}, headers={"Set-Cookie": "ura_admin=; Max-Age=0; Path=/; Secure"})

@@ -47,6 +47,39 @@ Ura.add({
                      sq: "Grupet e tjera (kanalet) e radios suaj. Një grup kalon vetëm nëse e pranon edhe hub-i tjetër." },
   "l.nogroups": { en: "Your radio has no other channels.", sq: "Radio juaj nuk ka kanale të tjera." },
   "l.peer_rules": { en: "Rules of {x} for this link", sq: "Rregullat e {x} për këtë lidhje" },
+  "rx.title": { en: "What the radio hears", sq: "Çfarë dëgjon radio" },
+  "rx.none": { en: "The radio has not reported its reception yet (it does so every few minutes).", sq: "Radio ende nuk ka raportuar marrjen (e bën çdo disa minuta)." },
+  "rx.rx": { en: "Packets received", sq: "Paketa të marra" }, "rx.bad": { en: "Unreadable packets", sq: "Paketa të palexueshme" },
+  "rx.chutil": { en: "Channel busy", sq: "Kanali i zënë" }, "rx.airtx": { en: "Own transmit time", sq: "Koha e vet e transmetimit" },
+  "rx.online": { en: "{n} of {m} known nodes active in the last 2 hours", sq: "{n} nga {m} nyje të njohura aktive në 2 orët e fundit" },
+  "rx.chutil.hint": { en: "“Channel busy” counts every LoRa signal the radio picks up on its frequency, including ones it cannot decode (other networks, other settings, noise).",
+                      sq: "“Kanali i zënë” numëron çdo sinjal LoRa që radio kap në frekuencën e saj, përfshirë ato që nuk mund t'i deshifrojë (rrjete të tjera, cilësime të tjera, zhurmë)." },
+  "rx.updated": { en: "updated", sq: "përditësuar" },
+  "rx.deaf": { en: "The radio has received nothing since it started. Nobody is in range: place it higher (roof, window) or use a better antenna.",
+               sq: "Radio nuk ka marrë asgjë që kur u ndez. Askush nuk është në rreze: vendoseni më lart (çati, dritare) ose përdorni një antenë më të mirë." },
+  "nl.local": { en: "Heard here", sq: "Dëgjuar këtu" },
+  "nl.local.hint": { en: "Nodes this radio heard itself over LoRa in the last 7 days. These are the nodes of this area; only they are sent to the Ura map.",
+                     sq: "Nyjet që kjo radio i ka dëgjuar vetë përmes LoRa në 7 ditët e fundit. Këto janë nyjet e kësaj zone; vetëm ato dërgohen në hartën e Ura." },
+  "nl.show_old": { en: "show {n} older / without time", sq: "shfaq {n} më të vjetra / pa kohë" },
+  "nl.none_local": { en: "No node heard in the last 7 days.", sq: "Asnjë nyje e dëgjuar në 7 ditët e fundit." },
+  "nl.nopos": { en: "no position set", sq: "pa pozicion" },
+  "nl.remote": { en: "From linked hubs", sq: "Nga hub-et e lidhur" },
+  "nl.remote.hint": { en: "Nodes that reached this radio through Ura, grouped by the hub that heard them.", sq: "Nyjet që arritën te kjo radio përmes Ura, të grupuara sipas hub-it që i dëgjoi." },
+  "nl.unknown": { en: "Via bridge (origin not known, e.g. older tests)", sq: "Përmes urës (origjina e panjohur, p.sh. teste më të vjetra)" },
+  "e2e.title": { en: "End-to-end encryption", sq: "Enkriptimi skaj-më-skaj" },
+  "e2e.ok": { en: "🔒 Everything on this link is sealed between the two hubs. The server only passes on boxes it cannot open.",
+              sq: "🔒 Gjithçka në këtë lidhje është e mbyllur ndërmjet dy hub-eve. Serveri vetëm kalon kuti që nuk mund t'i hapë." },
+  "e2e.code": { en: "Safety code", sq: "Kodi i sigurisë" },
+  "e2e.code.hint": { en: "Compare this code with the operator of {x} (phone, chat). If it is the same on both hubs, nobody — not even the server — sits in between.",
+                     sq: "Krahasojeni këtë kod me operatorin e {x} (telefon, chat). Nëse është i njëjtë në të dy hub-et, askush — as serveri — nuk ndodhet në mes." },
+  "e2e.changed": { en: "⚠️ The key of {x} has CHANGED. Traffic is stopped. This happens when that hub was reinstalled — or when someone tries to sit in between. Call the operator, compare the new safety code, and only then trust it.",
+                   sq: "⚠️ Çelësi i {x} ka NDRYSHUAR. Trafiku është ndalur. Kjo ndodh kur ai hub është riinstaluar — ose kur dikush përpiqet të futet në mes. Telefononi operatorin, krahasoni kodin e ri të sigurisë dhe vetëm atëherë besojeni." },
+  "e2e.trust": { en: "Codes match – trust the new key", sq: "Kodet përputhen – beso çelësin e ri" },
+  "e2e.missing": { en: "⚠️ {x} has no end-to-end key yet (older software). Nothing is sent to it until it is updated.",
+                   sq: "⚠️ {x} ende nuk ka çelës skaj-më-skaj (program më i vjetër). Asgjë nuk i dërgohet derisa të përditësohet." },
+  "why.key_missing": { en: "no end-to-end key", sq: "pa çelës skaj-më-skaj" }, "why.key_changed": { en: "key changed", sq: "çelësi ndryshoi" },
+  "why.bad_box": { en: "box could not be opened", sq: "kutia nuk u hap" },
+  "err.locked": { en: "Too many wrong passwords. Try again in 15 minutes.", sq: "Shumë fjalëkalime të gabuara. Provoni përsëri pas 15 minutash." },
   "l.peer_rules.none": { en: "Not published yet.", sq: "Ende të papublikuara." },
   "l.counts": { en: "Traffic since start", sq: "Trafiku që nga nisja" },
   "l.blocked": { en: "stopped by rules", sq: "ndaluar nga rregullat" },
@@ -120,12 +153,41 @@ function regText(st) { return st ? t("reg." + st) : t("reg.none"); }
 function ruleRow(lbl, dir, key, rule) { return `<label class="check"><input type="checkbox" data-dir="${dir}" data-k="${key}" ${rule[key] ? "checked" : ""}> ${lbl}</label>`; }
 
 /* ───────── status ───────── */
+const LOCAL_COLOR = "#0f7b6c";
+const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
+const WEEK = 7 * 86400;
+let showOld = false;
+
+function receptionHtml(st) {
+  if (!st || !st.time) return `<p class="muted">${t("rx.none")}</p>`;
+  const v = (x, suf) => x == null ? "–" : (typeof x === "number" ? (Number.isInteger(x) ? x : x.toFixed(1)) : x) + (suf || "");
+  const box = (x, lbl, suf) => x == null ? "" : `<div class="stat"><div class="v">${v(x, suf)}</div><div class="l">${t(lbl)}</div></div>`;
+  return `<div class="grid g4">${box(st.numPacketsRx, "rx.rx")}${box(st.numPacketsRxBad, "rx.bad")}${box(st.channelUtilization, "rx.chutil", " %")}${box(st.airUtilTx, "rx.airtx", " %")}</div>
+    <p class="muted small">${st.numOnlineNodes != null ? t("rx.online", { n: v(st.numOnlineNodes), m: v(st.numTotalNodes) }) + " · " : ""}${t("rx.updated")} ${ago(st.time)}</p>
+    <p class="muted small">${t("rx.chutil.hint")}</p>
+    ${st.numPacketsRx === 0 ? `<div class="msg warn">${t("rx.deaf")}</div>` : ""}`;
+}
+
 async function pageStatus() {
   const s = await api("GET", "/api/status");
   const nodes = await api("GET", "/api/nodes");
   const g = s.counters.global, r = s.radio, a = s.airtime;
   const pct = (used, win) => (100 * used / win).toFixed(2) + " %";
   const srvBadge = s.link_state === "connected" ? "ok" : (s.link_state === "connecting" ? "warn" : "bad");
+  const now = Date.now() / 1000;
+  const own = nodes.find(n => n.own);
+  const localAll = nodes.filter(n => !n.own && !n.remote);
+  const localRecent = localAll.filter(n => n.last_heard && now - n.last_heard < WEEK);
+  const local = (showOld ? localAll : localRecent).sort((x, y) => (y.last_heard || 0) - (x.last_heard || 0));
+  const hidden = localAll.length - localRecent.length;
+  const codeOf = id => { const h = s.directory.find(x => x.id === id); return h ? h.code + " · " + h.name : null; };
+  const groups = {};
+  nodes.filter(n => n.remote).forEach(n => { const k = n.origin && codeOf(n.origin) ? n.origin : "?"; (groups[k] = groups[k] || []).push(n); });
+  const gkeys = Object.keys(groups).sort((x, y) => (x === "?") - (y === "?"));
+  const color = {}; gkeys.forEach((k, i) => color[k] = k === "?" ? "#8a8f98" : REMOTE_COLORS[i % REMOTE_COLORS.length]);
+  const row = n => `<tr><td>${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span></td><td class="mono small">${esc(n.id)}</td>
+      <td>${ago(n.last_heard)}</td><td>${n.hops != null ? n.hops : "–"}</td><td>${n.snr != null ? n.snr + " dB" : "–"}</td><td>${n.lat != null ? "📍" : ""}</td></tr>`;
+  const head = `<tr><th>${t("name")}</th><th>${t("id")}</th><th>${t("last_heard")}</th><th>${t("hops")}</th><th>SNR</th><th></th></tr>`;
   app().innerHTML = `
     <div class="grid g3">
       <div class="card"><h2>${t("st.hub")}</h2><dl class="kv">
@@ -135,7 +197,7 @@ async function pageStatus() {
       <div class="card"><h2>${t("st.server")}</h2><dl class="kv">
         <dt>${t("status")}</dt><dd><span class="badge ${srvBadge}">${t(srvState(s))}</span> <span class="muted small">${esc(s.link_detail || "")}</span></dd>
         <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
-        <dt>${t("links")}</dt><dd>${s.links.filter(l => l.state === "active").map(l => esc(l.peer_code)).join(", ") || t("none")}</dd></dl></div>
+        <dt>${t("links")}</dt><dd>${s.links.filter(l => l.state === "active").map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")}</dd></dl></div>
       <div class="card"><h2>${t("st.radio")}</h2>${r ? `<dl class="kv">
         <dt>${t("status")}</dt><dd>${r.connected ? `<span class="badge ok">${t("r.connected")}</span>` : `<span class="badge bad">${t("r.not_connected")}</span> <span class="muted small">${esc(r.error || "")}</span>`}</dd>
         <dt>${t("name")}</dt><dd>${esc(r.name || "–")} <span class="muted">${esc(r.short || "")}</span></dd>
@@ -149,21 +211,37 @@ async function pageStatus() {
       <div class="stat"><div class="v">${g.received}</div><div class="l">${t("st.received")}</div></div>
       <div class="stat"><div class="v">${g.to_radio}</div><div class="l">${t("st.to_radio")}</div></div>
     </div>
-    <div class="card" style="margin-top:1rem"><h2>${t("st.airtime")}</h2>
-      <p>${t("st.hour")}: <b>${pct(a.used_hour, 3600)}</b> (${a.limits.pct_hour ? t("st.limit", { x: a.limits.pct_hour + " %" }) : t("st.nolimit")}) ·
-         ${t("st.day")}: <b>${pct(a.used_day, 86400)}</b> (${a.limits.pct_day ? t("st.limit", { x: a.limits.pct_day + " %" }) : t("st.nolimit")})</p></div>
-    <div class="card"><div class="spread"><h2>${t("st.nodes")} (${nodes.length})</h2>
-      <div class="row"><button id="ann">${t("st.announce")}</button><button id="ask">${t("st.ask")}</button><span id="annmsg" class="muted"></span></div></div>
-      <p class="muted small">${t("st.nodes.hint")}</p>
-      <div class="grid g2"><div class="tablewrap"><table><tr><th>${t("name")}</th><th>${t("id")}</th><th></th><th>${t("last_heard")}</th><th>${t("hops")}</th></tr>
-      ${nodes.sort((x, y) => (y.last_heard || 0) - (x.last_heard || 0)).map(n => `<tr><td>${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span></td>
-        <td class="mono small">${esc(n.id)}</td><td>${n.own ? `<span class="badge ok">${t("st.radio")}</span>` : n.remote ? `<span class="badge info">${t("remote")}</span>` : `<span class="badge">${t("local")}</span>`}</td>
-        <td>${ago(n.last_heard)}</td><td>${n.hops != null ? n.hops : "–"}</td></tr>`).join("")}</table></div>
-      <div><div id="map" class="minimap" style="height:420px"></div></div></div></div>`;
+    <div class="grid g2" style="margin-top:1rem">
+      <div class="card"><h2>${t("rx.title")}</h2>${receptionHtml(s.radio_stats)}</div>
+      <div class="card"><h2>${t("st.airtime")}</h2>
+        <p>${t("st.hour")}: <b>${pct(a.used_hour, 3600)}</b> (${a.limits.pct_hour ? t("st.limit", { x: a.limits.pct_hour + " %" }) : t("st.nolimit")})<br>
+           ${t("st.day")}: <b>${pct(a.used_day, 86400)}</b> (${a.limits.pct_day ? t("st.limit", { x: a.limits.pct_day + " %" }) : t("st.nolimit")})</p>
+        <div class="row"><button id="ann">${t("st.announce")}</button><button id="ask">${t("st.ask")}</button><span id="annmsg" class="muted"></span></div></div>
+    </div>
+    <div class="card"><div id="map" class="minimap" style="height:440px"></div>
+      <div class="legend"><span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span>
+        ${gkeys.map(k => `<span><span class="dot" style="background:${color[k]}"></span>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</span>`).join("")}</div></div>
+    <div class="grid g2">
+      <div class="card"><div class="spread"><h2>${t("nl.local")} (${localRecent.length})</h2>
+        ${hidden ? `<label class="check small"><input type="checkbox" id="showold" ${showOld ? "checked" : ""}> ${t("nl.show_old", { n: hidden })}</label>` : ""}</div>
+        <p class="muted small">${t("nl.local.hint")}</p>
+        ${own ? `<p class="small">${t("st.radio")}: <b>${esc(own.name || own.id)}</b> ${own.lat != null ? "📍" : `<span class="muted">(${t("nl.nopos")})</span>`}</p>` : ""}
+        <div class="tablewrap"><table>${head}${local.map(row).join("") || `<tr><td colspan="6" class="muted">${t("nl.none_local")}</td></tr>`}</table></div></div>
+      <div class="card"><h2>${t("nl.remote")} (${nodes.filter(n => n.remote).length})</h2>
+        <p class="muted small">${t("nl.remote.hint")}</p>
+        ${gkeys.length ? gkeys.map(k => `<h3><span class="dot" style="background:${color[k]}"></span>${esc(k === "?" ? t("nl.unknown") : codeOf(k))} (${groups[k].length})</h3>
+          <div class="tablewrap"><table>${head}${groups[k].sort((x, y) => (y.last_heard || 0) - (x.last_heard || 0)).map(row).join("")}</table></div>`).join("")
+          : `<p class="muted">${t("none")}</p>`}</div>
+    </div>`;
   const b = [];
   mapObj = makeMap("map");
-  nodes.forEach(n => { if (n.lat != null) { L.circleMarker([n.lat, n.lon], { radius: n.own ? 9 : 6, color: "#fff", weight: 1.5, fillColor: n.remote ? "#2a56c6" : "#0f7b6c", fillOpacity: .95 }).bindPopup(esc(n.name || n.id)).addTo(mapObj); b.push([n.lat, n.lon]); } });
+  const dot = (n, c, rad) => { if (n.lat == null) return; L.circleMarker([n.lat, n.lon], { radius: rad, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: .95 })
+      .bindPopup(`<b>${esc(n.name || n.id)}</b> ${esc(n.short || "")}<br>${t("last_heard")}: ${ago(n.last_heard)}`).addTo(mapObj); b.push([n.lat, n.lon]); };
+  local.forEach(n => dot(n, LOCAL_COLOR, 6));
+  gkeys.forEach(k => groups[k].forEach(n => dot(n, color[k], 6)));
+  if (own) dot(own, LOCAL_COLOR, 10);
   if (b.length) mapObj.fitBounds(b, { padding: [30, 30], maxZoom: 12 });
+  if ($("#showold")) $("#showold").onchange = e => { showOld = e.target.checked; if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus(); };
   const ann = async ask => { try { await api("POST", "/api/radio/announce", { ask }); $("#annmsg").textContent = t("st.announced"); } catch (e) { $("#annmsg").textContent = errText(e); } };
   $("#ann").onclick = () => ann(false); $("#ask").onclick = () => ann(true);
 }
@@ -206,6 +284,10 @@ async function pageLinks() {
           ${l.state !== "active" && !l.i_accepted ? `<button class="primary small" data-acc="${l.id}">${t("l.accept")}</button>` : ""}
           <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${l.state === "active" ? t("l.remove") : t("l.decline")}</button></div></div>
         ${l.state !== "active" ? `<p class="muted">${l.i_accepted ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })}</p>` : `
+        <div class="msg ${l.e2e.state === "ok" ? "ok" : "bad"}" style="margin-top:.5rem"><b>${t("e2e.title")}</b><br>
+          ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
+          ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
+          ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
         <h3>${t("l.rules")}</h3><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
         <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span></div>
@@ -221,6 +303,7 @@ async function pageLinks() {
   $$("button[data-ask]").forEach(b => b.onclick = () => act("/api/links/request", { to: b.dataset.ask }, b));
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
   $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
+  $$("button[data-trust]").forEach(b => b.onclick = () => act("/api/links/trust_key", { peer: b.dataset.trust }, b));
   $$("button[data-save]").forEach(b => b.onclick = async () => {
     const peer = b.dataset.save, box = b.closest("[data-peer]"), rules = { send: { groups: [] }, receive: { groups: [] } };
     $$("input[data-k]", box).forEach(i => rules[i.dataset.dir][i.dataset.k] = i.checked);
@@ -339,7 +422,7 @@ async function pageLogin(setup) {
     <button class="primary" id="lbtn">${setup ? t("setup.btn") : t("login")}</button></div></div>`;
   const go = async () => {
     try { await api("POST", setup ? "/api/setup" : "/api/login", { password: $("#pw").value }); route(); }
-    catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : t("password.short")}</div>`; }
+    catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "locked" ? t("err.locked") : t("password.short")}</div>`; }
   };
   $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
 }

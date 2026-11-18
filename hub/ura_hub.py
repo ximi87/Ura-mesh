@@ -21,9 +21,9 @@ import meshtastic.serial_interface, meshtastic.tcp_interface
 from google.protobuf.json_format import ParseDict
 from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, config_pb2
 
-from meshcrypto import expand_psk, decrypt_packet
+from meshcrypto import expand_psk, decrypt_packet, new_private, x25519_public, link_keys, safety_code, seal, open_box
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(HERE, "data"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8091"))
@@ -44,6 +44,7 @@ DEFAULT_CONFIG = {
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
+    "peer_keys": {},              # peer hub id -> pinned end-to-end public key (base64)
     "web_password": None,
 }
 
@@ -92,6 +93,117 @@ class Config:
 
 cfg: Config = None
 loop: asyncio.AbstractEventLoop = None
+
+
+# ───────────────────────── end-to-end identity ─────────────────────────
+
+class Identity:
+    """This hub's X25519 key pair. The public key is published through the server; the
+    private key never leaves this computer (data/identity.key, mode 600)."""
+
+    def __init__(self):
+        path = os.path.join(DATA_DIR, "identity.key")
+        if not os.path.exists(path):
+            with open(path, "wb") as f:
+                f.write(new_private())
+            os.chmod(path, 0o600)
+        self.private = open(path, "rb").read()
+        self.public = x25519_public(self.private)
+        self.public_b64 = base64.b64encode(self.public).decode()
+        self._keys = {}
+
+    def peer_key(self, peer):
+        """(pubkey_b64, state): state ok | new | changed | missing."""
+        h = next((x for x in link.directory if x["id"] == peer), None)
+        cur = (h or {}).get("pubkey")
+        pinned = cfg.get()["peer_keys"].get(peer)
+        if not cur:
+            return None, "missing"
+        if pinned is None:
+            return cur, "new"
+        return cur, "ok" if pinned == cur else "changed"
+
+    def pin_new(self):
+        """Pin the key of every active link we have not seen before (trust on first use)."""
+        for l in link.links:
+            if l["state"] == "active":
+                cur, state = self.peer_key(l["peer"])
+                if state == "new":
+                    cfg.update(lambda d: d["peer_keys"].__setitem__(l["peer"], cur))
+                    log.info("pinned end-to-end key of %s", l["peer"])
+
+    def keys_for(self, peer):
+        cur, state = self.peer_key(peer)
+        if state == "new":
+            self.pin_new()
+            cur, state = self.peer_key(peer)
+        if state != "ok":
+            return None, state
+        k = self._keys.get(cur)
+        if k is None:
+            k = self._keys[cur] = link_keys(self.private, self.public, base64.b64decode(cur))
+        return k, "ok"
+
+    def safety(self, peer):
+        cur, state = self.peer_key(peer)
+        return {"code": safety_code(self.public, base64.b64decode(cur)) if cur else None, "state": state}
+
+
+identity: Identity = None
+
+
+class Origins:
+    """Which linked hub a remote node came from (learned from packets), for the status page."""
+
+    def __init__(self):
+        self.path = os.path.join(DATA_DIR, "origins.json")
+        self.lock = threading.Lock()
+        try:
+            self.map = json.load(open(self.path))
+        except Exception:
+            self.map = {}
+        self.dirty, self.saved = 0, 0
+
+    def note(self, node_id, peer):
+        with self.lock:
+            if self.map.get(node_id) != peer:
+                self.map[node_id] = peer
+                self.dirty += 1
+            if self.dirty and (self.dirty > 20 or time.time() - self.saved > 60 or not os.path.exists(self.path)):
+                self.save()
+
+    def save(self):
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(self.map, f)
+        os.replace(tmp, self.path)
+        self.dirty, self.saved = 0, time.time()
+
+    def get(self, node_id):
+        return self.map.get(node_id)
+
+
+origins: Origins = None
+
+
+class SeenCache:
+    """Drop replays (same box nonce) and duplicates (same packet from two routes) for 10 minutes."""
+
+    def __init__(self, ttl=600):
+        self.ttl, self.d, self.lock = ttl, {}, threading.Lock()
+
+    def seen(self, key):
+        t = time.time()
+        with self.lock:
+            if len(self.d) > 5000:
+                self.d = {k: v for k, v in self.d.items() if t - v < self.ttl}
+            if key in self.d and t - self.d[key] < self.ttl:
+                return True
+            self.d[key] = t
+            return False
+
+
+seen_cache = SeenCache()
 
 
 # ───────────────────────── counters ─────────────────────────
@@ -156,6 +268,7 @@ def classify(data, channels):
         return None
     pkt = env.packet
     out = {"channel": env.channel_id, "public": False, "private": env.channel_id == "PKI",
+           "sender": f"!{getattr(pkt, 'from'):08x}",
            "kind": "unknown", "size": len(pkt.encrypted) if pkt.HasField("encrypted") else len(pkt.decoded.payload) + 4}
     ch = channels.get(env.channel_id)
     if ch:
@@ -215,6 +328,7 @@ class Radio:
         self.iface, self.lock = None, threading.RLock()
         self.error, self.connected_at = "", 0
         self.stop = False
+        self.stats = {}                   # what the radio reports about its own reception
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
         pub.subscribe(self._on_lost, "meshtastic.connection.lost")
         pub.subscribe(self._on_packet, "meshtastic.receive")
@@ -235,8 +349,19 @@ class Radio:
         self.queue.put_nowait(item)
 
     def _on_packet(self, packet, interface):
-        if self._mine(interface) and packet.get("from") != interface.myInfo.my_node_num:
-            counters.add("heard")
+        if not self._mine(interface):
+            return
+        if packet.get("from") != interface.myInfo.my_node_num:
+            if not packet.get("viaMqtt"):
+                counters.add("heard")
+            return
+        tel = packet.get("decoded", {}).get("telemetry", {})
+        if "deviceMetrics" in tel or "localStats" in tel:
+            st = dict(self.stats)
+            st.update(tel.get("deviceMetrics", {}))
+            st.update(tel.get("localStats", {}))
+            st["time"] = int(time.time())
+            self.stats = st
 
     def _on_lost(self, interface):
         with self.lock:
@@ -397,7 +522,8 @@ class Radio:
             out.append({"id": u.get("id") or f"!{num:08x}", "name": u.get("longName"), "short": u.get("shortName"),
                         "hw": u.get("hwModel"), "lat": p.get("latitude"), "lon": p.get("longitude"),
                         "last_heard": n.get("lastHeard"), "hops": n.get("hopsAway"), "snr": n.get("snr"),
-                        "remote": bool(n.get("viaMqtt")) and num != my, "own": num == my})
+                        "remote": bool(n.get("viaMqtt")) and num != my, "own": num == my,
+                        "origin": origins.get(u.get("id") or f"!{num:08x}")})
         return out
 
     # actions
@@ -505,8 +631,11 @@ class Link:
         await w.drain()
         return True
 
+    def info_payload(self):
+        return {"rules": self.public_rules(), "radios": self.radio_summary(), "pubkey": identity.public_b64}
+
     async def push_info(self):
-        await self.send({"t": "info", "info": {"rules": self.public_rules(), "radios": self.radio_summary()}})
+        await self.send({"t": "info", "info": self.info_payload()})
 
     async def run(self):
         while True:
@@ -519,7 +648,7 @@ class Link:
                 self.state, self.detail = "connecting", ""
                 reader, writer = await open_server(c["address"], c["fingerprint"])
                 writer.write((json.dumps({"t": "hello", "hub": c["hub_id"], "key": c["key"], "version": VERSION,
-                                          "info": {"rules": self.public_rules(), "radios": self.radio_summary()}}) + "\n").encode())
+                                          "info": self.info_payload()}) + "\n").encode())
                 first = json.loads(await asyncio.wait_for(reader.readline(), 15))
                 if first.get("t") != "welcome":
                     self.state, self.detail = "refused", first.get("reason", "")
@@ -530,6 +659,7 @@ class Link:
                 self.writer = writer
                 self.state = "connected"
                 self.directory, self.links = first.get("hubs", []), first.get("links", [])
+                identity.pin_new()
                 cfg.update(lambda d: d["server"].update(status=first.get("status")))
                 log.info("connected to server %s as %s (%s)", c["address"], c["hub_id"], first.get("status"))
                 tasks = [asyncio.create_task(self._uplink()), asyncio.create_task(self._keepalive()),
@@ -567,13 +697,18 @@ class Link:
 
     async def _on_message(self, m):
         t = m.get("t")
-        if t == "mesh" and m.get("net") == "mt":
-            await asyncio.to_thread(receive_from_peer, m["from"], m["topic"], base64.b64decode(m["data"]))
+        if t == "mesh" and m.get("net") == "mt" and m.get("box"):
+            await asyncio.to_thread(receive_box, m["from"], base64.b64decode(m["box"]))
         elif t == "directory":
             self.directory = m.get("hubs", [])
+            identity.pin_new()
         elif t == "links":
             self.links = m.get("links", [])
+            identity.pin_new()
             await self.push_info()
+        elif t == "peer_nodes" and m.get("hub") in active_peers():
+            for nid in (m.get("ids") or [])[:3000]:
+                origins.note(str(nid)[:12], m["hub"])
         elif t == "status":
             cfg.update(lambda d: d["server"].update(status=m.get("status")))
             if m.get("status") == "approved":
@@ -637,18 +772,40 @@ def send_to_peers(topic, data):
     c = classify(data, r.channel_keys() if r else {})
     if c is None:
         return
-    targets = []
+    inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode()}).encode()
+    boxes = {}
     for peer in active_peers():
         ok, why = allowed(cfg.rules_for(peer)["send"], c)
-        if ok:
-            targets.append(peer)
-            counters.peer_add(peer, "sent")
-        else:
+        if not ok:
             counters.peer_add(peer, "blocked_send", why)
-    if targets:
+            continue
+        keys, state = identity.keys_for(peer)
+        if keys is None:                               # no end-to-end key (or it changed): never send in clear
+            counters.peer_add(peer, "blocked_send", "key_" + state)
+            continue
+        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+        counters.peer_add(peer, "sent")
+    if boxes:
         counters.add("sent")
-        asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "topic": topic,
-                                                    "data": base64.b64encode(data).decode(), "to": targets}), loop)
+        asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "boxes": boxes}), loop)
+
+
+def receive_box(peer, box):
+    """Server -> hub: open the end-to-end box from a linked hub, drop replays/duplicates."""
+    keys, state = identity.keys_for(peer)
+    if keys is None:
+        counters.peer_add(peer, "blocked_recv", "key_" + state)
+        return
+    try:
+        inner, nonce = open_box(keys, box)
+        m = json.loads(inner)
+        data = base64.b64decode(m["data"])
+    except Exception:
+        counters.peer_add(peer, "blocked_recv", "bad_box")
+        return
+    if seen_cache.seen(b"n" + nonce) or seen_cache.seen(b"p" + hashlib.sha256(data).digest()):
+        return
+    receive_from_peer(peer, m["topic"], data)
 
 
 def receive_from_peer(peer, topic, data):
@@ -662,6 +819,8 @@ def receive_from_peer(peer, topic, data):
     if c is None:
         counters.peer_add(peer, "blocked_recv", "invalid")
         return
+    if c.get("sender"):
+        origins.note(c["sender"], peer)
     ok, why = allowed(cfg.rules_for(peer)["receive"], c)
     if not ok:
         counters.peer_add(peer, "blocked_recv", why)
@@ -683,6 +842,16 @@ def receive_from_peer(peer, topic, data):
 
 sessions = {}
 SESSION_TTL = 12 * 3600
+login_fail = {}                    # ip -> [failure times]
+SEC_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+               "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; "
+                                          "style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"}
+
+
+def locked_out(ip):
+    t = time.time()
+    login_fail[ip] = [x for x in login_fail.get(ip, []) if t - x < 900]
+    return len(login_fail[ip]) >= 5
 
 
 def hash_pw(pw, salt=None):
@@ -720,7 +889,8 @@ def status_payload():
             "link_state": link.state, "link_detail": link.detail, "radio": r.info() if r else None,
             "counters": counters.snapshot(), "airtime": {"used_hour": counters.air_used(3600), "used_day": counters.air_used(86400),
                                                        "limits": c["airtime"]},
-            "links": link.links, "directory": link.directory}
+            "links": [dict(l, e2e=identity.safety(l["peer"])) for l in link.links], "directory": link.directory,
+            "my_key": safety_code(identity.public, identity.public)[:11], "radio_stats": r.stats if r else {}}
 
 
 class Web(http.server.BaseHTTPRequestHandler):
@@ -738,6 +908,8 @@ class Web(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        for k, v in SEC_HEADERS.items():
+            self.send_header(k, v)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
@@ -759,6 +931,8 @@ class Web(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-cache")
+        for k, v in SEC_HEADERS.items():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -813,9 +987,15 @@ class Web(http.server.BaseHTTPRequestHandler):
                 cfg.update(lambda d: d.update(web_password=hash_pw(b["password"])))
                 return self.login_ok()
             if p == "/api/login":
+                ip = self.client_address[0]
+                if locked_out(ip):
+                    return self.reply({"error": "locked"}, 429)
                 time.sleep(0.5)
                 if check_pw(b.get("password") or "", cfg.get()["web_password"]):
+                    login_fail.pop(ip, None)
                     return self.login_ok()
+                login_fail.setdefault(ip, []).append(time.time())
+                log.warning("failed hub login from %s", ip)
                 return self.reply({"error": "wrong_password"}, 403)
             if p == "/api/logout":
                 return self.reply({"ok": True}, headers={"Set-Cookie": "ura_hub=; Max-Age=0; Path=/; Secure"})
@@ -895,6 +1075,14 @@ class Web(http.server.BaseHTTPRequestHandler):
                 msg["link"] = int(b.get("link") or 0)
             if not run_coro(link.send(msg)):
                 return self.reply({"error": "not_connected"}, 400)
+            return self.reply({"ok": True})
+        if p == "/api/links/trust_key":
+            peer = str(b.get("peer") or "")
+            cur, state = identity.peer_key(peer)
+            if not cur:
+                return self.reply({"error": "no_key"}, 400)
+            cfg.update(lambda d: d["peer_keys"].__setitem__(peer, cur))
+            log.info("operator trusted new end-to-end key of %s", peer)
             return self.reply({"ok": True})
         if p == "/api/rules":
             peer = str(b.get("peer") or "")
@@ -987,6 +1175,9 @@ async def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.chmod(DATA_DIR, 0o700)
     cfg = Config()
+    global identity, origins
+    identity = Identity()
+    origins = Origins()
     loop = asyncio.get_running_loop()
     radio_queue = asyncio.Queue(maxsize=1000)
     link = Link()

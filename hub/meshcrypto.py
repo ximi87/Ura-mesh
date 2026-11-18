@@ -106,3 +106,131 @@ def _selftest():
 
 if __name__ == "__main__":
     print("selftest", _selftest())
+
+
+# ───────────────────────── hub-to-hub end-to-end encryption ─────────────────────────
+# X25519 (RFC 7748) key agreement + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 (encrypt-then-MAC).
+# The server only ever sees sealed boxes; it cannot read or change what hubs send each other.
+
+import hashlib, hmac as _hmac, os as _os, time as _time
+
+_P = 2 ** 255 - 19
+_A24 = 121665
+
+
+def _clamp(k: bytes) -> int:
+    b = bytearray(k)
+    b[0] &= 248
+    b[31] &= 127
+    b[31] |= 64
+    return int.from_bytes(b, "little")
+
+
+def x25519(k: bytes, u: bytes) -> bytes:
+    """RFC 7748 X25519: scalar k times point u (both 32 bytes, little endian)."""
+    k_int = _clamp(k)
+    x1 = int.from_bytes(u, "little") & ((1 << 255) - 1)
+    x2, z2, x3, z3, swap = 1, 0, x1, 1, 0
+    for t in reversed(range(255)):
+        kt = (k_int >> t) & 1
+        swap ^= kt
+        if swap:
+            x2, x3, z2, z3 = x3, x2, z3, z2
+        swap = kt
+        a, b = (x2 + z2) % _P, (x2 - z2) % _P
+        aa, bb = a * a % _P, b * b % _P
+        e = (aa - bb) % _P
+        c, d = (x3 + z3) % _P, (x3 - z3) % _P
+        da, cb = d * a % _P, c * b % _P
+        x3 = (da + cb) ** 2 % _P
+        z3 = x1 * (da - cb) ** 2 % _P
+        x2 = aa * bb % _P
+        z2 = e * (aa + _A24 * e) % _P
+    if swap:
+        x2, z2 = x3, z3
+    return (x2 * pow(z2, _P - 2, _P) % _P).to_bytes(32, "little")
+
+
+def x25519_public(private: bytes) -> bytes:
+    return x25519(private, (9).to_bytes(32, "little"))
+
+
+def new_private() -> bytes:
+    return _os.urandom(32)
+
+
+def hkdf(secret: bytes, info: bytes, length=64, salt=b"ura-link-v1") -> bytes:
+    prk = _hmac.new(salt, secret, hashlib.sha256).digest()
+    out, t, i = b"", b"", 1
+    while len(out) < length:
+        t = _hmac.new(prk, t + info + bytes([i]), hashlib.sha256).digest()
+        out += t
+        i += 1
+    return out[:length]
+
+
+def link_keys(my_private: bytes, my_public: bytes, peer_public: bytes):
+    """Both hubs derive the same 32-byte AES key + 32-byte MAC key for their link."""
+    shared = x25519(my_private, peer_public)
+    if shared == bytes(32):
+        raise ValueError("bad peer key")
+    a, b = sorted([my_public, peer_public])
+    k = hkdf(shared, b"ura e2e " + a + b)
+    return k[:32], k[32:]
+
+
+def safety_code(pub_a: bytes, pub_b: bytes) -> str:
+    """Short code both operators can compare (phone, chat). Same on both sides."""
+    a, b = sorted([pub_a, pub_b])
+    n = int.from_bytes(hashlib.sha256(b"ura safety " + a + b).digest()[:10], "big")
+    digits = str(n % 10 ** 20).zfill(20)
+    return " ".join(digits[i:i + 5] for i in range(0, 20, 5))
+
+
+def seal(keys, plaintext: bytes) -> bytes:
+    """box = version(1) | time(4) | nonce(16) | ciphertext | mac(16)"""
+    enc, mac = keys
+    head = b"\x01" + int(_time.time()).to_bytes(4, "big") + _os.urandom(16)
+    ct = aes_ctr(enc, head[5:21], plaintext)
+    tag = _hmac.new(mac, head + ct, hashlib.sha256).digest()[:16]
+    return head + ct + tag
+
+
+def open_box(keys, box: bytes, max_age=600):
+    """Returns (plaintext, nonce) or raises ValueError (wrong key, changed, too old)."""
+    enc, mac = keys
+    if len(box) < 37 or box[0] != 1:
+        raise ValueError("bad box")
+    head, ct, tag = box[:21], box[21:-16], box[-16:]
+    if not _hmac.compare_digest(_hmac.new(mac, head + ct, hashlib.sha256).digest()[:16], tag):
+        raise ValueError("bad mac")
+    if abs(_time.time() - int.from_bytes(head[1:5], "big")) > max_age:
+        raise ValueError("too old")
+    return aes_ctr(enc, head[5:21], ct), head[5:21]
+
+
+def _selftest_e2e():
+    # RFC 7748 section 5.2 vector 1 and section 6.1 Diffie-Hellman
+    k = bytes.fromhex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")
+    u = bytes.fromhex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c")
+    assert x25519(k, u).hex() == "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"
+    a = bytes.fromhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+    b = bytes.fromhex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")
+    A, B = x25519_public(a), x25519_public(b)
+    assert A.hex() == "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+    assert B.hex() == "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+    assert x25519(a, B).hex() == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742" == x25519(b, A).hex()
+    ka, kb = link_keys(a, A, B), link_keys(b, B, A)
+    assert ka == kb and safety_code(A, B) == safety_code(B, A)
+    box = seal(ka, b"hello mesh")
+    assert open_box(kb, box)[0] == b"hello mesh"
+    bad = bytearray(box); bad[25] ^= 1
+    try:
+        open_box(kb, bytes(bad)); raise AssertionError("tamper not detected")
+    except ValueError:
+        pass
+    return True
+
+
+if __name__ == "__main__":
+    print("selftest e2e", _selftest_e2e())
