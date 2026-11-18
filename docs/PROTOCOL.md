@@ -11,7 +11,7 @@ line** (UTF-8, `\n`-terminated). The hub always connects; the server never conne
 ```
 hub → {"t":"join","name":"Tirana","email":"op@example.org","country":"AL","city":"TR",
        "lat":41.34847,"lon":19.897555,"description":""}
-srv → {"t":"joined","hub":"h_62fbbb06cca1","key":"<48 hex>","status":"pending"}
+srv → {"t":"joined","hub":"h_0123456789ab","key":"<48 hex>","status":"pending"}
    or {"t":"join_refused","reason":"name_required|email_required|code_invalid|code_taken|registrations_closed"}
 ```
 
