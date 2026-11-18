@@ -12,6 +12,9 @@ Python standard library only. Settings: environment variables (see README).
 """
 import asyncio, base64, hashlib, hmac, http.server, json, logging, os, re, secrets, socketserver
 import sqlite3, ssl, subprocess, threading, time, urllib.parse, urllib.request
+import socket
+
+from acme import Acme, parse_client_hello, ACME_TLS_ALPN
 
 VERSION = "0.3.0"
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
@@ -24,6 +27,10 @@ COMMON_DIR = os.environ.get("URA_COMMON", os.path.join(os.path.dirname(os.path.d
 # ports are startup options. key: (default, min, max); strings/bools have None limits.
 ADV_SPEC = {
     "registrations_open":   (True, None, None),   # accept new hub registrations
+    "acme_enabled":         (False, None, None),  # get a free Let's Encrypt certificate for the website
+    "acme_domain":          ("", None, None),     # the website's public name, e.g. ura.example.org
+    "acme_email":           ("", None, None),     # optional contact for Let's Encrypt (expiry warnings)
+    "acme_staging":         (False, None, None),  # test with Let's Encrypt's staging service (not trusted by browsers)
     "project_url":          ("https://github.com/ximi87/Ura-mesh", None, None),
     "install_guide_url":    ("https://github.com/ximi87/Ura-mesh/blob/main/docs/INSTALL-HUB.md", None, None),
     "node_max_age_days":    (7, 1, 90),           # nodes older than this are not shown
@@ -142,6 +149,10 @@ def clean_advanced(new):
         if lo is not None and not (lo <= v <= hi):
             errors.append(k)
         elif k == "tile_upstream" and not (v.startswith("https://") and all(x in v for x in ("{z}", "{x}", "{y}"))):
+            errors.append(k)
+        elif k == "acme_domain" and v and not re.match(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", v.lower()):
+            errors.append(k)
+        elif k == "acme_email" and v and not EMAIL_RE.match(v):
             errors.append(k)
         elif k in ("project_url", "install_guide_url") and not re.match(r"^https://\S+$", v):
             errors.append(k)
@@ -633,7 +644,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 hubs = [dict(hub_public(h), email=h["email"], status=h["status"],
                              email_verified=bool(h["email_verified"]), created=h["created"])
                         for h in db.q("SELECT * FROM hubs WHERE status!='removed' ORDER BY created DESC")]
-                return self.reply({"advanced": {k: adv(k) for k in ADV_SPEC},
+                d = (adv("acme_domain") or "").lower()
+                return self.reply({"acme": dict(acme.status, cert=acme.cert_info(d) if d else None),
+                                   "advanced": {k: adv(k) for k in ADV_SPEC},
                                    "advanced_spec": {k: {"default": v[0], "min": v[1], "max": v[2]} for k, v in ADV_SPEC.items()},
                                    "hubs": hubs, "links": db.q("SELECT * FROM links WHERE state!='removed'"),
                                    "complaints": db.q("SELECT * FROM complaints ORDER BY id DESC")})
@@ -709,6 +722,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 db.x("UPDATE complaints SET status=?, resolution=?, updated=? WHERE id=?",
                      (st, clean(b.get("resolution"), 2000), now(), int(m.group(1))))
                 return self.reply({"ok": True})
+            if p == "/api/admin/acme/run":
+                acme_kick.set()
+                return self.reply({"ok": True})
             if p == "/api/admin/advanced":
                 vals, errors = clean_advanced(b.get("advanced") or {})
                 if errors:
@@ -716,6 +732,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 cur = json.loads(db.setting("advanced") or "{}")
                 cur.update(vals)
                 db.set_setting("advanced", json.dumps(cur))
+                if any(k.startswith("acme_") for k in vals):
+                    acme_kick.set()                    # apply certificate settings right away
                 return self.reply({"ok": True})
             if p == "/api/admin/password":
                 if len(b.get("password") or "") < adv("password_min"):
@@ -734,6 +752,15 @@ class Web(http.server.BaseHTTPRequestHandler):
             "Set-Cookie": f"ura_admin={tok}; Max-Age={ttl}; Path=/; HttpOnly; Secure; SameSite=Strict"})
 
 
+acme = None
+le_ctx = {"domain": None, "ctx": None}      # Let's Encrypt context for the website's public name
+
+
+def load_le_context():
+    d = (adv("acme_domain") or "").lower()
+    le_ctx["domain"], le_ctx["ctx"] = (d, acme.context_for(d)) if (acme and adv("acme_enabled") and d) else (None, None)
+
+
 class TLSWebServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -741,6 +768,36 @@ class TLSWebServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     def __init__(self, addr, handler, ctx):
         super().__init__(addr, handler)
         self.ctx = ctx
+        # visitors who use the public name get the Let's Encrypt certificate; everyone else
+        # (hubs, LAN access by IP, no name) keeps Ura's own pinned certificate
+        def sni(sslsock, server_name, _ctx):
+            if server_name and le_ctx["ctx"] and server_name.lower() == le_ctx["domain"]:
+                sslsock.context = le_ctx["ctx"]
+        self.ctx.sni_callback = sni
+
+    def finish_request(self, request, client_address):
+        """Runs in the connection's own thread: peek at the ClientHello, answer Let's Encrypt's
+        TLS-ALPN-01 check if that is what it is, otherwise serve the website over TLS."""
+        try:
+            request.settimeout(10)
+            hello = request.recv(4096, socket.MSG_PEEK)
+        except OSError:
+            request.close()
+            return
+        name, alpn = parse_client_hello(hello)
+        if ACME_TLS_ALPN in alpn:
+            ctx = acme.challenges.get((name or "").lower()) if acme else None
+            if ctx:
+                try:
+                    with ctx.wrap_socket(request, server_side=True) as s:
+                        log.info("answered Let's Encrypt check for %s from %s", name, client_address[0])
+                except (ssl.SSLError, OSError):
+                    pass
+            else:
+                request.close()
+            return
+        request.settimeout(30)
+        super().finish_request(self.ctx.wrap_socket(request, server_side=True, do_handshake_on_connect=False), client_address)
 
     def handle_error(self, request, client_address):
         import sys
@@ -749,9 +806,33 @@ class TLSWebServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         super().handle_error(request, client_address)
 
     def get_request(self):
-        sock, addr = super().get_request()
-        sock.settimeout(30)
-        return self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
+        return super().get_request()               # TLS starts in finish_request (connection thread)
+
+
+acme_kick = threading.Event()
+
+
+def acme_loop():
+    """Get / renew the website certificate: at start, every 6 hours, and when the admin asks."""
+    while True:
+        try:
+            load_le_context()
+            d = (adv("acme_domain") or "").lower()
+            if not (adv("acme_enabled") and d):
+                acme.status = {"state": "off"}
+            else:
+                info = acme.cert_info(d)
+                wrong_kind = info and (("STAGING" in info["issuer"].upper()) != bool(adv("acme_staging")))
+                if info is None or info["days_left"] < 30 or wrong_kind or acme_kick.is_set():
+                    acme_kick.clear()
+                    acme.obtain(d, adv("acme_email"), adv("acme_staging"))
+                    load_le_context()
+                else:
+                    acme.status = {"state": "ok", "detail": "certificate valid", **info}
+        except Exception as e:
+            acme.status = {"state": "error", "detail": str(e)[:500], "since": int(time.time())}
+            log.warning("Let's Encrypt: %s", e)
+        acme_kick.wait(6 * 3600)
 
 
 def run_web(crt, key):
@@ -770,6 +851,9 @@ async def main():
     loop = asyncio.get_running_loop()
     crt, key, FINGERPRINT = tls_files()
     log.info("ura-server %s, TLS fingerprint %s", VERSION, FINGERPRINT)
+    global acme
+    acme = Acme(DATA_DIR)
+    threading.Thread(target=acme_loop, daemon=True).start()
     threading.Thread(target=run_web, args=(crt, key), daemon=True).start()
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ctx.load_cert_chain(crt, key)

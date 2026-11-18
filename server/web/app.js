@@ -89,6 +89,17 @@ Ura.add({
   "join.project": { en: "Source code & documentation", sq: "Kodi burimor & dokumentacioni" },
   "join.closed": { en: "This server does not accept new hubs at the moment.", sq: "Ky server nuk pranon hub-e të reja për momentin." },
   "foot.project": { en: "Ura is open source", sq: "Ura është me kod të hapur" },
+  "le.title": { en: "Website certificate (Let's Encrypt)", sq: "Certifikata e faqes (Let's Encrypt)" },
+  "le.hint": { en: "Ura can get a free, browser-trusted certificate for the website's public name itself — set it up in Advanced settings below (Let's Encrypt: on, domain, e-mail). The public port 443 must reach this website. Hubs keep using Ura's own certificate.",
+               sq: "Ura mund të marrë vetë një certifikatë falas, të besuar nga shfletuesit, për emrin publik të faqes — konfigurojeni te Cilësimet e avancuara më poshtë (Let's Encrypt: aktiv, domeni, e-mail). Porta publike 443 duhet të arrijë këtë faqe. Hub-et vazhdojnë të përdorin certifikatën e vetë Ura." },
+  "le.st.off": { en: "off", sq: "joaktiv" }, "le.st.ok": { en: "active", sq: "aktiv" }, "le.st.working": { en: "working…", sq: "në punë…" }, "le.st.error": { en: "error", sq: "gabim" },
+  "le.cert": { en: "Certificate from {i}, valid for {d} more days (renewed automatically 30 days before).", sq: "Certifikatë nga {i}, e vlefshme edhe {d} ditë (rinovohet automatikisht 30 ditë para)." },
+  "le.run": { en: "Get / renew certificate now", sq: "Merr / rinovo certifikatën tani" },
+  "le.started": { en: "Started — this takes up to a minute.", sq: "Filloi — zgjat deri në një minutë." },
+  "adv.acme_enabled": { en: "Let's Encrypt certificate for the website", sq: "Certifikatë Let's Encrypt për faqen" },
+  "adv.acme_domain": { en: "Public name of the website (e.g. ura.example.org)", sq: "Emri publik i faqes (p.sh. ura.example.org)" },
+  "adv.acme_email": { en: "E-mail for Let's Encrypt (optional, expiry warnings)", sq: "E-mail për Let's Encrypt (opsional, paralajmërime skadimi)" },
+  "adv.acme_staging": { en: "Test mode (Let's Encrypt staging — not trusted by browsers)", sq: "Mënyrë testimi (Let's Encrypt staging — jo e besuar nga shfletuesit)" },
   "adv.project_url": { en: "Project page (source code, documentation)", sq: "Faqja e projektit (kodi, dokumentacioni)" },
   "adv.install_guide_url": { en: "Install guide for hub operators", sq: "Udhëzuesi i instalimit për operatorët e hub-eve" },
   "join.server": { en: "This server", sq: "Ky server" }, "join.address": { en: "Address for hubs", sq: "Adresa për hub-et" },
@@ -422,7 +433,12 @@ async function pageAdmin() {
       <label>${t("c.resolution")}</label><textarea data-cr="${c.id}" style="min-height:60px">${esc(c.resolution || "")}</textarea>
       <button class="small" data-csave="${c.id}">${t("a.set_status")}</button></div>`).join("") || `<p class="muted">${t("c.none")}</p>`}</div>
     <div class="card narrow"><h2>${t("a.change_pw")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>
+    <div class="card"><h2>${t("le.title")}</h2><p class="muted small">${t("le.hint")}</p>
+      <p>${t("status")}: <b>${t("le.st." + (s.acme.state || "off"))}</b> ${s.acme.detail ? `<span class="muted small">— ${esc(s.acme.detail)}</span>` : ""}</p>
+      ${s.acme.cert ? `<p class="small">${t("le.cert", { i: esc(s.acme.cert.issuer), d: s.acme.cert.days_left })}</p>` : ""}
+      <button id="lerun">${t("le.run")}</button> <span class="muted small" id="lemsg"></span></div>
     <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
+  $("#lerun").onclick = async () => { await api("POST", "/api/admin/acme/run", {}); $("#lemsg").textContent = t("le.started"); setTimeout(pageAdmin, 20000); };
   const af = advancedForm($("#advform"), s.advanced_spec, s.advanced);
   $("#advsave").onclick = async () => {
     try { await api("POST", "/api/admin/advanced", { advanced: af.read() }); af.mark([]); INFO = {}; $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
