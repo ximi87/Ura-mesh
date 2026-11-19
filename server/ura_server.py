@@ -400,6 +400,9 @@ async def handle(reader, writer):
                 if lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
                     db.x("UPDATE hubs SET lat=?, lon=? WHERE id=?", (lat, lon, hub_id))
                     await push_directory()
+            elif t == "leave":
+                await hub_leave(hub_id)
+                break
             elif status != "approved":
                 continue                                   # pending hubs: no nodes, links or traffic yet
             elif t == "nodes":
@@ -413,6 +416,9 @@ async def handle(reader, writer):
                 await link_accept(hub_id, int(msg.get("link") or 0))
             elif t == "link_remove":
                 await link_remove(hub_id, int(msg.get("link") or 0))
+            elif t == "leave":
+                await hub_leave(hub_id)
+                break
             elif t == "mesh":
                 # flood limit per hub (token bucket)
                 tnow = time.time()
@@ -472,6 +478,17 @@ def get_tile(z, x, y):
 def pubkey_of(info):
     k = (info or {}).get("pubkey")
     return k if isinstance(k, str) and B64_KEY.match(k) else None
+
+
+async def hub_leave(hub):
+    """A hub forgets its registration: remove it, end ALL its links (partners are told), drop its nodes.
+    Every other link in the network stays as it is."""
+    db.x("UPDATE hubs SET status='removed' WHERE id=?", (hub,))
+    db.x("DELETE FROM nodes WHERE hub=?", (hub,))
+    for r in db.q("SELECT id FROM links WHERE state!='removed' AND (a=? OR b=?)", (hub, hub)):
+        await link_remove(hub, r["id"])
+    log.info("hub %s left the network (registration forgotten by its operator)", hub)
+    await push_directory()
 
 
 async def link_request(src, dst):

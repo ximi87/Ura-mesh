@@ -1290,6 +1290,27 @@ async def server_check(address):
     return fp_of(der)
 
 
+async def server_leave():
+    """Tell the server this hub leaves: over the open connection, or a short one of its own."""
+    c = cfg.get()["server"]
+    if not c["hub_id"]:
+        return True
+    if link.writer and link.state == "connected":
+        await link.send({"t": "leave"})
+        return True
+    reader, writer = await open_server(c["address"], c["fingerprint"])
+    writer.write((json.dumps({"t": "hello", "hub": c["hub_id"], "key": c["key"], "version": VERSION, "info": {}}) + "\n").encode())
+    first = json.loads(await asyncio.wait_for(reader.readline(), 15))
+    if first.get("t") != "welcome":
+        writer.close()
+        return first.get("reason") in ("unknown_hub", "removed")     # the server no longer has us anyway
+    writer.write(b'{"t":"leave"}\n')
+    await writer.drain()
+    await asyncio.sleep(1)
+    writer.close()
+    return True
+
+
 async def server_join(address, fingerprint, hub):
     reader, writer = await open_server(address, fingerprint)
     writer.write((json.dumps(dict(hub, t="join")) + "\n").encode())
@@ -1501,7 +1522,9 @@ class Web(http.server.BaseHTTPRequestHandler):
         if p == "/api/server/trust":
             addr, fp = normalize_addr(b.get("address")), str(b.get("fingerprint") or "").upper()
             def upd(d):
-                if d["server"]["address"] != addr:
+                # Another address for the SAME server (same fingerprint, e.g. its domain name instead of its
+                # IP) keeps the registration. Only a different server (other fingerprint) starts over.
+                if d["server"]["fingerprint"] and d["server"]["fingerprint"] != fp:
                     d["server"].update(hub_id="", key="", status="")
                 d["server"].update(address=addr, fingerprint=fp)
             cfg.update(upd)
@@ -1525,11 +1548,20 @@ class Web(http.server.BaseHTTPRequestHandler):
             loop.call_soon_threadsafe(link.reconnect.set)
             return self.reply({"ok": True, "hub_id": reply["hub"]})
         if p == "/api/server/forget":
+            # Tell the server first: it removes this hub and ends all its links (partners are told at once).
+            told = False
+            try:
+                told = run_coro(server_leave(), timeout=25)
+            except Exception as e:
+                log.warning("could not tell the server that this hub leaves: %s", e)
+            if not told and not b.get("force"):
+                return self.reply({"error": "leave_not_confirmed"}, 400)
             cfg.update(lambda d: d["server"].update(hub_id="", key="", status=""))
             loop.call_soon_threadsafe(link.reconnect.set)
             if link.writer:
                 loop.call_soon_threadsafe(link.writer.close)
-            return self.reply({"ok": True})
+            log.info("registration forgotten (server informed: %s)", told)
+            return self.reply({"ok": True, "server_informed": told})
         m = re.match(r"^/api/links/(request|accept|remove)$", p)
         if m:
             kind = m.group(1)

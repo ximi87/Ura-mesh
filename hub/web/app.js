@@ -125,7 +125,9 @@ Ura.add({
   "s.joined": { en: "Request sent. Hub id {x}. Waiting for approval.", sq: "Kërkesa u dërgua. ID e hub-it {x}. Në pritje të miratimit." },
   "s.registration": { en: "Registration", sq: "Regjistrimi" },
   "s.forget": { en: "Forget registration", sq: "Harro regjistrimin" },
-  "s.forget_q": { en: "Forget this hub's registration on the server? You would need to register again.", sq: "Ta harroj regjistrimin e këtij hub-i në server? Do t'ju duhet të regjistroheni përsëri." },
+  "s.forget_q": { en: "Leave the server? The server removes this hub and ends ALL its links at once (the partner hubs are told). You would need to register again.", sq: "Të largohem nga serveri? Serveri e heq këtë hub dhe mbyll menjëherë TË GJITHA lidhjet e tij (hub-et partnere njoftohen). Do t'ju duhet të regjistroheni përsëri." },
+  "s.forget_force_q": { en: "The server could not be reached, so it cannot remove this hub and end its links now. Forget the registration here anyway? (The administrator can remove the hub on the server.)", sq: "Serveri nuk u arrit, ndaj nuk mund ta heqë tani këtë hub dhe të mbyllë lidhjet e tij. Ta harroj gjithsesi regjistrimin këtu? (Administratori mund ta heqë hub-in në server.)" },
+  "err.leave_not_confirmed": { en: "The server could not be told.", sq: "Serveri nuk mund të njoftohej." },
   "loc.title": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
   "loc.hint": { en: "Where the hub is shown on the Ura map. It should be where the radio is.", sq: "Ku shfaqet hub-i në hartën e Ura. Duhet të jetë aty ku ndodhet radio." },
   "loc.radio": { en: "Take the position from the radio automatically (follows it if it moves)", sq: "Merre pozicionin nga radio automatikisht (e ndjek nëse lëviz)" },
@@ -442,7 +444,7 @@ async function pageLinks() {
       ${others.map(h => `<tr><td><b>${esc(h.code)}</b></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td><td>${fmtPos(h.lat, h.lon)}</td>
         <td>${linked.has(h.id) ? "" : `<button class="small" data-ask="${h.id}" ${ok ? "" : "disabled"}>${t("l.ask")}</button>`}</td></tr>`).join("")
         || `<tr><td colspan="5" class="muted">${t("l.dir.none")}</td></tr>`}</table></div></div>`;
-  const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { alert(errText(e)); } setTimeout(pageLinks, 800); };
+  const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { const k = "err." + e.message; alert(t(k) !== k ? t(k) : e.message); } setTimeout(pageLinks, 800); };
   $$("button[data-ask]").forEach(b => b.onclick = () => act("/api/links/request", { to: b.dataset.ask }, b));
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
   $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
@@ -697,7 +699,15 @@ async function pageSettings() {
       $("#jmsg").innerHTML = `<div class="msg ok">${t("s.joined", { x: esc(r.hub_id) })}</div>`; setTimeout(pageSettings, 2500);
     } catch (e) { $("#jmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
-  if ($("#sforget")) $("#sforget").onclick = async () => { if (confirm(t("s.forget_q"))) { await api("POST", "/api/server/forget", {}); pageSettings(); } };
+  if ($("#sforget")) $("#sforget").onclick = async () => {
+    if (!confirm(t("s.forget_q"))) return;
+    try { await api("POST", "/api/server/forget", {}); }
+    catch (e) {
+      if (e.message !== "leave_not_confirmed" || !confirm(t("s.forget_force_q"))) { $("#jmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; return; }
+      await api("POST", "/api/server/forget", { force: true });
+    }
+    pageSettings();
+  };
   $("#lsave").onclick = async () => {
     const defaults = { send: { groups: [] }, receive: { groups: [] } };
     $$("#defs input[data-k]").forEach(i => defaults[i.dataset.dir][i.dataset.k] = i.checked);
