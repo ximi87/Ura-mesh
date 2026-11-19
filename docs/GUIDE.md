@@ -87,9 +87,10 @@ the link turns red and traffic stops until the operator compares the new code an
 ### Step 9 — Set your rules
 For every link, separately for **Send** (what you pass to the partner) and **Receive** (what you
 let onto your air from the partner): link open in this direction, public channel, each private
-group, private messages, positions, multi-hop. Details in section 3.
+group, private messages, positions, and **how far your packets may go through this partner**
+(only to it, 1, 2 … hubs further, or anywhere — chosen per link, see section 4). Details in section 3.
 
-![A hub's Links & rules page: end-to-end safety code, send and receive rules, multi-hop destinations](img/hub-links.jpg)
+![A hub's Links & rules page: end-to-end safety code, send and receive rules, how far packets may go through this partner](img/hub-links.jpg)
 
 ### Step 10 — Confirm that it works
 - **Diagnostics** (*Radio* page): pick any node — local or in the other mesh — and send a
@@ -99,8 +100,13 @@ group, private messages, positions, multi-hop. Details in section 3.
   get the node's answer.
 - **Phones:** remote nodes appear in the Meshtastic app's node list and, if they share a position,
   on its map. Tap one, *Send message* — the app shows *delivered* when the remote node confirms.
-- **Counters** on the Status page and per link (*sent, received, put on air,* and *why* anything
-  was stopped).
+- **Status page:** at the top a map of the nodes **your own radio** hears (nodes of other hubs are
+  in the lists below it), then the radio, server and link state, *last message from the radio*,
+  and counters (*sent, received, put on air,* and per link *why* anything was stopped). Inside
+  the page the mouse wheel scrolls the page; **Ctrl + wheel** (⌘ on a Mac) zooms the map, on a
+  phone **two fingers** move it.
+- **Radio watchdog:** a connected radio reports to its hub at least every minute. If it stays
+  silent for 10 minutes (adjustable), the hub restarts it and says so on the Status page.
 - **The server map** shows the link, and dots run along it whenever packets pass.
 
 ---
@@ -195,7 +201,8 @@ key in without the operators noticing — the safety codes would no longer match
 
 - **Map** — all hubs, their nodes (heard in the last days) and links; live packet dots.
 - **Hubs** — every hub with its code, status and links; each hub page shows its rules and traffic.
-- **Statistics** — per link, packets in both directions over 24 hours, 7 or 30 days.
+- **Statistics** — one chart per link over 24 hours, 7 or 30 days: one bar per hour (or day),
+  split in two colours for the two directions; hovering a bar shows both counts and their share.
 - **Complaints** — anyone can report a problem with a hub or node; every case and its answer is
   public.
 
@@ -210,6 +217,11 @@ key in without the operators noticing — the safety codes would no longer match
 - Updates: `git pull` and restart the service — see the install guides.
 - Backups: the hub's `identity.key` and `config.json`; the server's database and certificate.
 - Troubleshooting, counters, airtime: [OPERATIONS.md](OPERATIONS.md).
+- **Advanced settings** (*Settings*, bottom): every operational value, grouped into sections
+  (radio, nodes and location, connection to the server, security and login, map and website).
+  Changed values are marked and can be reset to their default with one click.
+
+![Advanced settings on a hub: sections, units, ranges, changed values marked](img/hub-advanced.jpg)
 - MeshCore support is planned; the architecture (hubs decide, server relays sealed boxes) stays the
   same.
 

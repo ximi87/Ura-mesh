@@ -32,6 +32,12 @@ away, transit not allowed, radio not connected.
 - Status → *Heard by radio* stays 0 and *What the radio hears* shows little channel use: the radio
   hears nobody — place it higher or use a better antenna.
 - Links & rules → is the link **active** and the send rule on for that kind of traffic?
+- Status → *Last message from the radio*: a connected radio reports at least every minute. If this
+  grows to minutes, the radio has stopped giving the hub its packets although the USB/IP connection
+  is still open. The **watchdog** restarts such a radio after 10 minutes of silence (Advanced
+  settings → Radio) and shows a warning on the Status page. If the warning keeps coming back, make
+  sure nothing else is connected to that radio (an app over Wi-Fi or Bluetooth takes the packets
+  meant for the hub) and check its power supply.
 
 **"Last heard" times are wrong / nodes missing on the map**
 The radio's clock was wrong (no GPS, no internet). The hub sets it every hour (Advanced setting);
@@ -77,5 +83,6 @@ See the update and backup sections of [INSTALL-HUB.md](INSTALL-HUB.md) and
 python3 hub/meshcrypto.py                       # crypto test vectors
 tests/run_test.sh && python tests/ui_test.py    # full browser test (Playwright), test ports 8196–8199
 python tests/multihop_test.py                   # three hubs, multi-hop rules (needs the meshtastic package)
+python tests/reach_test.py                      # five hubs, per-link reach (how far packets go through each partner)
 tests/live/diag.sh <hub-url> <node> dm trace    # live: diagnostics through a real hub (URA_HUB_PW)
 ```

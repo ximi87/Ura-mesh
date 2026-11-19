@@ -38,7 +38,7 @@ def web(path, body=None):
 
 
 def rule(onward=()):
-    s = {"on": True, "public": True, "groups": ["Hikers"], "private": True, "positions": True, "onward_to": list(onward), "transit": True}
+    s = {"on": True, "public": True, "groups": ["Hikers"], "private": True, "positions": True, "onward_to": list(onward), "reach": 1 if onward else 0, "transit": True}
     r = {"on": True, "public": True, "groups": ["Hikers"], "private": True, "positions": True, "from_beyond": True}
     return {"send": s, "receive": r}
 

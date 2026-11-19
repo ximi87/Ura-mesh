@@ -66,20 +66,23 @@ statistics. It holds no key that opens the traffic.
 ## Features
 
 **Hub website** (`https://<hub>:8091`, owner only)
-- **Status** — radio, server connection, counters, airtime, nodes heard locally and nodes from
-  each partner hub (searchable lists, map).
+- **Status** — map of the nodes this hub's own radio hears first, then radio (with watchdog),
+  server connection, counters, airtime, and searchable lists of local nodes and of each partner
+  hub's nodes.
 - **Links & rules** — request/accept links; per link and direction: public channel, private
-  groups, private messages, positions, multi-hop destinations; end-to-end safety code.
+  groups, private messages, positions, and how far your packets may go through that partner
+  (multi-hop, decided per link); end-to-end safety code.
 - **Radio** — USB or Wi-Fi/IP connection, one-click *Prepare radio for Ura*, **Diagnostics**
   (private message with delivery check, traceroute, telemetry and position requests, channel test).
 - **Device settings** — program the radio from the browser: name, fixed position, channels with
   secure random keys, and every Meshtastic setting.
 - **Settings** — hub details and location (from the radio or manual), server registration with
-  certificate check, airtime limit, multi-hop, and every operational value as an advanced setting.
+  certificate check, airtime limit, multi-hop, and every operational value as an advanced setting
+  (grouped in sections, changed values marked).
 
 **Server website** (`https://<server>`, public + admin)
 - World map of hubs, nodes and links with **live traffic**; hub and node pages; statistics per
-  link (both directions); list of hubs and their codes; transparent complaints process.
+  link (one bar per hour, split by direction); list of hubs and their codes; transparent complaints process.
 - Admin: approve or remove hubs, handle complaints, advanced settings.
 
 **Security** — pinned TLS to the server, per-hub keys (stored hashed), end-to-end encryption
@@ -94,7 +97,9 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security-model).
 | ![Nodes heard by one hub, on the live map](docs/img/map-nodes.jpg) | ![Statistics per link, both directions](docs/img/server-stats.jpg) |
 | *Live map: the nodes one hub hears* | *Statistics: every link, both directions* |
 | ![A hub's Links & rules page](docs/img/hub-links.jpg) | ![A hub's public page with its rules](docs/img/server-hub.jpg) |
-| *Hub: safety code, send/receive rules, multi-hop destinations* | *Server: a hub's public page — links, published rules, traffic, nodes* |
+| *Hub: safety code, send/receive rules, how far packets may go (per link)* | *Server: a hub's public page — links, published rules, traffic, nodes* |
+| ![A hub's multi-hop settings](docs/img/hub-settings.jpg) | ![A hub's advanced settings](docs/img/hub-advanced.jpg) |
+| *Hub: airtime, multi-hop, default rules* | *Hub: advanced settings in sections* |
 
 *Screenshots show a demonstration network with made-up hubs.*
 
