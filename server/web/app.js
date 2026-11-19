@@ -333,7 +333,8 @@ async function pageStats() {
   const [d, hubs, nodes] = await Promise.all([api("GET", "/api/public/stats?hours=" + hours), api("GET", "/api/public/hubs"), api("GET", "/api/public/nodes")]);
   const name = id => (d.hubs[id] && d.hubs[id].code) || id;
   const pairs = {};
-  d.rows.forEach(r => { const k = r.src + ">" + r.dst; (pairs[k] = pairs[k] || { src: r.src, dst: r.dst, total: 0, hours: {} }); pairs[k].total += r.frames; pairs[k].hours[r.hour] = (pairs[k].hours[r.hour] || 0) + r.frames; });
+  // grouped by hub CODE, not internal id: a hub that registered again keeps one chart with its whole history
+  d.rows.forEach(r => { const src = name(r.src), dst = name(r.dst), k = src + ">" + dst; (pairs[k] = pairs[k] || { src, dst, total: 0, hours: {} }); pairs[k].total += r.frames; pairs[k].hours[r.hour] = (pairs[k].hours[r.hour] || 0) + r.frames; });
   const bucket = hours <= 48 ? 3600 : 86400;
   const start = Math.floor(d.since / bucket) * bucket, n = Math.ceil((Date.now() / 1000 - start) / bucket);
   const labels = [...Array(n)].map((_, i) => { const x = new Date((start + i * bucket) * 1000); return bucket === 3600 ? x.getHours() + ":00" : (x.getDate() + "." + (x.getMonth() + 1)); });
@@ -359,7 +360,8 @@ async function pageStats() {
       <div class="legend" style="margin:0"><span><span class="dot" style="background:var(--accent)"></span>${esc(name(x.a))} → ${esc(name(x.b))}: <b>${tot(x.a, x.b)}</b></span>
       <span><span class="dot" style="background:var(--info)"></span>${esc(name(x.b))} → ${esc(name(x.a))}: <b>${tot(x.b, x.a)}</b></span></div></div>
       <div class="chart" id="ch${i}"></div></div>`).join("") : `<div class="card muted">${t("stats.none")}</div>`;
-  lk.forEach((x, i) => barChart($("#ch" + i), labels, [{ values: ser(x.a, x.b) }, { values: ser(x.b, x.a) }]));
+  lk.forEach((x, i) => splitBarChart($("#ch" + i), labels, ser(x.a, x.b), ser(x.b, x.a),
+                                      [name(x.a) + " → " + name(x.b), name(x.b) + " → " + name(x.a)]));
 }
 
 function pageJoin() {

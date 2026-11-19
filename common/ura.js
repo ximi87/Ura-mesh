@@ -107,6 +107,28 @@ const HUB_COLORS = ["#0f7b6c", "#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7
 function colorFor(i) { return HUB_COLORS[i % HUB_COLORS.length]; }
 
 /* Simple bar chart (SVG). series: [{label, values:[...]}], labels: x labels */
+/* One bar per time bucket, split into the two directions of a link (each part = its share).
+   a, b: arrays of counts; names: [label A->B, label B->A] */
+function splitBarChart(el, labels, a, b, names) {
+  const W = 800, H = 230, P = 34, n = labels.length || 1;
+  const max = Math.max(1, ...a.map((v, i) => v + b[i]));
+  const bw = (W - P - 10) / n;
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line class="axis" x1="${P}" y1="${H - 20}" x2="${W}" y2="${H - 20}"/>`;
+  s += `<text x="0" y="12">${max}</text><text x="0" y="${H - 22}">0</text>`;
+  a.forEach((va, i) => {
+    const vb = b[i], tot = va + vb;
+    if (!tot) return;
+    const ha = (H - 40) * va / max, hb = (H - 40) * vb / max, x = P + i * bw, w = Math.max(1, bw - 2);
+    const pa = Math.round(100 * va / tot), pb = 100 - pa;
+    const tip = `${esc(labels[i])} — ${esc(names[0])}: ${va} (${pa}%) · ${esc(names[1])}: ${vb} (${pb}%)`;
+    s += `<g><title>${tip}</title><rect class="bar" x="${x}" y="${H - 20 - ha}" width="${w}" height="${ha}"/>`;
+    s += `<rect class="bar2" x="${x}" y="${H - 20 - ha - hb}" width="${w}" height="${hb}"/></g>`;
+  });
+  const step = Math.ceil(n / 8);
+  labels.forEach((l, i) => { if (i % step === 0) s += `<text x="${P + i * bw}" y="${H - 4}">${esc(l)}</text>`; });
+  el.innerHTML = s + "</svg>";
+}
+
 function barChart(el, labels, series) {
   const W = 800, H = 220, P = 30, n = labels.length || 1;
   const max = Math.max(1, ...series.flatMap(s => s.values));

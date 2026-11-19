@@ -57,6 +57,7 @@ ADV_SPEC = {
     "tile_backoff_s":      (60, 5, 3600),
     "page_refresh_s":      (30, 5, 600),
     "diag_timeout_s":      (120, 10, 600),    # how long Diagnostics waits for an answer
+    "radio_watchdog_min":  (10, 0, 240),      # radio silent this long -> restart it (0 = off); see Radio._keep_open
 }
 
 log = logging.getLogger("ura-hub")
@@ -402,6 +403,8 @@ class Radio:
         self.stop = False
         self.stats = {}                   # what the radio reports about its own reception
         self.own_fix = None               # the radio's own position at full precision
+        self.last_rx = time.time()        # last time the radio sent the hub anything at all
+        self.watchdog = []                # times the watchdog had to restart the radio
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
         pub.subscribe(self._on_lost, "meshtastic.connection.lost")
         pub.subscribe(self._on_packet, "meshtastic.receive")
@@ -412,6 +415,8 @@ class Radio:
         return interface is self.iface
 
     def _on_proxy(self, proxymessage, interface):
+        if self._mine(interface):
+            self.last_rx = time.time()
         if self._mine(interface) and proxymessage.data:
             counters.add("uplinked")
             loop.call_soon_threadsafe(self._enqueue, (proxymessage.topic, bytes(proxymessage.data)))
@@ -424,6 +429,7 @@ class Radio:
     def _on_packet(self, packet, interface):
         if not self._mine(interface):
             return
+        self.last_rx = time.time()
         if packet.get("from") != interface.myInfo.my_node_num:
             if not packet.get("viaMqtt"):
                 counters.add("heard")
@@ -468,6 +474,7 @@ class Radio:
                     iface = self._open()
                     with self.lock:
                         self.iface, self.error, self.connected_at = iface, "", time.time()
+                    self.last_rx = time.time()
                     time_set = 0
                     p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
                     self._set_fix(p)
@@ -485,7 +492,33 @@ class Radio:
                 except Exception as e:
                     log.warning("setting radio clock failed: %s", e)
                     time_set = time.time() - adv("clock_sync_min") * 60 + 300
+            self._watchdog()
             time.sleep(5)
+
+    def _watchdog(self):
+        """A connected radio reports to its hub at least every minute (its own device metrics). If it stays
+        silent, it is stuck — or another program connected to it (app over Wi-Fi/Bluetooth, a script) is
+        taking the messages meant for the hub. Restarting the radio fixes both: every connection is dropped
+        and the hub reconnects first."""
+        limit = adv("radio_watchdog_min") * 60
+        iface = self.iface
+        if not limit or iface is None or time.time() - self.last_rx < limit:
+            return
+        silent = int(time.time() - self.last_rx)
+        log.warning("radio silent for %d s — restarting it (watchdog)", silent)
+        self.watchdog = [t for t in self.watchdog if time.time() - t < 7 * 86400] + [time.time()]
+        self.last_rx = time.time()
+        try:
+            iface.localNode.reboot(3)
+        except Exception as e:
+            log.warning("watchdog: radio restart command failed: %s", e)
+        with self.lock:
+            if self.iface is iface:
+                self.iface, self.error = None, f"restarted by the watchdog after {silent} s of silence"
+        try:
+            iface.close()
+        except Exception:
+            pass
 
     def close(self):
         self.stop = True
@@ -502,7 +535,8 @@ class Radio:
         with self.lock:
             iface = self.iface
         base = {"id": self.conf.get("id"), "net": "mt", "transport": self.conf.get("transport"),
-                "address": self.conf.get("address"), "connected": iface is not None, "error": self.error}
+                "address": self.conf.get("address"), "connected": iface is not None, "error": self.error,
+                "silent_s": int(time.time() - self.last_rx), "watchdog": [int(t) for t in self.watchdog]}
         if iface is None:
             return base
         try:

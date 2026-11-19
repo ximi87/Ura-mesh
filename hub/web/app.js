@@ -176,6 +176,11 @@ Ura.add({
   "adv.tile_cache_days": { en: "Keep map tiles for (days)", sq: "Mbaj pllakat e hartës për (ditë)" },
   "adv.tile_backoff_s": { en: "After a failed tile download, pause for (seconds)", sq: "Pas një shkarkimi të dështuar, prit për (sekonda)" },
   "adv.page_refresh_s": { en: "Refresh the status page every (seconds)", sq: "Rifresko faqen e gjendjes çdo (sekonda)" },
+  "wd.last": { en: "Last message from the radio", sq: "Mesazhi i fundit nga radio" },
+  "wd.events": { en: "The radio stopped talking to the hub and was restarted automatically {n}× in the last 7 days (last: {x}). If this repeats, check that nothing else is connected to this radio (app over Wi-Fi or Bluetooth) — or switch its Wi-Fi/Bluetooth off under Device settings.",
+                 sq: "Radio ndaloi së foluri me hub-in dhe u rindez automatikisht {n}× në 7 ditët e fundit (së fundi: {x}). Nëse përsëritet, kontrolloni që asgjë tjetër të mos jetë e lidhur me këtë radio (aplikacion përmes Wi-Fi ose Bluetooth) — ose fikni Wi-Fi/Bluetooth te Cilësimet e pajisjes." },
+  "adv.radio_watchdog_min": { en: "Restart the radio if it sends the hub nothing for (minutes, 0 = off)", sq: "Rindize radion nëse nuk i dërgon asgjë hub-it për (minuta, 0 = joaktiv)" },
+  "adv.radio_watchdog_min.hint": { en: "A connected radio reports at least every minute. Silence means it is stuck or another program took its connection.", sq: "Një radio e lidhur raporton të paktën çdo minutë. Heshtja do të thotë që ka ngecur ose një program tjetër ia mori lidhjen." },
   "adv.diag_timeout_s": { en: "Diagnostics waits for an answer (seconds)", sq: "Diagnostikimi pret përgjigje (sekonda)" },
   "adv.server_web_port": { en: "Web port of the Ura server (for map tiles)", sq: "Porta web e serverit Ura (për pllakat e hartës)" },
   "err.unreachable": { en: "The server could not be reached. Check the address and port. If the server is in your own network and you use its public name, your router may not support connections from inside to its own public address (“hairpin NAT”) — use the server's internal address instead, or add a hairpin rule on the router.",
@@ -331,7 +336,9 @@ async function pageStatus() {
         <dt>${t("status")}</dt><dd>${r.connected ? `<span class="badge ok">${t("r.connected")}</span>` : `<span class="badge bad">${t("r.not_connected")}</span> <span class="muted small">${esc(r.error || "")}</span>`}</dd>
         <dt>${t("name")}</dt><dd>${esc(r.name || "–")} <span class="muted">${esc(r.short || "")}</span></dd>
         <dt>${t("r.firmware")}</dt><dd>${esc(r.firmware || "–")}</dd>
-        <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? `<span class="badge ok">${t("yes")}</span>` : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd></dl>`
+        <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? `<span class="badge ok">${t("yes")}</span>` : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd>
+        <dt>${t("wd.last")}</dt><dd>${r.connected ? ago(Date.now() / 1000 - r.silent_s) : "–"}</dd></dl>
+        ${(r.watchdog || []).length ? `<div class="msg warn small">${t("wd.events", { n: r.watchdog.length, x: ago(r.watchdog[r.watchdog.length - 1]) })}</div>` : ""}`
         : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`}</div>
     </div>
     <div class="grid g4">
