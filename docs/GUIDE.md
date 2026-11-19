@@ -215,8 +215,10 @@ key in without the operators noticing — the safety codes would no longer match
   each direction, their share, the total and a small chart. Active links without traffic are listed
   too. A click opens the full chart: one bar per hour (or day), split in two colours for the two
   directions; hovering a bar shows both counts and their share.
-- **Complaints** — anyone can report a problem with a hub or node; every case and its answer is
-  public.
+- **Complaints** — anyone can report a problem with a hub or node (*New complaint*); every case and
+  its answer is public. One line per case, newest first — number, status, date, hub or node, start
+  of the text, *answered* — filtered by status and searchable; a click opens the whole case. The
+  administrator sees the same list (open cases first) with the answer form inside each case.
 
 ![Live map close-up: one hub chosen in the Hubs panel, its nodes and highlighted links](img/map-nodes.jpg)
 

@@ -136,6 +136,10 @@ Ura.add({
   "c.email": { en: "Your e-mail address", sq: "Adresa juaj e e-mail-it" }, "c.text": { en: "What happened?", sq: "Çfarë ndodhi?" },
   "c.send": { en: "Send complaint", sq: "Dërgo ankesën" }, "c.sent": { en: "Thank you. Your complaint is case #{id}.", sq: "Faleminderit. Ankesa juaj është rasti #{id}." },
   "c.list": { en: "All cases", sq: "Të gjitha rastet" }, "c.none": { en: "No complaints so far.", sq: "Deri tani nuk ka ankesa." },
+  "c.all": { en: "All", sq: "Të gjitha" }, "c.answered": { en: "answered", sq: "me përgjigje" },
+  "c.no_answer": { en: "No answer yet.", sq: "Ende pa përgjigje." }, "c.updated": { en: "Last change", sq: "Ndryshimi i fundit" },
+  "c.none_filter": { en: "No cases match.", sq: "Asnjë rast nuk përputhet." }, "c.more": { en: "Show more ({n})", sq: "Shfaq më shumë ({n})" },
+  "c.lines_hint": { en: "One line per case, newest first. Click a line for the whole text and the answer.", sq: "Një rresht për çdo rast, më i riu i pari. Klikoni një rresht për tekstin e plotë dhe përgjigjen." },
   "c.case": { en: "Case", sq: "Rasti" }, "c.date": { en: "Date", sq: "Data" }, "c.resolution": { en: "Answer", sq: "Përgjigjja" },
   "c.st.open": { en: "open", sq: "e hapur" }, "c.st.review": { en: "under review", sq: "në shqyrtim" },
   "c.st.resolved": { en: "resolved", sq: "e zgjidhur" }, "c.st.rejected": { en: "rejected", sq: "e refuzuar" },
@@ -504,26 +508,75 @@ function pageJoin() {
 
 function cStatus(s) { const c = { open: "warn", review: "info", resolved: "ok", rejected: "bad" }[s] || ""; return `<span class="badge ${c}">${t("c.st." + s)}</span>`; }
 
+/* Complaints as one line per case (status, subject, start of the text); a click opens the whole case.
+   Filters by status + search; long lists show 30 at a time. opts.admin: the opened case has the editor. */
+const openCases = new Set();
+const dshort = ts => { const d = new Date(ts * 1000), p = x => String(x).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+function complaintList(el, list, hubs, opts) {
+  opts = opts || {};
+  const byId = {}; (hubs || []).forEach(h => byId[h.id] = h);
+  const st = { status: opts.status || "all", q: "", limit: 30 };
+  const subj = c => {
+    if (c.subject_type === "hub" && byId[c.subject_id]) return `<a href="#/hub/${encodeURIComponent(c.subject_id)}"><b>${esc(byId[c.subject_id].code)}</b></a>`;
+    if (c.subject_type === "node" && c.subject_id) return `${t("c.node")} <span class="mono">${esc(c.subject_id)}</span>`;
+    if (c.subject_type === "hub") return `${t("hub")} <span class="mono">${esc(c.subject_id || "")}</span>`;
+    return `<span class="muted">${t("c.general")}</span>`;
+  };
+  const subjText = c => (c.subject_type === "hub" && byId[c.subject_id] ? byId[c.subject_id].code + " " + byId[c.subject_id].name : (c.subject_id || "")) + " " + c.subject_type;
+  const counts = { all: list.length }; list.forEach(c => counts[c.status] = (counts[c.status] || 0) + 1);
+  const short = x => { x = String(x || ""); return x.length > 110 ? x.slice(0, 110) + "…" : x; };
+  const body = c => `<p class="ctext">${esc(c.text)}</p>
+      ${opts.admin ? `<div class="muted small">${t("c.email")}: ${esc(c.email || "–")}</div>
+        <div class="row" style="margin-top:.4rem"><select data-cs="${c.id}">${["open", "review", "resolved", "rejected"].map(x => `<option value="${x}" ${x === c.status ? "selected" : ""}>${t("c.st." + x)}</option>`).join("")}</select></div>
+        <label>${t("c.resolution")}</label><textarea data-cr="${c.id}" style="min-height:60px">${esc(c.resolution || "")}</textarea>
+        <button class="small" data-csave="${c.id}">${t("a.set_status")}</button>`
+      : c.resolution ? `<div class="msg info"><b>${t("c.resolution")}:</b> ${esc(c.resolution)}</div>` : `<p class="muted small">${t("c.no_answer")}</p>`}
+      ${c.updated && c.updated !== c.created ? `<div class="muted small">${t("c.updated")}: ${dt(c.updated)}</div>` : ""}`;
+  const line = c => `<details class="linkbox" data-case="${c.id}" ${openCases.has(c.id) ? "open" : ""}><summary><div class="linkrow lcase">
+      <div><b>#${c.id}</b></div><div>${cStatus(c.status)}</div><div class="muted small nowrap" title="${esc(dt(c.created))}">${dshort(c.created)}</div>
+      <div>${subj(c)}</div><div class="ctext-short">${esc(short(c.text))}</div>
+      <div class="lr-tr">${c.resolution ? `<span class="badge ok" title="${esc(t("c.resolution"))}">✓ ${t("c.answered")}</span>` : ""}</div></div></summary>
+      <div class="linkbody">${body(c)}</div></details>`;
+  const draw = () => {
+    const q = st.q.toLowerCase();
+    const shown = list.filter(c => (st.status === "all" || c.status === st.status) && (!q || (c.text + " " + (c.resolution || "") + " #" + c.id + " " + subjText(c)).toLowerCase().includes(q)));
+    $(".clist", el).innerHTML = shown.slice(0, st.limit).map(line).join("") || `<p class="muted">${list.length ? t("c.none_filter") : t("c.none")}</p>`;
+    $(".cmore", el).innerHTML = shown.length > st.limit ? `<button class="small" data-more>${t("c.more", { n: shown.length - st.limit })}</button>` : "";
+    $$(".cfilter button", el).forEach(b => b.classList.toggle("primary", b.dataset.st === st.status));
+  };
+  el.innerHTML = `<div class="row cfilter">${["all", "open", "review", "resolved", "rejected"].map(x => `<button class="small" data-st="${x}">${x === "all" ? t("c.all") : t("c.st." + x)} <span class="muted">${counts[x] || 0}</span></button>`).join("")}
+      ${list.length > 5 ? `<input type="text" class="cq" placeholder="${t("dt.search")}" style="max-width:240px;margin:0">` : ""}</div>
+    <div class="clist"></div><div class="cmore"></div>`;
+  el.addEventListener("click", e => {
+    const f = e.target.closest(".cfilter button"); if (f) { st.status = f.dataset.st; st.limit = 30; draw(); }
+    if (e.target.closest("[data-more]")) { st.limit += 30; draw(); }
+  });
+  el.addEventListener("toggle", e => { const d = e.target; if (d.dataset && d.dataset.case) { if (d.open) openCases.add(+d.dataset.case); else openCases.delete(+d.dataset.case); } }, true);
+  if ($(".cq", el)) $(".cq", el).oninput = e => { st.q = e.target.value; st.limit = 30; draw(); };
+  draw();
+}
+
 async function pageComplaints() {
   const qs = new URLSearchParams(location.hash.split("?")[1] || "");
   const pre = qs.get("hub") ? ["hub", qs.get("hub")] : qs.get("node") ? ["node", qs.get("node")] : ["general", ""];
-  const list = await api("GET", "/api/public/complaints");
-  app().innerHTML = `<div class="grid g2">
-    <div class="card"><h1>${t("c.title")}</h1><p>${t("c.intro")}</p><h2>${t("c.new")}</h2>
-      <label>${t("c.about")}</label><select id="cst"><option value="general">${t("c.general")}</option><option value="hub">${t("hub")}</option><option value="node">${t("c.node")}</option></select>
-      <label>${t("c.subject")}</label><input type="text" id="csi" value="${esc(pre[1])}">
-      <label>${t("c.email")}</label><input type="email" id="cem">
-      <label>${t("c.text")}</label><textarea id="ctx"></textarea>
-      <div id="cmsg"></div><button class="primary" id="csend">${t("c.send")}</button></div>
-    <div class="card"><h2>${t("c.list")}</h2>${list.length ? list.map(c => `<div class="card" style="box-shadow:none">
-      <div class="spread"><b>${t("c.case")} #${c.id}</b>${cStatus(c.status)}</div>
-      <div class="muted small">${dt(c.created)} · ${esc(c.subject_type)} ${esc(c.subject_id || "")}</div>
-      <p>${esc(c.text)}</p>${c.resolution ? `<div class="msg info"><b>${t("c.resolution")}:</b> ${esc(c.resolution)}</div>` : ""}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}</div></div>`;
+  const [list, hubs] = await Promise.all([api("GET", "/api/public/complaints"), api("GET", "/api/public/hubs")]);
+  const preHub = pre[0] === "hub" && hubs.find(h => h.id === pre[1]);
+  app().innerHTML = `<div class="card"><div class="spread"><h1>${t("c.title")}</h1><button class="primary" id="cnew">${t("c.new")}</button></div><p>${t("c.intro")}</p>
+      <div id="cform" ${pre[1] ? "" : "hidden"}><h2>${t("c.new")}${preHub ? ` — ${esc(preHub.code)} · ${esc(preHub.name)}` : ""}</h2>
+        <div class="grid g2" style="gap:.5rem 1rem"><div><label>${t("c.about")}</label><select id="cst"><option value="general">${t("c.general")}</option><option value="hub">${t("hub")}</option><option value="node">${t("c.node")}</option></select></div>
+        <div><label>${t("c.subject")}</label><input type="text" id="csi" value="${esc(pre[1])}"></div></div>
+        <label>${t("c.email")}</label><input type="email" id="cem">
+        <label>${t("c.text")}</label><textarea id="ctx"></textarea>
+        <div id="cmsg"></div><button class="primary" id="csend">${t("c.send")}</button></div></div>
+    <div class="card"><h2>${t("c.list")} (${list.length})</h2><p class="muted small">${t("c.lines_hint")}</p><div id="cases"></div></div>`;
   $("#cst").value = pre[0];
+  $("#cnew").onclick = () => { $("#cform").hidden = !$("#cform").hidden; if (!$("#cform").hidden) $("#ctx").focus(); };
+  complaintList($("#cases"), list, hubs, { status: pre[1] ? "all" : "all" });
   $("#csend").onclick = async () => {
     try {
       const r = await api("POST", "/api/public/complaints", { subject_type: $("#cst").value, subject_id: $("#csi").value, email: $("#cem").value, text: $("#ctx").value });
-      $("#cmsg").innerHTML = `<div class="msg ok">${t("c.sent", { id: r.id })}</div>`; setTimeout(pageComplaints, 2500);
+      $("#cmsg").innerHTML = `<div class="msg ok">${t("c.sent", { id: r.id })}</div>`; openCases.add(r.id); setTimeout(pageComplaints, 2500);
     } catch (e) { $("#cmsg").innerHTML = `<div class="msg bad">${t("err." + e.message, { n: INFO.complaint_min_chars }) !== "err." + e.message ? t("err." + e.message, { n: INFO.complaint_min_chars }) : esc(e.message)}</div>`; }
   };
 }
@@ -554,11 +607,7 @@ async function pageAdmin() {
   app().innerHTML = `<div class="spread"><h1>${t("a.title")}</h1><button id="lo">${t("logout")}</button></div>
     <div class="card"><h2>${t("a.pending")} (${pending.length})</h2><div class="tablewrap"><table>${head}${pending.map(h => hubRow(h, true)).join("") || `<tr><td colspan="7" class="muted">${t("a.nopending")}</td></tr>`}</table></div></div>
     <div class="card"><h2>${t("a.approved")} (${approved.length})</h2><div class="tablewrap"><table>${head}${approved.map(h => hubRow(h, false)).join("")}</table></div></div>
-    <div class="card"><h2>${t("a.complaints")}</h2>${s.complaints.map(c => `<div class="card" style="box-shadow:none">
-      <div class="spread"><b>#${c.id}</b>${cStatus(c.status)}</div><div class="muted small">${dt(c.created)} · ${esc(c.email)} · ${esc(c.subject_type)} ${esc(c.subject_id || "")}</div>
-      <p>${esc(c.text)}</p><div class="row"><select data-cs="${c.id}">${["open", "review", "resolved", "rejected"].map(x => `<option value="${x}" ${x === c.status ? "selected" : ""}>${t("c.st." + x)}</option>`).join("")}</select></div>
-      <label>${t("c.resolution")}</label><textarea data-cr="${c.id}" style="min-height:60px">${esc(c.resolution || "")}</textarea>
-      <button class="small" data-csave="${c.id}">${t("a.set_status")}</button></div>`).join("") || `<p class="muted">${t("c.none")}</p>`}</div>
+    <div class="card"><h2>${t("a.complaints")} (${s.complaints.length})</h2><div id="acases"></div></div>
     <div class="card narrow"><h2>${t("a.change_pw")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>
     <div class="card"><h2>${t("le.title")}</h2><p class="muted small">${t("le.hint")}</p>
       <p>${t("status")}: <b>${t("le.st." + (s.acme.state || "off"))}</b> ${s.acme.detail ? `<span class="muted small">— ${esc(s.acme.detail)}</span>` : ""}</p>
@@ -584,7 +633,9 @@ async function pageAdmin() {
     b.disabled = true; b.textContent = "…";
     await api("POST", `/api/admin/hub/${b.dataset.id}/${b.dataset.a}`, {}); pageAdmin();
   });
-  $$("button[data-csave]").forEach(b => b.onclick = async () => {
+  complaintList($("#acases"), s.complaints, s.hubs || [], { admin: true, status: s.complaints.some(c => c.status === "open") ? "open" : "all" });
+  $("#acases").addEventListener("click", async e => {
+    const b = e.target.closest("button[data-csave]"); if (!b) return;
     const id = b.dataset.csave; b.disabled = true;
     await api("POST", "/api/admin/complaint/" + id, { status: $(`select[data-cs="${id}"]`).value, resolution: $(`textarea[data-cr="${id}"]`).value });
     b.textContent = "✓ " + t("saved"); b.disabled = false;

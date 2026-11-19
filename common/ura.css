@@ -207,3 +207,13 @@ details.linkbox[open] .linkrow::before { transform: rotate(90deg); }
 .hubline .muted { overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .hl-meta { font-size: .75rem; color: var(--muted); display: flex; align-items: center; }
 @media (max-width: 640px) { .mappanel { max-width: 220px; } }
+
+/* complaints: one line per case */
+.cfilter { gap: .35rem; margin-bottom: .5rem; align-items: center; }
+.linkrow.lcase { grid-template-columns: 1.1rem 3.2rem 7.5rem 8.5rem minmax(7rem, .7fr) 2fr 6.5rem; }
+.ctext-short { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.ctext { white-space: pre-wrap; margin-top: .6rem; }
+@media (max-width: 900px) { .linkrow.lcase { grid-template-columns: 1.1rem auto 1fr; } .linkrow.lcase > div:nth-child(n+3) { grid-column: 2 / -1; } .linkrow.lcase .ctext-short { white-space: normal; } .linkrow.lcase .lr-tr { text-align: left; } }
+.cfilter button.primary .muted { color: inherit; opacity: .85; }
+.nowrap { white-space: nowrap; }
+.linkrow.lcase { grid-template-columns: 1.1rem 3.2rem 7.5rem 7.5rem minmax(7rem, .7fr) 2fr 6.5rem; }
