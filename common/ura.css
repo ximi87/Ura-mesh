@@ -196,3 +196,14 @@ details.linkbox[open] .linkrow::before { transform: rotate(90deg); }
 .sharebar span { display: block; height: 100%; background: var(--accent); }
 @media (max-width: 900px) { .linkrow.lstat { grid-template-columns: 1.1rem 1fr 1fr; } .linkrow.lstat .lr-peer, .linkrow.lstat .chart.mini { grid-column: 2 / -1; } .linkrow.lstat .lr-tr { text-align: left; } }
 @media (max-width: 900px) { .linkrow.lstat { grid-template-columns: 1fr 1fr; } .linkrow.lstat::before { display: none; } .linkrow.lstat .lr-peer, .linkrow.lstat .chart.mini { grid-column: 1 / -1; } }
+
+/* server map: panel with one line per hub */
+.mappanel { max-width: 300px; }
+.mappanel details > summary { margin-top: .3rem; }
+.mappanel input[type=text] { margin: .4rem 0; padding: .3rem .5rem; font-size: .85rem; }
+.hublist { max-height: 45vh; overflow-y: auto; margin-top: .3rem; }
+.hubline { display: flex; align-items: center; gap: .3rem; padding: .3rem .2rem; border-top: 1px solid var(--line); cursor: pointer; color: var(--text); font-size: .85rem; white-space: nowrap; }
+.hubline:hover, .hubline.sel { background: var(--accent-soft); text-decoration: none; }
+.hubline .muted { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.hl-meta { font-size: .75rem; color: var(--muted); display: flex; align-items: center; }
+@media (max-width: 640px) { .mappanel { max-width: 220px; } }

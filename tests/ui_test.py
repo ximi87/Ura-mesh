@@ -150,6 +150,8 @@ with sync_playwright() as pw:
     markers = s.evaluate("() => { let n = 0; mapObj.eachLayer(l => { if (l instanceof L.CircleMarker) n++; }); return n; }")
     check("home page is only the map (hub markers, no side panel)", markers >= 2 and s.locator(".hubitem").count() == 0)
     check("live traffic switch on the map", s.locator("#liveon").count() == 1)
+    s.click("#hubpanel summary"); s.click(".hubline[data-q^=xa-aaa]"); time.sleep(1)
+    check("map panel: one line per hub, click flies to it", s.locator(".hubline").count() >= 2 and "XA-AAA" in s.inner_text(".leaflet-popup-content") and s.evaluate("mapObj.getZoom()") >= 8)
     nav(a, A + "/#/device"); a.wait_for_selector("#app .msg")
     check("device page without radio says so", "radio" in a.inner_text("#app").lower())
     nav(s, S + "/#/hubs"); s.wait_for_selector("text=XA-AAA"); check("hubs table", "XB-BBB" in s.inner_text("#app"))

@@ -204,7 +204,10 @@ key in without the operators noticing — the safety codes would no longer match
 
 ## 6. The public view
 
-- **Map** — all hubs, their nodes (heard in the last days) and links; live packet dots.
+- **Map** — all hubs and their links, with live packet dots running along the links. The nodes
+  appear once you zoom in (a world full of nodes is unreadable); *Show nodes* switches them off.
+  Click a link line for its packets in the last 7 days. The **Hubs** panel in the corner lists
+  one line per hub (searchable); a click flies to that hub, opens its card and highlights its links.
 - **Hubs** — a searchable list of every hub with its code, status, nodes and the hubs it is linked
   with. Each hub page shows one line per link — what it sends and accepts, how far its packets may
   go, packets in the last 30 days — and a click opens that link's full published rules.
@@ -215,7 +218,7 @@ key in without the operators noticing — the safety codes would no longer match
 - **Complaints** — anyone can report a problem with a hub or node; every case and its answer is
   public.
 
-![Live map close-up: nodes heard by one hub](img/map-nodes.jpg)
+![Live map close-up: one hub chosen in the Hubs panel, its nodes and highlighted links](img/map-nodes.jpg)
 
 ![Statistics: one line per link, the busiest one opened with its chart](img/server-stats.jpg)
 

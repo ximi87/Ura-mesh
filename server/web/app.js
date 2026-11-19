@@ -87,6 +87,9 @@ Ura.add({
   "stats.range": { en: "Period", sq: "Periudha" }, "stats.24h": { en: "24 hours", sq: "24 orë" },
   "stats.7d": { en: "7 days", sq: "7 ditë" }, "stats.30d": { en: "30 days", sq: "30 ditë" },
   "stats.total": { en: "Total", sq: "Gjithsej" }, "stats.none": { en: "No traffic in this period.", sq: "Nuk ka trafik në këtë periudhë." },
+  "map.hubs": { en: "Hubs", sq: "Hub-et" }, "map.links_n": { en: "{n} links", sq: "{n} lidhje" },
+  "map.show_nodes": { en: "Show nodes", sq: "Shfaq nyjet" }, "map.zoom_for_nodes": { en: "Zoom in to see the nodes", sq: "Zmadhoni për të parë nyjet" },
+  "map.linked_with": { en: "Linked with", sq: "E lidhur me" }, "map.link7d": { en: "Packets in the last 7 days", sq: "Paketa në 7 ditët e fundit" },
   "stats.share": { en: "Share", sq: "Pjesa" }, "stats.no_traffic": { en: "no traffic", sq: "pa trafik" },
   "stats.lines_hint": { en: "One line per link, busiest first: packets in each direction, their share, and a small chart. Click a line for the full chart (hover a bar for the numbers).",
                         sq: "Një rresht për çdo lidhje, më e ngarkuara e para: paketat në secilin drejtim, pjesa e tyre dhe një grafik i vogël. Klikoni një rresht për grafikun e plotë (kaloni mbi një shtyllë për numrat)." },
@@ -194,47 +197,97 @@ const openHubLinks = new Set();   // links opened on a hub page (kept while brow
 
 /* ───────── pages ───────── */
 
+const NODES_FROM_ZOOM = 5;          // below this zoom only hubs and links are drawn (a world of nodes is unreadable)
 async function pageMap() {
-  const [hubs, nodes] = await Promise.all([api("GET", "/api/public/hubs"), api("GET", "/api/public/nodes")]);
+  const [hubs, nodes, st] = await Promise.all([api("GET", "/api/public/hubs"), api("GET", "/api/public/nodes"),
+                                               api("GET", "/api/public/stats?hours=168").catch(() => ({ rows: [] }))]);
   app().innerHTML = `<div id="map" class="fullmap"></div>`;
   mapObj = makeMap("map");
-  const color = {}, bounds = [];
+  const m = mapObj, color = {}, bounds = [];
   hubs.forEach((h, i) => color[h.id] = colorFor(i));
   const byId = Object.fromEntries(hubs.map(h => [h.id, h]));
-  const drawn = new Set();
+  const pk = {}; (st.rows || []).forEach(r => pk[r.src + ">" + r.dst] = (pk[r.src + ">" + r.dst] || 0) + r.frames);
+  // links: one line per pair, clickable
+  const lines = {}, linesOf = {};
   hubs.forEach(h => (h.links || []).forEach(l => {
     const p = byId[l.peer], key = [h.id, l.peer].sort().join();
-    if (!p || drawn.has(key) || h.lat == null || p.lat == null) return;
-    drawn.add(key);
-    L.polyline([[h.lat, h.lon], [p.lat, p.lon]], { color: "#0f7b6c", weight: 2, dashArray: "6 6", opacity: .7 }).addTo(mapObj);
+    if (!p || lines[key] || h.lat == null || p.lat == null) return;
+    const [x, y] = [h, p].sort((u, v) => u.code.localeCompare(v.code));
+    const ln = L.polyline([[x.lat, x.lon], [y.lat, y.lon]], { color: "#0f7b6c", weight: 3, dashArray: "6 6", opacity: .7 })
+      .bindPopup(`<b><a href="#/hub/${x.id}">${esc(x.code)}</a> ⇄ <a href="#/hub/${y.id}">${esc(y.code)}</a></b><br>
+        <span class="small">${t("map.link7d")}</span><br>${esc(x.code)} → ${esc(y.code)}: <b>${pk[x.id + ">" + y.id] || 0}</b><br>${esc(y.code)} → ${esc(x.code)}: <b>${pk[y.id + ">" + x.id] || 0}</b>
+        <br><a href="#/stats">${t("nav.stats")} →</a>`).addTo(m);
+    lines[key] = ln; (linesOf[h.id] = linesOf[h.id] || []).push(ln); (linesOf[p.id] = linesOf[p.id] || []).push(ln);
   }));
+  // nodes: own layer, shown when zoomed in (and the switch is on)
+  const nodeLayer = L.layerGroup();
   nodes.forEach(n => {
     if (n.lat == null || n.lon == null) return;
     const h = byId[n.hub];
     L.circleMarker([n.lat, n.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: color[n.hub] || "#666", fillOpacity: .95 })
       .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? `<a href="#/hub/${h.id}">${esc(h.code)}</a>` : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
-      .addTo(mapObj);
+      .addTo(nodeLayer);
     bounds.push([n.lat, n.lon]);
   });
+  const hubMarker = {};
   hubs.forEach(h => {
     if (h.lat == null) return;
-    L.circleMarker([h.lat, h.lon], { radius: 11, color: color[h.id], weight: 3, fillColor: "#fff", fillOpacity: 1 })
-      .bindPopup(`<b><a href="#/hub/${h.id}">${esc(h.code)} · ${esc(h.name)}</a></b><br>${onlineBadge(h.online)}<br>${t("map.nodes_on", { n: h.nodes, d: INFO.node_max_age_days })}`)
-      .addTo(mapObj);
+    hubMarker[h.id] = L.circleMarker([h.lat, h.lon], { radius: 11, color: color[h.id], weight: 3, fillColor: "#fff", fillOpacity: 1 })
+      .bindPopup(`<b><a href="#/hub/${h.id}">${esc(h.code)} · ${esc(h.name)}</a></b><br>${onlineBadge(h.online)}<br>${t("map.nodes_on", { n: h.nodes, d: INFO.node_max_age_days })}
+        ${(h.links || []).length ? `<br>${t("map.linked_with")}: ${(h.links || []).map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)}</a>`).join(", ")}` : ""}`)
+      .addTo(m);
     bounds.push([h.lat, h.lon]);
   });
-  if (bounds.length) mapObj.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
-  liveTraffic(mapObj, byId, color);
+  let showNodes = true;
+  const syncNodes = () => {
+    const want = showNodes && m.getZoom() >= NODES_FROM_ZOOM;
+    if (want && !m.hasLayer(nodeLayer)) { nodeLayer.addTo(m); Object.values(hubMarker).forEach(x => x.bringToFront()); }
+    if (!want && m.hasLayer(nodeLayer)) m.removeLayer(nodeLayer);
+    const z = $("#zoomhint"); if (z) z.hidden = !(showNodes && m.getZoom() < NODES_FROM_ZOOM && nodes.length);
+  };
+  m.on("zoomend", syncNodes);
+  // panel: one line per hub, search, click = fly there and highlight its links
+  const panel = L.control({ position: "topright" });
+  panel.onAdd = () => {
+    const d = L.DomUtil.create("div", "livebox mappanel");
+    d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>
+      <label class="check small"><input type="checkbox" id="nodeson" checked> ${t("map.show_nodes")}</label>
+      <div class="small muted" id="zoomhint" hidden>${t("map.zoom_for_nodes")}</div>
+      <details id="hubpanel"><summary class="small"><b>${t("map.hubs")} (${hubs.length})</b> · ${t("map.links_n", { n: Object.keys(lines).length })}</summary>
+        ${hubs.length > 6 ? `<input type="text" id="hubq" placeholder="${t("dt.search")}" class="small">` : ""}
+        <div class="hublist">${hubs.slice().sort((x, y) => (y.online - x.online) || x.code.localeCompare(y.code)).map(h => `
+          <a class="hubline" data-hub="${h.id}" data-q="${esc((h.code + " " + h.name).toLowerCase())}">
+            <span class="dot" style="background:${color[h.id]}"></span><b>${esc(h.code)}</b> <span class="muted">${esc(h.name)}</span>
+            <span class="hl-meta"><span class="dot ${h.online ? "ok" : "bad"}"></span>${h.nodes} · ${(h.links || []).length}⇄</span></a>`).join("")}</div></details>`;
+    L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+    return d;
+  };
+  panel.addTo(m);
+  $("#nodeson").onchange = e => { showNodes = e.target.checked; syncNodes(); };
+  if ($("#hubq")) $("#hubq").oninput = e => { const q = e.target.value.toLowerCase(); $$(".hubline").forEach(x => x.style.display = x.dataset.q.includes(q) ? "" : "none"); };
+  let hl = [];
+  $$(".hubline").forEach(a => a.onclick = () => {
+    const h = byId[a.dataset.hub];
+    hl.forEach(x => x.setStyle({ weight: 3, opacity: .7, color: "#0f7b6c" })); hl = linesOf[h.id] || [];
+    hl.forEach(x => x.setStyle({ weight: 6, opacity: 1, color: color[h.id] }));
+    $$(".hubline").forEach(x => x.classList.toggle("sel", x === a));
+    if (h.lat != null) { m.setView([h.lat, h.lon], Math.max(m.getZoom(), 8)); hubMarker[h.id].openPopup(); }
+  });
+  if (bounds.length) m.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  syncNodes();
+  liveTraffic(m, byId, color, true);
 }
 
 /* Live traffic: every packet passed between two hubs runs as a dot along their link (no content). */
 let liveTimer = null;
-function liveTraffic(m, byId, color) {
+function liveTraffic(m, byId, color, hasPanel) {
   clearInterval(liveTimer);
   let seq = null, running = 0;
-  const box = L.control({ position: "topright" });
-  box.onAdd = () => { const d = L.DomUtil.create("div", "livebox"); d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>`; L.DomEvent.disableClickPropagation(d); return d; };
-  box.addTo(m);
+  if (!hasPanel) {
+    const box = L.control({ position: "topright" });
+    box.onAdd = () => { const d = L.DomUtil.create("div", "livebox"); d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>`; L.DomEvent.disableClickPropagation(d); return d; };
+    box.addTo(m);
+  }
   let shown = 0;
   const run = (src, dst, c) => {
     if (running > 40) return;
