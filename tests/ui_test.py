@@ -95,7 +95,7 @@ with sync_playwright() as pw:
     check("hub B sees request", "asks to link" in b.inner_text("#app"))
     b.click("button[data-acc]"); time.sleep(2)
     nav(b, B + "/#/links"); b.wait_for_selector("text=My rules for this link")
-    check("link active on B", "active" in b.inner_text("#app"))
+    check("link active on B", b.locator("details.linkbox").count() == 1 and "My links (1)" in b.inner_text("#app"))
     nav(a, A + "/#/links"); a.wait_for_selector("text=My rules for this link")
     check("link active on A", True)
 

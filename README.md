@@ -69,7 +69,8 @@ statistics. It holds no key that opens the traffic.
 - **Status** — map of the nodes this hub's own radio hears first, then radio (with watchdog),
   server connection, counters, airtime, and searchable lists of local nodes and of each partner
   hub's nodes.
-- **Links & rules** — request/accept links; per link and direction: public channel, private
+- **Links & rules** — one compact line per link (any number of links), requests at the top,
+  searchable hub list; per link and direction: public channel, private
   groups, private messages, positions, and how far your packets may go through that partner
   (multi-hop, decided per link); end-to-end safety code.
 - **Radio** — USB or Wi-Fi/IP connection, one-click *Prepare radio for Ura*, **Diagnostics**

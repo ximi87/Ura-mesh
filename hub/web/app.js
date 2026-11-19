@@ -249,6 +249,13 @@ Ura.add({
   "sec.lora": { en: "LoRa (region, preset, power)", sq: "LoRa (rajoni, preseti, fuqia)" }, "sec.bluetooth": { en: "Bluetooth", sq: "Bluetooth" },
   "sec.security": { en: "Security", sq: "Siguria" }, "sec.mqtt": { en: "MQTT (used by Ura)", sq: "MQTT (përdoret nga Ura)" }, "sec.telemetry": { en: "Telemetry", sq: "Telemetria" },
   "st.transit": { en: "Passed on for other hubs (multi-hop)", sq: "Kaluar për hub-e të tjerë (shumë-hop)" },
+  "ls.pub": { en: "public", sq: "publik" }, "ls.priv": { en: "private", sq: "privat" }, "ls.pos": { en: "positions", sq: "pozicione" },
+  "ls.grp": { en: "{n} group(s)", sq: "{n} grup(e)" }, "ls.nothing": { en: "nothing", sq: "asgjë" },
+  "ls.reach": { en: "How far", sq: "Sa larg" }, "ls.stop": { en: "stops at {x}", sq: "ndalon te {x}" }, "ls.linked": { en: "linked", sq: "e lidhur" }, "ls.cancel": { en: "Cancel request", sq: "Anulo kërkesën" },
+  "ls.incoming": { en: "Link requests waiting for you", sq: "Kërkesa për lidhje që ju presin" },
+  "ls.outgoing": { en: "Requests you sent", sq: "Kërkesat që keni dërguar" },
+  "ls.hint": { en: "One line per link: what you send and receive, how far your packets may go, packets sent ↑ / received ↓ (orange = stopped by a rule). Click a line for its rules.",
+               sq: "Një rresht për çdo lidhje: çfarë dërgoni dhe merrni, sa larg mund të shkojnë paketat tuaja, paketa të dërguara ↑ / të marra ↓ (portokalli = ndalur nga një rregull). Klikoni një rresht për rregullat e saj." },
   "reach.title": { en: "How far may my packets go through {x}?", sq: "Sa larg mund të shkojnë paketat e mia përmes {x}?" },
   "reach.short": { en: "How far its packets may go", sq: "Sa larg mund të shkojnë paketat e tij" },
   "reach.0": { en: "Only to {x} — no further", sq: "Vetëm te {x} — jo më tej" },
@@ -416,6 +423,7 @@ async function pageStatus() {
 }
 
 /* ───────── links ───────── */
+const openLinks = new Set();      // links whose rules are open on the Links page (kept across refreshes)
 async function pageLinks() {
   const s = await api("GET", "/api/status");
   const c = await api("GET", "/api/config");
@@ -474,31 +482,65 @@ async function pageLinks() {
      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(pr.receive.from_beyond !== false)}</td></tr>
      <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>`;
   const why = s.server.status === "pending" ? t("pend.links") : !s.server.hub_id ? t("pend.none") : t("l.not_connected");
-  app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
-    <div class="card"><h2>${t("l.mylinks")}</h2>${s.links.length ? s.links.map(l => `
-      <div class="card" style="box-shadow:none" data-link="${l.id}" data-peer="${l.peer}">
-        <div class="spread"><h2 style="margin:0">${esc(l.peer_code)} · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</h2>
-          <div class="row"><span class="badge ${l.state === "active" ? "ok" : "warn"}">${t("l.state." + l.state)}</span>
-          ${l.state !== "active" && !l.i_accepted ? `<button class="primary small" data-acc="${l.id}">${t("l.accept")}</button>` : ""}
-          <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${l.state === "active" ? t("l.remove") : t("l.decline")}</button></div></div>
-        ${l.state !== "active" ? `<p class="muted">${l.i_accepted ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })}</p>` : `
+  // several links: one compact line per link, its rules open on click (state kept across refreshes)
+  const active = s.links.filter(l => l.state === "active");
+  const incoming = s.links.filter(l => l.state !== "active" && !l.i_accepted);
+  const outgoing = s.links.filter(l => l.state !== "active" && l.i_accepted);
+  if (active.length === 1 && !openLinks.size) openLinks.add(active[0].peer);
+  const chips = r => !r.on ? `<span class="badge bad">${t("rule.off")}</span>`
+    : [r.public && t("ls.pub"), r.private && t("ls.priv"), r.positions && t("ls.pos"), (r.groups || []).length && t("ls.grp", { n: r.groups.length })]
+        .filter(Boolean).map(x => `<span class="chip">${x}</span>`).join("") || `<span class="muted small">${t("ls.nothing")}</span>`;
+  const blockedN = p => p ? Object.values(p.blocked_send).reduce((x, y) => x + y, 0) + Object.values(p.blocked_recv).reduce((x, y) => x + y, 0) : 0;
+  const lock = l => l.e2e.state === "ok" ? `<span title="${esc(t("e2e.title"))}">🔒</span>` : `<span class="badge bad" title="${esc(t("e2e.title"))}">⚠</span>`;
+  const linkLine = l => {
+    const r = rulesOf(l.peer), p = peerCounts[l.peer] || { sent: 0, received: 0, blocked_send: {}, blocked_recv: {} }, nb = blockedN(p);
+    return `<div class="linkrow">
+      <div class="lr-peer"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</div>
+      <div class="lr-e2e">${lock(l)}</div>
+      <div class="lr-dir"><span class="lr-k">${t("rule.send")}</span>${chips(r.send)}</div>
+      <div class="lr-dir"><span class="lr-k">${t("rule.receive")}</span>${chips(r.receive)}</div>
+      <div class="lr-reach"><span class="lr-k">${t("ls.reach")}</span>${r.send.on ? (reachOf(r.send) === 0 ? t("ls.stop", { x: esc(l.peer_code) }) : reachText(reachOf(r.send), "")) : "–"}</div>
+      <div class="lr-tr"><span title="${esc(t("rule.send"))}">↑ ${p.sent}</span> <span title="${esc(t("rule.receive"))}">↓ ${p.received}</span>
+        ${nb ? `<span class="badge warn" title="${esc(t("l.blocked"))}">${nb}</span>` : ""}</div></div>`;
+  };
+  const linkBody = l => `
         <div class="msg ${l.e2e.state === "ok" ? "ok" : "bad"}" style="margin-top:.5rem"><b>${t("e2e.title")}</b><br>
           ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
           ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
           ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
         <h3>${t("l.rules")}</h3><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
         <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div>
-        <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span></div>
+        <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
+          <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
         <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l))}</div>
-        <div><h3>${t("l.counts")}</h3>${countsHtml(l.peer)}</div></div>`}
-      </div>`).join("") : `<p class="muted">${t("l.none")}</p>`}</div>
-    <div class="card"><h2>${t("l.dir")}</h2><div class="tablewrap"><table>
-      <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("position")}</th><th></th></tr>
-      ${others.map(h => `<tr><td><b>${esc(h.code)}</b></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td><td>${fmtPos(h.lat, h.lon)}</td>
-        <td>${linked.has(h.id) ? "" : `<button class="small" data-ask="${h.id}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("l.ask")}</button>`}</td></tr>`).join("")
-        || `<tr><td colspan="5" class="muted">${t("l.dir.none")}</td></tr>`}</table></div></div>`;
+        <div><h3>${t("l.counts")}</h3>${countsHtml(l.peer)}</div></div>`;
+  const reqRow = (l, mine) => `<div class="spread reqrow"><div><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}
+      <div class="muted small">${mine ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })}</div></div>
+      <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}">${t("l.accept")}</button>`}
+      <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`;
+  app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
+    ${incoming.length ? `<div class="card attention"><h2>${t("ls.incoming")} (${incoming.length})</h2>${incoming.map(l => reqRow(l, false)).join("")}</div>` : ""}
+    <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${active.length})</h2>
+      ${active.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("adv.open_all")}</button><button class="small" data-lall="0">${t("adv.close_all")}</button></div>` : ""}</div>
+      ${active.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
+      ${active.length ? `<p class="muted small">${t("ls.hint")}</p>` + active.map(l => `
+      <details class="linkbox" data-link="${l.id}" data-peer="${l.peer}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openLinks.has(l.peer) ? "open" : ""}>
+        <summary>${linkLine(l)}</summary><div class="linkbody">${linkBody(l)}</div></details>`).join("") : `<p class="muted">${t("l.none")}</p>`}
+      ${outgoing.length ? `<h3>${t("ls.outgoing")} (${outgoing.length})</h3>${outgoing.map(l => reqRow(l, true)).join("")}` : ""}</div>
+    <div class="card"><h2>${t("l.dir")} (${others.length})</h2><div id="hubdir"></div></div>`;
+  dataTable($("#hubdir"), others, [
+    { key: "code", label: t("code"), render: h => `<b>${esc(h.code)}</b>` },
+    { key: "name", label: t("name"), render: h => esc(h.name) },
+    { key: "online", label: t("status"), render: h => onlineBadge(h.online), sort: h => h.online ? 1 : 0 },
+    { key: "lat", label: t("position"), render: h => fmtPos(h.lat, h.lon), sort: h => h.lat },
+    { key: "id", label: "", render: h => linked.has(h.id) ? `<span class="muted small">${t(s.links.find(l => l.peer === h.id).state === "active" ? "ls.linked" : "l.state.pending")}</span>`
+        : `<button class="small" data-ask="${h.id}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("l.ask")}</button>`, sort: h => linked.has(h.id) ? 1 : 0 }],
+    { searchKeys: ["code", "name"], initialSort: "online", pageSize: 25, empty: t("l.dir.none") });
+  $$("details.linkbox").forEach(d => d.addEventListener("toggle", () => { if (d.open) openLinks.add(d.dataset.peer); else openLinks.delete(d.dataset.peer); }));
+  $$("button[data-lall]").forEach(b => b.onclick = () => $$("details.linkbox").forEach(d => d.open = b.dataset.lall === "1"));
+  if ($("#lfilter")) $("#lfilter").oninput = e => { const q = e.target.value.toLowerCase(); $$("details.linkbox").forEach(d => d.style.display = d.dataset.q.includes(q) ? "" : "none"); };
   const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { const k = "err." + e.message; alert(t(k) !== k ? t(k) : e.message); } setTimeout(pageLinks, 800); };
-  $$("button[data-ask]").forEach(b => b.onclick = () => act("/api/links/request", { to: b.dataset.ask }, b));
+  $("#hubdir").addEventListener("click", e => { const b = e.target.closest("button[data-ask]"); if (b) act("/api/links/request", { to: b.dataset.ask }, b); });
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
   $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
   $$("button[data-trust]").forEach(b => b.onclick = () => act("/api/links/trust_key", { peer: b.dataset.trust }, b));

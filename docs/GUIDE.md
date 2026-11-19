@@ -90,7 +90,12 @@ let onto your air from the partner): link open in this direction, public channel
 group, private messages, positions, and **how far your packets may go through this partner**
 (only to it, 1, 2 … hubs further, or anywhere — chosen per link, see section 4). Details in section 3.
 
-![A hub's Links & rules page: end-to-end safety code, send and receive rules, how far packets may go through this partner](img/hub-links.jpg)
+With several links, *Links & rules* shows **one line per link** — partner, online, 🔒 encryption,
+what is sent and received, how far your packets may go, packets sent ↑ / received ↓ (an orange
+number = packets stopped by a rule). Click a line to open its safety code and rules. Link requests
+waiting for you appear at the top; the list of other hubs on the server is searchable.
+
+![A hub's Links & rules page with four links, one opened: safety code, send and receive rules, how far packets may go](img/hub-links.jpg)
 
 ### Step 10 — Confirm that it works
 - **Diagnostics** (*Radio* page): pick any node — local or in the other mesh — and send a
