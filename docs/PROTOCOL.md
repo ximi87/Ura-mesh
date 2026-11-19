@@ -82,7 +82,9 @@ nonce seen before.
 ```
 
 `path` lists every hub the packet passed (origin first). `allow` and `max_hops` are set by the
-origin per partner and copied unchanged by transit hubs.
+origin **per partner** and copied unchanged by transit hubs: `max_hops` = the links the packet may
+cross in total (1 = stop at the partner); `allow` = which of the partner's links the first step
+beyond it may use (`["*"]` = any). Further away only `max_hops` and each hub's own rules apply.
 
 **Safety code** shown to operators: the first 10 bytes of
 `SHA-256("ura safety " ‖ min(pubA,pubB) ‖ max(pubA,pubB))` as an integer, modulo 10²⁰, written as

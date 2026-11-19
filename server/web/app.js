@@ -14,6 +14,12 @@ Ura.add({
   "map.legend.node": { en: "Node heard by a hub", sq: "Nyje e dëgjuar nga një hub" },
   "map.legend.link": { en: "Active link", sq: "Lidhje aktive" },
   "map.nohubs": { en: "No hub is registered yet.", sq: "Ende nuk ka asnjë hub të regjistruar." },
+  "adv.g.reg": { en: "Registration and links", sq: "Regjistrimi dhe lidhjet" },
+  "adv.g.cert": { en: "Certificate (Let's Encrypt)", sq: "Certifikata (Let's Encrypt)" },
+  "adv.g.traffic": { en: "Nodes and traffic", sq: "Nyjet dhe trafiku" },
+  "adv.g.complaints": { en: "Complaints", sq: "Ankesat" },
+  "adv.g.security": { en: "Security and login", sq: "Siguria dhe hyrja" },
+  "adv.g.tiles": { en: "Map tiles", sq: "Pllakat e hartës" },
   "adv.registrations_open": { en: "Accept new hub registrations", sq: "Prano regjistrime të reja hub-esh" },
   "adv.node_max_age_days": { en: "Show nodes heard within (days)", sq: "Shfaq nyjet e dëgjuara brenda (ditë)" },
   "adv.max_nodes_per_report": { en: "Max. nodes accepted per hub report", sq: "Maks. nyje të pranuara për raport hub-i" },
@@ -39,7 +45,9 @@ Ura.add({
   "hub.title": { en: "Hub {code}", sq: "Hub {code}" },
   "hub.about": { en: "About this hub", sq: "Për këtë hub" },
   "hub.registered": { en: "Registered", sq: "Regjistruar" }, "hub.last_seen": { en: "Last seen", sq: "Parë së fundi" },
-  "rule.onward": { en: "Further hubs its packets may reach (multi-hop)", sq: "Hub-e të tjera ku mund të arrijnë paketat e tij (shumë-hop)" },
+  "rule.onward": { en: "How far its packets may go (multi-hop)", sq: "Sa larg mund të shkojnë paketat e tij (shumë-hop)" },
+  "reach.0": { en: "stop at this hub", sq: "ndalojnë te ky hub" }, "reach.n": { en: "up to {n} hub(s) further", sq: "deri në {n} hub më tej" },
+  "reach.any": { en: "anywhere", sq: "kudo" },
   "rule.transit": { en: "Passes other hubs' packets on", sq: "Kalon paketat e hub-eve të tjerë" },
   "rule.from_beyond": { en: "Accepts packets from hubs further away", sq: "Pranon paketa nga hub-e më larg" },
   "live.on": { en: "Live traffic", sq: "Trafiku drejtpërdrejt" },
@@ -142,6 +150,8 @@ const app = () => document.getElementById("app");
 let INFO = {};
 let mapObj = null;
 
+const reachTxt = r => { const n = r.reach != null ? +r.reach : ((r.onward_to || []).length ? 1 : 0); return n === 0 ? t("reach.0") : n >= 7 ? t("reach.any") : t("reach.n", { n }); };
+
 function hubLink(h) { return h ? `<a href="#/hub/${encodeURIComponent(h.id)}">${esc(h.code)} · ${esc(h.name)}</a>` : "–"; }
 function nodeHref(n) { return `#/node/${encodeURIComponent(n.hub)}/${encodeURIComponent(n.net)}/${encodeURIComponent(n.id)}`; }
 function netBadge(net) { return `<span class="badge ${net === "mc" ? "warn" : "info"}">${t("net." + net)}</span>`; }
@@ -155,7 +165,7 @@ function rulesHtml(r) {
       <tr><td>${t("rule.groups")}</td><td>${esc(((x.send && x.send.groups) || []).join(", ") || t("none"))}</td><td>${esc(((x.receive && x.receive.groups) || []).join(", ") || t("none"))}</td></tr>
       <tr><td>${t("rule.private")}</td><td>${yn(x.send && x.send.private)}</td><td>${yn(x.receive && x.receive.private)}</td></tr>
       <tr><td>${t("rule.positions")}</td><td>${yn(x.send && x.send.positions)}</td><td>${yn(x.receive && x.receive.positions)}</td></tr>
-      <tr><td>${t("rule.onward")}</td><td>${esc(((x.send && x.send.onward_to) || []).length)}</td><td></td></tr>
+      <tr><td>${t("rule.onward")}</td><td>${reachTxt(x.send || {})}</td><td></td></tr>
       <tr><td>${t("rule.transit")}</td><td>${yn(x.send && x.send.transit !== false)}</td><td></td></tr>
       <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(!x.receive || x.receive.from_beyond !== false)}</td></tr></table>` : "";
   let s = "";
@@ -442,7 +452,14 @@ async function pageAdmin() {
       <button id="lerun">${t("le.run")}</button> <span class="muted small" id="lemsg"></span></div>
     <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
   $("#lerun").onclick = async () => { await api("POST", "/api/admin/acme/run", {}); $("#lemsg").textContent = t("le.started"); setTimeout(pageAdmin, 20000); };
-  const af = advancedForm($("#advform"), s.advanced_spec, s.advanced);
+  const af = advancedForm($("#advform"), s.advanced_spec, s.advanced, {
+    groups: [["adv.g.reg", ["registrations_open", "project_url", "install_guide_url"]],
+             ["adv.g.cert", ["acme_enabled", "acme_domain", "acme_email", "acme_staging"]],
+             ["adv.g.traffic", ["node_max_age_days", "max_nodes_per_report", "relay_rate_per_s", "relay_burst", "max_box_bytes", "stats_retention_days"]],
+             ["adv.g.complaints", ["complaints_per_hour", "complaint_min_chars", "complaint_max_chars"]],
+             ["adv.g.security", ["session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
+             ["adv.g.tiles", ["tile_upstream", "tile_contact", "tile_cache_days", "tile_backoff_s"]]],
+    depends: { acme_domain: "acme_enabled", acme_email: "acme_enabled", acme_staging: "acme_enabled" } });
   $("#advsave").onclick = async () => {
     try { await api("POST", "/api/admin/advanced", { advanced: af.read() }); af.mark([]); INFO = {}; $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
     catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${t("adv.invalid")}</div>`; }

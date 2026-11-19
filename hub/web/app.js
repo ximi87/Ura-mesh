@@ -176,6 +176,11 @@ Ura.add({
   "adv.tile_cache_days": { en: "Keep map tiles for (days)", sq: "Mbaj pllakat e hartës për (ditë)" },
   "adv.tile_backoff_s": { en: "After a failed tile download, pause for (seconds)", sq: "Pas një shkarkimi të dështuar, prit për (sekonda)" },
   "adv.page_refresh_s": { en: "Refresh the status page every (seconds)", sq: "Rifresko faqen e gjendjes çdo (sekonda)" },
+  "adv.g.radio": { en: "Radio", sq: "Radio" },
+  "adv.g.nodes": { en: "Nodes and location", sq: "Nyjet dhe vendndodhja" },
+  "adv.g.server": { en: "Connection to the server", sq: "Lidhja me serverin" },
+  "adv.g.security": { en: "Security and login", sq: "Siguria dhe hyrja" },
+  "adv.g.web": { en: "Map and website", sq: "Harta dhe faqja" },
   "wd.last": { en: "Last message from the radio", sq: "Mesazhi i fundit nga radio" },
   "wd.events": { en: "The radio stopped talking to the hub and was restarted automatically {n}× in the last 7 days (last: {x}). If this repeats, check that nothing else is connected to this radio (app over Wi-Fi or Bluetooth) — or switch its Wi-Fi/Bluetooth off under Device settings.",
                  sq: "Radio ndaloi së foluri me hub-in dhe u rindez automatikisht {n}× në 7 ditët e fundit (së fundi: {x}). Nëse përsëritet, kontrolloni që asgjë tjetër të mos jetë e lidhur me këtë radio (aplikacion përmes Wi-Fi ose Bluetooth) — ose fikni Wi-Fi/Bluetooth te Cilësimet e pajisjes." },
@@ -241,11 +246,19 @@ Ura.add({
   "sec.lora": { en: "LoRa (region, preset, power)", sq: "LoRa (rajoni, preseti, fuqia)" }, "sec.bluetooth": { en: "Bluetooth", sq: "Bluetooth" },
   "sec.security": { en: "Security", sq: "Siguria" }, "sec.mqtt": { en: "MQTT (used by Ura)", sq: "MQTT (përdoret nga Ura)" }, "sec.telemetry": { en: "Telemetry", sq: "Telemetria" },
   "st.transit": { en: "Passed on for other hubs (multi-hop)", sq: "Kaluar për hub-e të tjerë (shumë-hop)" },
+  "reach.title": { en: "How far may my packets go through {x}?", sq: "Sa larg mund të shkojnë paketat e mia përmes {x}?" },
+  "reach.short": { en: "How far its packets may go", sq: "Sa larg mund të shkojnë paketat e tij" },
+  "reach.0": { en: "Only to {x} — no further", sq: "Vetëm te {x} — jo më tej" },
+  "reach.1": { en: "1 hub further", sq: "1 hub më tej" },
+  "reach.n": { en: "{n} hubs further", sq: "{n} hub-e më tej" },
+  "reach.any": { en: "Anywhere (as far as the other hubs allow)", sq: "Kudo (aq larg sa lejojnë hub-et e tjera)" },
+  "reach.none_ticked": { en: "Nothing ticked: your packets stop at {x}. Tick the links of {x} they may continue on.", sq: "Asgjë e shënuar: paketat tuaja ndalojnë te {x}. Shënoni lidhjet e {x} ku mund të vazhdojnë." },
+  "reach.all_links": { en: "Through every link {x} offers.", sq: "Përmes çdo lidhjeje që ofron {x}." },
   "tr.title": { en: "Multi-hop (transit)", sq: "Shumë-hop (tranzit)" },
-  "tr.hint": { en: "Let traffic between your linked hubs pass through this hub — e.g. hub A → this hub → hub C. A packet is passed on only if the hub it started at ticked that destination in its list, your per-link rules allow it, and the receiving hub accepts packets from further away. Packets never go back to a hub they already passed. The hop limit below also caps how far YOUR packets may travel.",
+  "tr.hint": { en: "Let traffic between your linked hubs pass through this hub — e.g. hub A → this hub → hub C. A packet is passed on only if the hub it started at ticked that destination in its list, your per-link rules allow it, and the receiving hub accepts packets from further away. Packets never go back to a hub they already passed. How far YOUR packets go is chosen per link under Links & rules.",
                sq: "Lejo që trafiku ndërmjet hub-eve të tua të lidhura të kalojë përmes këtij hub-i — p.sh. hub-i A → ky hub → hub-i C. Një paketë kalohet vetëm nëse hub-i ku nisi e ka shënuar atë destinacion në listën e tij, rregullat e tua për lidhjen e lejojnë dhe hub-i marrës pranon paketa nga më larg. Paketat nuk kthehen kurrë te një hub ku kanë kaluar. Kufiri më poshtë kufizon edhe sa larg mund të shkojnë paketat E TUA." },
   "tr.on": { en: "Pass traffic between my linked hubs", sq: "Kalo trafikun ndërmjet hub-eve të mia të lidhura" },
-  "tr.hops": { en: "Maximum hub-to-hub hops of a packet", sq: "Numri maksimal i kalimeve hub-në-hub i një pakete" },
+  "tr.hops": { en: "Pass on other hubs' packets only in chains of at most (hub-to-hub hops)", sq: "Kalo paketat e hub-eve të tjerë vetëm në zinxhirë deri në (kalime hub-në-hub)" },
   "tr.hops.hint": { en: "2 = origin → this hub → next hub. Higher values reach further but use more airtime everywhere.", sq: "2 = origjina → ky hub → hub-i tjetër. Vlera më të larta arrijnë më larg, por përdorin më shumë kohë në ajër kudo." },
   "rule.onward": { en: "Further hubs my packets may reach", sq: "Hub-e të tjera ku mund të arrijnë paketat e mia" },
   "rule.onward_to": { en: "{x} offers to pass your packets on to these hubs — tick where your packets may go (multi-hop):", sq: "{x} ofron t'i kalojë paketat tuaja te këto hub-e — shënoni ku mund të shkojnë paketat tuaja (shumë-hop):" },
@@ -422,12 +435,28 @@ async function pageLinks() {
       <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
       ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)}</label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
   // the hubs this peer offers to pass my packets on to (its published transit list), each with a tick box
+  const REACH_ANY = 7;
+  const reachOf = rule => rule.reach != null ? +rule.reach : ((rule.onward_to || []).length ? Math.min(REACH_ANY, ((c.transit && c.transit.max_hops) || 2) - 1) : 0);
+  const reachText = (n, pc) => n === 0 ? t("reach.0", { x: pc }) : n >= REACH_ANY ? t("reach.any") : t(n === 1 ? "reach.1" : "reach.n", { n });
   const onwardBox = (peer, rule) => {
     const h = s.directory.find(x => x.id === peer), offered = ((h && h.rules && h.rules.transit_to) || []).filter(x => x !== s.server.hub_id);
-    const pc = (h && h.code) || peer;
-    return `<div class="small muted" style="margin-top:.4rem">${t("rule.onward_to", { x: esc(pc) })}</div>` + (offered.length
+    const pc = esc((h && h.code) || peer), r = reachOf(rule);
+    const opts = Array.from({ length: REACH_ANY + 1 }, (_, n) => `<option value="${n}" ${n === r ? "selected" : ""}>${reachText(n, pc)}</option>`).join("");
+    const ticks = offered.length
       ? offered.map(id => { const o = s.directory.find(x => x.id === id); return `<label class="check"><input type="checkbox" data-onward="${esc(id)}" ${(rule.onward_to || []).includes(id) ? "checked" : ""}> ${esc(o ? o.code + " · " + o.name : id)}</label>`; }).join("")
-      : `<div class="muted small">${t("rule.onward_to.none", { x: esc(pc) })}</div>`);
+      : `<div class="muted small">${t("rule.onward_to.none", { x: pc })}</div>`;
+    return `<div class="reachbox" data-reachbox><div class="small" style="margin-top:.5rem"><b>${t("reach.title", { x: pc })}</b></div>
+      <select data-reach>${opts}</select>
+      <div data-reach-ticks>${offered.length ? `<div class="small muted" style="margin-top:.4rem">${t("rule.onward_to", { x: pc })}</div>` : ""}${ticks}
+        <div class="msg warn small" data-reach-none hidden>${t("reach.none_ticked", { x: pc })}</div></div>
+      <div class="small muted" data-reach-all hidden>${t("reach.all_links", { x: pc })}</div></div>`;
+  };
+  const syncReach = box => {
+    const r = +$("[data-reach]", box).value, any = r >= REACH_ANY;
+    $("[data-reach-ticks]", box).style.display = r === 0 || any ? "none" : "";
+    $("[data-reach-all]", box).hidden = !any;
+    const ticked = $$("input[data-onward]", box).some(i => i.checked);
+    $("[data-reach-none]", box).hidden = !(r > 0 && !any && !ticked && $$("input[data-onward]", box).length);
   };
   const peerRules = l => { const h = s.directory.find(x => x.id === l.peer); const pr = h && h.rules && h.rules.links && h.rules.links[s.hub.country + "-" + s.hub.city]; return pr; };
   const countsHtml = peer => { const p = peerCounts[peer]; if (!p) return `<p class="muted small">–</p>`;
@@ -438,7 +467,7 @@ async function pageLinks() {
   const prHtml = pr => !pr ? `<p class="muted small">${t("l.peer_rules.none")}</p>` :
     `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
      ${["on", "public", "private", "positions"].map(k => `<tr><td>${t(k === "on" ? "link" : "rule." + k)}</td><td>${yn(pr.send[k])}</td><td>${yn(pr.receive[k])}</td></tr>`).join("")}
-     <tr><td>${t("rule.onward")}</td><td>${(pr.send.onward_to || []).length}</td><td></td></tr><tr><td>${t("rule.transit")}</td><td>${yn(pr.send.transit !== false)}</td><td></td></tr>
+     <tr><td>${t("reach.short")}</td><td>${reachText(reachOf(pr.send), esc(s.hub.country + "-" + s.hub.city))}</td><td></td></tr><tr><td>${t("rule.transit")}</td><td>${yn(pr.send.transit !== false)}</td><td></td></tr>
      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(pr.receive.from_beyond !== false)}</td></tr>
      <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>`;
   const why = s.server.status === "pending" ? t("pend.links") : !s.server.hub_id ? t("pend.none") : t("l.not_connected");
@@ -470,11 +499,13 @@ async function pageLinks() {
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
   $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
   $$("button[data-trust]").forEach(b => b.onclick = () => act("/api/links/trust_key", { peer: b.dataset.trust }, b));
+  $$("[data-reachbox]").forEach(box => { syncReach(box); box.addEventListener("change", () => syncReach(box)); });
   $$("button[data-save]").forEach(b => b.onclick = async () => {
     const peer = b.dataset.save, box = b.closest("[data-peer]"), rules = { send: { groups: [] }, receive: { groups: [] } };
     $$("input[data-k]", box).forEach(i => rules[i.dataset.dir][i.dataset.k] = i.checked);
     $$("input[data-g]", box).forEach(i => { if (i.checked) rules[i.dataset.dir].groups.push(i.dataset.g); });
     rules.send.onward_to = $$("input[data-onward]", box).filter(i => i.checked).map(i => i.dataset.onward);
+    rules.send.reach = +$("[data-reach]", box).value;
     b.disabled = true;
     try { await api("POST", "/api/rules", { peer, rules }); $(`[data-saved="${peer}"]`).textContent = "✓ " + t("saved"); }
     catch (e) { $(`[data-saved="${peer}"]`).textContent = errText(e); }
@@ -685,12 +716,19 @@ async function pageSettings() {
     <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
       <button id="pwsave">${t("save")}</button> <button id="logout">${t("logout")}</button></div></div>
     <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
-      <div><label>${t("adv.server_web_port")}</label><input type="number" id="swebport" min="1" max="65535" value="${esc(c.server.web_port || 8443)}"></div>
       <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
   const spec = await api("GET", "/api/advanced_spec");
-  const af = advancedForm($("#advform"), spec, c.advanced || {});
+  spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
+  const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
+    groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
+             ["adv.g.nodes", ["node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
+             ["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
+             ["adv.g.security", ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
+             ["adv.g.web", ["tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s"]]],
+    depends: { clock_sync_min: "clock_sync" } });
   $("#advsave").onclick = async () => {
-    try { await api("POST", "/api/advanced", { advanced: af.read(), server_web_port: $("#swebport").value }); af.mark([]); $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
+    const all = af.read(), port = all.server_web_port; delete all.server_web_port;
+    try { await api("POST", "/api/advanced", { advanced: all, server_web_port: port }); af.mark([]); $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
     catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   const hubBody = () => ({ hub: { name: $("#hname").value, email: $("#hemail").value, country: $("#hcountry").value, city: $("#hcity").value,

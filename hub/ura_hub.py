@@ -62,9 +62,12 @@ ADV_SPEC = {
 
 log = logging.getLogger("ura-hub")
 
+REACH_ANY = 7                 # "anywhere": the longest chain a packet can make (8 links)
 RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True,
                 # multi-hop, decided by each hub for itself:
-                "onward_to": [],      # send:    hubs (offered by this peer) to which it may pass MY packets on
+                "reach": 0,           # send:    how many hubs BEYOND this peer my packets may travel (0 = stop there,
+                                      #          REACH_ANY = as far as the other hubs allow)
+                "onward_to": [],      # send:    which of this peer's links my packets may continue on (first step)
                 "transit": True,      # send:    I pass other hubs' packets on to this peer (if transit is on)
                 "from_beyond": True}  # receive: accept packets that started at hubs beyond this peer
 DEFAULT_CONFIG = {
@@ -1212,18 +1215,29 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
         if keys is None:                               # no end-to-end key (or it changed): never send in clear
             counters.peer_add(peer, "blocked_send", "key_" + state)
             continue
-        if own:      # the origin decides, per link, to which further hubs its packet may go (sealed: nobody can change it)
-            meta = {"allow": list(rule.get("onward_to") or []), "max_hops": int(cfg.get()["transit"].get("max_hops", 2))}
+        if own:      # the origin decides, PER LINK, how far its packet may go and through which of the partner's links
+            reach = rule_reach(rule)                   # sealed in the box: no hub on the way can change it
+            allow = [] if reach == 0 else ["*"] if reach >= REACH_ANY else list(rule.get("onward_to") or [])
+            meta = {"allow": allow, "max_hops": reach + 1}
         else:
-            if peer not in (origin_rules or {}).get("allow", []):
+            meta = origin_rules or {}
+            # the origin's tick list applies to the first step beyond its partner (path = origin, partner);
+            # further away the hop limit and each hub's own transit rules decide
+            if len(path) == 2 and "*" not in meta.get("allow", []) and peer not in meta.get("allow", []):
                 continue                               # the origin did not allow this destination
-            meta = origin_rules
         inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode(), "path": path, **meta}).encode()
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
         counters.peer_add(peer, "sent" if len(path) == 1 else "transit")
     if boxes:
         counters.add("sent" if len(path) == 1 else "transit")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "boxes": boxes}), loop)
+
+
+def rule_reach(rule):
+    """How many hubs beyond the partner my packets may go (older configs: derived from the tick list)."""
+    if "reach" in rule:
+        return max(0, min(REACH_ANY, int(rule.get("reach") or 0)))
+    return min(REACH_ANY, int(cfg.get()["transit"].get("max_hops", 2)) - 1) if rule.get("onward_to") else 0
 
 
 def receive_box(peer, box):
@@ -1751,6 +1765,7 @@ def clean_rules(r):
                   "positions": bool(x.get("positions")), "groups": [str(g)[:30] for g in (x.get("groups") or [])][:8]}
         if d == "send":
             out[d]["onward_to"] = [str(h)[:20] for h in (x.get("onward_to") or [])][:50]
+            out[d]["reach"] = rule_reach(x)
             out[d]["transit"] = bool(x.get("transit", True))
         else:
             out[d]["from_beyond"] = bool(x.get("from_beyond", True))

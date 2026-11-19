@@ -68,10 +68,12 @@ whether node positions are shown on the public map. Every hub publishes its rule
 ## Multi-hop
 
 A transit hub publishes `transit_to`: the partners it offers to pass traffic to. The origin hub
-ticks, per link, which of those its packets may reach. The origin's choice (`allow`) and its hop
-limit (`max_hops`) are sealed inside every box. A hub passes a box on only if: multi-hop is on
-there, the next hub is in `allow`, its per-link `transit` allows it, and `len(path) + 1` does not
-exceed the smaller of the origin's and its own hop limit. The receiver can refuse traffic from
+chooses **per link** a `reach` (0 = stop at the partner, 1…6 hubs further, 7 = anywhere) and, for
+the first step beyond the partner, which of the partner's offered links may be used. Both are
+sealed inside every box as `max_hops = reach + 1` and `allow` (`["*"]` = any link, `[]` = none).
+A hub passes a box on only if: multi-hop is on there, at the first step beyond the origin's
+partner the next hub is in `allow`, its per-link `transit` allows it, and `len(path) + 1` does not
+exceed the smaller of the origin's `max_hops` and its own chain limit. The receiver can refuse traffic from
 further away (`from_beyond`). `path` (all hubs passed, origin first) prevents loops; a
 payload-hash cache drops duplicates that arrive over different routes.
 

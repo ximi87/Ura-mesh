@@ -122,17 +122,19 @@ Once approved, your hub and its nodes appear on the server's map. **No traffic f
 If your hub has several links, you can let traffic pass *through* it — e.g. hub A → your hub →
 hub C. Each hub decides for itself:
 
-- **Settings → Multi-hop:** *Pass traffic between my linked hubs* + the maximum number of
-  hub-to-hub hops. Then, per link, *Pass other hubs' packets to this hub*. Your hub then
-  **offers** those links to its partners.
-- **Links & rules → Send → "… offers to pass your packets on to these hubs":** tick where
-  **your** packets may go. Nothing ticked = your packets stop at that partner (default).
+- **Settings → Multi-hop:** *Pass traffic between my linked hubs* + the longest chain of other
+  hubs' traffic you take part in. Then, per link, *Pass other hubs' packets to this hub*. Your hub
+  then **offers** those links to its partners.
+- **Links & rules → Send → "How far may my packets go through X?"** — chosen **per link** for
+  **your own** packets: *Only to X* (default), *1, 2 … hubs further*, or *Anywhere*. For 1 or more
+  hubs, tick **which of X's links** they may continue on (X publishes them). Example with four
+  links: link 1 *Only to X*, link 2 *1 hub further*, link 3 *Only to X*, link 4 *Anywhere*.
 - **Receive → Accept packets from hubs beyond this one:** refuse traffic that did not start at
   your direct partner.
 
-A packet travels one hop further only if the hub it started at ticked that destination, the
-passing hub offers it, the receiver accepts packets from further away, and no hop limit is
-exceeded. Packets never return to a hub they already passed.
+A packet travels one hop further only if the hub it started at allowed that distance (and, at the
+first step, ticked that link of its partner), the passing hub offers it, the receiver accepts
+packets from further away, and the passing hub's own chain limit is not exceeded. Packets never return to a hub they already passed.
 
 ## 9. Check that it works — *Radio → Diagnostics*
 

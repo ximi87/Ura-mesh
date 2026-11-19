@@ -58,7 +58,7 @@ statistics. It holds no key that opens the traffic.
 
 ```
  hub A ──── hub B ──── hub C          B offers: "I can pass your packets to C (and D, E…)"
-   │                                  A ticks:  "my packets may go to C" — sealed in every box
+   │                                  A sets per link: "through B: 1 hub further, only via C" — sealed
    └── A decides, B passes,           C may still refuse packets that did not start at B
        C accepts — all three agree    packets never loop, duplicates are dropped
 ```
@@ -154,7 +154,7 @@ Full guide: [docs/INSTALL-SERVER.md](docs/INSTALL-SERVER.md)
 | Where | What you decide |
 |---|---|
 | Hub → Links & rules | who you link with; per direction: public channel, groups, private messages, positions; where your packets may travel further (multi-hop); whether you accept traffic from further away |
-| Hub → Settings | location, airtime limit (% per hour/day), multi-hop on/off and hop limit, whether your nodes' positions appear on the public map, default rules for new links, advanced values |
+| Hub → Settings | location, airtime limit (% per hour/day), multi-hop on/off and the longest chain it takes part in, whether your nodes' positions appear on the public map, default rules for new links, advanced values |
 | Hub → Device settings | the radio itself: name, position, channels and keys, LoRa region and preset, all modules |
 | Server → Admin | which hubs are approved, complaints, whether new registrations are accepted, limits and retention, map tiles, links to the documentation |
 

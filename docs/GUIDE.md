@@ -154,13 +154,15 @@ what it passes on and accepts.
 A hub with several links can pass traffic between its partners — for example
 hub A → hub B → hub C — but **only where every hub involved agrees**:
 
-1. **Hub B offers.** In *Settings → Multi-hop* B turns transit on and sets a hop limit; per link it
+1. **Hub B offers.** In *Settings → Multi-hop* B turns transit on and sets the longest chain it takes part in; per link it
    chooses whether it passes other hubs' packets to that partner. B then publishes the list of
    partners it offers.
-2. **Hub A chooses for its own packets.** On its link to B, A sees *"B offers to pass your packets
-   on to these hubs"* with a tick box per hub, and ticks only the destinations it wants. Nothing
-   ticked = A's packets stop at B (the default).
-3. **The choice travels sealed.** A's list of allowed destinations and its own hop limit are sealed
+2. **Hub A chooses for its own packets — separately on every link.** On its link to B, A answers
+   *"How far may my packets go through B?"*: *Only to B* (the default), *1, 2 … hubs further*, or
+   *Anywhere*. For 1 hub or more it ticks **which of B's links** its packets may continue on.
+   A hub with four links can say: link 1 only to that partner, link 2 one hub further (through
+   the ticked links), link 3 only to that partner, link 4 anywhere.
+3. **The choice travels sealed.** A's distance and its ticked links are sealed
    inside every box — B, C and the server cannot change them.
 4. **Hub C can refuse.** *Receive → Accept packets from hubs beyond this one* off = C takes only
    traffic that started at its direct partner.

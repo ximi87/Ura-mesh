@@ -144,26 +144,75 @@ function barChart(el, labels, series) {
   el.innerHTML = s + "</svg>";
 }
 
-/* Advanced settings form. spec: {key: {default, min, max}}, values: {key: v}. Labels come from
-   translations "adv.<key>" and "adv.<key>.hint". Returns a function that reads the form. */
-function advancedForm(el, spec, values) {
-  const rows = Object.entries(spec).map(([k, sp]) => {
-    const v = values[k] == null ? sp.default : values[k];
-    const hint = t("adv." + k + ".hint") !== "adv." + k + ".hint" ? t("adv." + k + ".hint") : "";
-    const lim = sp.min != null ? ` <span class="muted small">(${sp.min}–${sp.max}; ${t("adv.default")} ${sp.default})</span>` : ` <span class="muted small">(${t("adv.default")} ${esc(String(sp.default))})</span>`;
+/* Advanced settings form, in sections.
+   spec: {key: {default, min, max}}, values: {key: v}
+   opts.groups:  [[titleKey, [keys...]], ...]  — keys not listed land in "Other", so nothing is ever hidden
+   opts.depends: {key: booleanKey}             — key is greyed out while booleanKey is off
+   Labels come from translations "adv.<key>" (a trailing "(unit)" is shown next to the input) and "adv.<key>.hint". */
+function advancedForm(el, spec, values, opts) {
+  opts = opts || {};
+  const groups = (opts.groups || []).map(([k, keys]) => [k, keys.filter(x => x in spec)]);
+  const listed = new Set(groups.flatMap(g => g[1]));
+  const rest = Object.keys(spec).filter(k => !listed.has(k));
+  if (rest.length) groups.push(["adv.g.other", rest]);
+  const val = k => values[k] == null ? spec[k].default : values[k];
+  const row = k => {
+    const sp = spec[k], v = val(k), full = t("adv." + k), hk = "adv." + k + ".hint";
+    const m = full.match(/^(.*?)\s*\(([^()]*)\)\s*$/), label = m ? m[1] : full, unit = m ? m[2] : "";
+    const hint = t(hk) !== hk ? `<div class="hint">${t(hk)}</div>` : "";
+    const range = sp.min != null ? `${sp.min}–${sp.max} · ` : "";
+    const meta = `<div class="adv-meta">${range}${t("adv.default")} ${esc(typeof sp.default === "boolean" ? t(sp.default ? "adv.on" : "adv.off") : String(sp.default))}
+      <button type="button" class="linkbtn adv-reset" data-reset="${k}">↺ ${t("adv.reset")}</button></div>`;
+    let ctl;
     if (typeof sp.default === "boolean")
-      return `<label class="check" data-adv-row="${k}"><input type="checkbox" data-adv="${k}" ${v ? "checked" : ""}> ${t("adv." + k)}${lim}</label>${hint ? `<div class="hint">${hint}</div>` : ""}`;
-    const type = typeof sp.default === "number" ? "number" : "text";
-    return `<div data-adv-row="${k}"><label>${t("adv." + k)}${lim}</label><input type="${type}" data-adv="${k}" value="${esc(v)}" ${sp.min != null ? `min="${sp.min}" max="${sp.max}"` : ""}>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
+      ctl = `<label class="switch"><input type="checkbox" data-adv="${k}" ${v ? "checked" : ""}><span></span></label>`;
+    else if (typeof sp.default === "number")
+      ctl = `<div class="adv-num"><input type="number" data-adv="${k}" value="${esc(v)}" ${sp.min != null ? `min="${sp.min}" max="${sp.max}"` : ""}>${unit ? `<span class="muted small">${esc(unit)}</span>` : ""}</div>`;
+    else
+      ctl = `<input type="text" data-adv="${k}" value="${esc(v)}">`;
+    const wide = typeof sp.default === "string" ? " wide" : "";
+    return `<div class="adv-row${wide}" data-adv-row="${k}"><div class="adv-text"><div class="adv-label">${esc(label)}${typeof sp.default === "number" || !unit ? "" : ` <span class="muted small">(${esc(unit)})</span>`}</div>${hint}</div>
+      <div class="adv-ctl">${ctl}${meta}</div></div>`;
+  };
+  el.innerHTML = `<div class="row adv-tools"><button type="button" class="small" data-all="1">${t("adv.open_all")}</button>
+      <button type="button" class="small" data-all="0">${t("adv.close_all")}</button></div>` +
+    groups.map(([title, keys]) => `<details class="adv-group" data-group="${title}"><summary><b>${t(title)}</b>
+      <span class="muted small">${keys.length}</span> <span class="badge warn adv-changed" hidden></span></summary>
+      <div class="adv-body">${keys.map(row).join("")}</div></details>`).join("");
+  const input = k => $(`[data-adv="${k}"]`, el);
+  const cur = i => i.type === "checkbox" ? i.checked : (i.type === "number" ? Number(i.value) : i.value);
+  const refresh = () => {
+    $$("[data-adv]", el).forEach(i => {
+      const k = i.dataset.adv, changed = String(cur(i)) !== String(spec[k].default);
+      i.closest(".adv-row").classList.toggle("changed", changed);
+      const dep = opts.depends && opts.depends[k];
+      if (dep && input(dep)) { i.disabled = !input(dep).checked; i.closest(".adv-row").classList.toggle("off", i.disabled); }
+    });
+    $$(".adv-group", el).forEach(g => {
+      const n = $$(".adv-row.changed", g).length, b = $(".adv-changed", g);
+      b.style.display = n ? "" : "none"; b.textContent = t("adv.n_changed", { n });
+    });
+  };
+  el.addEventListener("input", refresh); el.addEventListener("change", refresh);
+  el.addEventListener("click", e => {
+    const r = e.target.closest("[data-reset]"), a = e.target.closest("[data-all]");
+    if (r) { const i = input(r.dataset.reset), d = spec[r.dataset.reset].default; if (i.type === "checkbox") i.checked = d; else i.value = d; refresh(); }
+    if (a) $$(".adv-group", el).forEach(g => g.open = a.dataset.all === "1");
   });
-  el.innerHTML = rows.join("");
+  refresh();
   return {
-    read() { const o = {}; $$("[data-adv]", el).forEach(i => o[i.dataset.adv] = i.type === "checkbox" ? i.checked : (i.type === "number" ? Number(i.value) : i.value)); return o; },
-    mark(fields) { $$("[data-adv-row]", el).forEach(r => r.style.outline = (fields || []).includes(r.dataset.advRow) ? "2px solid var(--bad)" : ""); },
+    read() { const o = {}; $$("[data-adv]", el).forEach(i => o[i.dataset.adv] = cur(i)); return o; },
+    mark(fields) {
+      $$("[data-adv-row]", el).forEach(r => r.classList.toggle("invalid", (fields || []).includes(r.dataset.advRow)));
+      $$(".adv-row.invalid", el).forEach(r => r.closest(".adv-group").open = true);
+    },
   };
 }
 Ura.add({ "adv.title": { en: "Advanced settings", sq: "Cilësime të avancuara" }, "adv.default": { en: "default", sq: "parazgjedhur" },
           "adv.invalid": { en: "Some values are outside their limits (marked red).", sq: "Disa vlera janë jashtë kufijve (të shënuara me të kuqe)." },
+          "adv.reset": { en: "default", sq: "parazgjedhja" }, "adv.on": { en: "on", sq: "aktiv" }, "adv.off": { en: "off", sq: "joaktiv" },
+          "adv.open_all": { en: "Open all", sq: "Hapi të gjitha" }, "adv.close_all": { en: "Close all", sq: "Mbylli të gjitha" },
+          "adv.n_changed": { en: "{n} changed", sq: "{n} ndryshuar" }, "adv.g.other": { en: "Other", sq: "Të tjera" },
           "adv.intro": { en: "Every operational value of this program. The defaults are sensible; change them only if you know why.", sq: "Çdo vlerë operative e këtij programi. Parazgjedhjet janë të arsyeshme; ndryshojini vetëm nëse e dini pse." } });
 
 /* Table for long lists (hundreds of nodes): search box, sortable columns, pages.
