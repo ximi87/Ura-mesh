@@ -72,13 +72,17 @@ with sync_playwright() as pw:
 
     # duplicate code refused (hub C on fresh context against hub A's code) -> via API of server not needed; check error text path later
 
+    nav(a, A + "/#/"); a.wait_for_selector("text=Server connection")
+    check("hub shows 'waiting for approval' notice", "waiting for the administrator's approval" in a.inner_text("#app"))
     nav(s, S + "/#/admin"); s.wait_for_selector("button[data-a=approve]")
+    check("admin menu badge shows 2 waiting hubs", s.inner_text("nav.menu a[href='#/admin']").strip().endswith("2"))
     check("server shows 2 pending", s.locator("button[data-a=approve]").count() == 2)
     for _ in range(2):
         s.locator("button[data-a=approve]").first.click(); time.sleep(1.2)
         s.wait_for_selector("text=Approved hubs")
     time.sleep(1)
     nav(s, S + "/#/admin"); s.wait_for_selector("text=Approved hubs (2)")
+    check("admin badge gone after approval", s.locator("nav.menu .mbadge").count() == 0)
     check("both hubs approved", True)
 
     # hubs see each other, request + accept link

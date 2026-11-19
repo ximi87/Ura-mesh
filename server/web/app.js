@@ -404,6 +404,7 @@ async function pageComplaints() {
 
 async function pageAdmin() {
   INFO = await api("GET", "/api/public/info");
+  adminBadge();
   if (INFO.setup_needed || !INFO.admin) {
     app().innerHTML = `<div class="center"><div class="card narrow"><h2>${INFO.setup_needed ? t("setup.title") : t("a.title")}</h2>
       <label>${t("password")}</label><input type="password" id="pw" autocomplete="current-password"><div class="hint">${t("password.min", { n: INFO.password_min })}</div>
@@ -463,13 +464,23 @@ async function pageAdmin() {
 
 /* ───────── router ───────── */
 
+/* Admin menu badge: hubs waiting for approval (shown only to a logged-in administrator). */
+function adminBadge() {
+  const a = document.querySelector('nav.menu a[href="#/admin"]');
+  if (!a) return;
+  a.querySelectorAll(".mbadge").forEach(x => x.remove());
+  if (INFO.pending) a.insertAdjacentHTML("beforeend", ` <span class="badge warn mbadge" title="${esc(t("a.pending"))}">${INFO.pending}</span>`);
+}
+setInterval(async () => { try { if (!document.hidden && INFO.admin) { INFO = await api("GET", "/api/public/info"); adminBadge(); } } catch (e) {} }, 60000);
+
 async function route() {
   renderHeader(t("site.title"), MENU);
   if (mapObj) { mapObj.remove(); mapObj = null; }
   const parts = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").map(decodeURIComponent);
   app().innerHTML = `<p class="muted">${t("loading")}</p>`;
   try {
-    if (!INFO.version) INFO = await api("GET", "/api/public/info");
+    INFO = await api("GET", "/api/public/info");          // fresh on every page: admin state + waiting hubs
+    adminBadge();
     $("#foot").innerHTML = (location.hash.replace(/^#\/?/, "") === "") ? "" :
       esc(t("foot")) + (INFO.project_url ? ` · <a href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("foot.project")}</a>` : "");
     switch (parts[0]) {

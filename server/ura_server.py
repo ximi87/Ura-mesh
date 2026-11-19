@@ -609,7 +609,10 @@ class Web(http.server.BaseHTTPRequestHandler):
                                    "password_min": adv("password_min"), "registrations_open": adv("registrations_open"),
                                    "project_url": adv("project_url"), "install_guide_url": adv("install_guide_url"),
                                    "node_max_age_days": adv("node_max_age_days"), "complaint_min_chars": adv("complaint_min_chars"),
-                                   "setup_needed": db.setting("admin_pw") is None, "admin": self.is_admin()})
+                                   "setup_needed": db.setting("admin_pw") is None, "admin": self.is_admin(),
+                                   # only for a logged-in administrator: how many hubs wait for approval
+                                   "pending": (db.one("SELECT COUNT(*) n FROM hubs WHERE status='pending'")["n"]
+                                               if self.is_admin() else None)})
             if p == "/api/public/hubs":
                 hubs = directory()
                 counts = {r["hub"]: r["n"] for r in db.q("SELECT hub, COUNT(*) n FROM nodes GROUP BY hub")}

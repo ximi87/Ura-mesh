@@ -131,6 +131,12 @@ Ura.add({
   "s.join_to": { en: "The registration request goes to {x}.", sq: "Kërkesa për regjistrim shkon te {x}." },
   "s.join_check_first": { en: "The address above is not the trusted server. Press “Check server”, compare the fingerprint and trust it first.", sq: "Adresa më sipër nuk është serveri i besuar. Shtypni “Kontrollo serverin”, krahasoni gjurmën dhe besojeni së pari." },
   "err.not_trusted": { en: "Send the request only to the trusted server shown above — check and trust the server first.", sq: "Dërgojeni kërkesën vetëm te serveri i besuar që shfaqet më sipër — kontrolloni dhe besojeni serverin së pari." },
+  "pend.title": { en: "Connected — waiting for the administrator's approval", sq: "I lidhur — në pritje të miratimit nga administratori" },
+  "pend.text": { en: "Your registration request reached the server {x}. Until the server's administrator approves it, your nodes are not on the map and links with other hubs are not possible yet. Nothing else to do here — this page updates by itself.",
+                 sq: "Kërkesa juaj për regjistrim arriti te serveri {x}. Derisa administratori i serverit ta miratojë, nyjet tuaja nuk janë në hartë dhe lidhjet me hub-e të tjerë ende nuk janë të mundshme. Këtu nuk ka asgjë tjetër për të bërë — faqja përditësohet vetë." },
+  "pend.links": { en: "Waiting for the administrator's approval — links with other hubs are possible once the server has approved this hub.", sq: "Në pritje të miratimit nga administratori — lidhjet me hub-e të tjerë janë të mundshme pasi serveri ta ketë miratuar këtë hub." },
+  "pend.removed": { en: "The server's administrator has removed this hub. Register again under Settings if this was a mistake.", sq: "Administratori i serverit e ka hequr këtë hub. Regjistrohuni përsëri te Cilësimet nëse ishte gabim." },
+  "pend.none": { en: "This hub is not registered with a server yet.", sq: "Ky hub ende nuk është regjistruar në një server." },
   "err.leave_not_confirmed": { en: "The server could not be told.", sq: "Serveri nuk mund të njoftohej." },
   "loc.title": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
   "loc.hint": { en: "Where the hub is shown on the Ura map. It should be where the radio is.", sq: "Ku shfaqet hub-i në hartën e Ura. Duhet të jetë aty ku ndodhet radio." },
@@ -308,7 +314,10 @@ async function pageStatus() {
   const row = n => `<tr><td>${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span></td><td class="mono small">${esc(n.id)}</td>
       <td>${ago(n.last_heard)}</td><td>${n.hops != null ? n.hops : "–"}</td><td>${n.snr != null ? n.snr + " dB" : "–"}</td><td>${n.lat != null ? "📍" : ""}</td></tr>`;
   const head = `<tr><th>${t("name")}</th><th>${t("id")}</th><th>${t("last_heard")}</th><th>${t("hops")}</th><th>SNR</th><th></th></tr>`;
-  app().innerHTML = `
+  const pendingNote = s.server.status === "pending" ? `<div class="msg warn"><b>${t("pend.title")}</b><br>${t("pend.text", { x: esc(s.server.address) })}</div>`
+                    : s.server.status === "removed" ? `<div class="msg bad">${t("pend.removed")}</div>`
+                    : !s.server.hub_id ? `<div class="msg info">${t("pend.none")} <a href="#/settings">${t("nav.settings")} →</a></div>` : "";
+  app().innerHTML = `${pendingNote}
     <div class="grid g3">
       <div class="card"><h2>${t("st.hub")}</h2><dl class="kv">
         <dt>${t("name")}</dt><dd><b>${esc(s.hub.name || "–")}</b></dd>
@@ -425,7 +434,8 @@ async function pageLinks() {
      <tr><td>${t("rule.onward")}</td><td>${(pr.send.onward_to || []).length}</td><td></td></tr><tr><td>${t("rule.transit")}</td><td>${yn(pr.send.transit !== false)}</td><td></td></tr>
      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(pr.receive.from_beyond !== false)}</td></tr>
      <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>`;
-  app().innerHTML = `${ok ? "" : `<div class="msg warn">${t("l.not_connected")}</div>`}
+  const why = s.server.status === "pending" ? t("pend.links") : !s.server.hub_id ? t("pend.none") : t("l.not_connected");
+  app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
     <div class="card"><h2>${t("l.mylinks")}</h2>${s.links.length ? s.links.map(l => `
       <div class="card" style="box-shadow:none" data-link="${l.id}" data-peer="${l.peer}">
         <div class="spread"><h2 style="margin:0">${esc(l.peer_code)} · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</h2>
@@ -446,7 +456,7 @@ async function pageLinks() {
     <div class="card"><h2>${t("l.dir")}</h2><div class="tablewrap"><table>
       <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("position")}</th><th></th></tr>
       ${others.map(h => `<tr><td><b>${esc(h.code)}</b></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td><td>${fmtPos(h.lat, h.lon)}</td>
-        <td>${linked.has(h.id) ? "" : `<button class="small" data-ask="${h.id}" ${ok ? "" : "disabled"}>${t("l.ask")}</button>`}</td></tr>`).join("")
+        <td>${linked.has(h.id) ? "" : `<button class="small" data-ask="${h.id}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("l.ask")}</button>`}</td></tr>`).join("")
         || `<tr><td colspan="5" class="muted">${t("l.dir.none")}</td></tr>`}</table></div></div>`;
   const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { const k = "err." + e.message; alert(t(k) !== k ? t(k) : e.message); } setTimeout(pageLinks, 800); };
   $$("button[data-ask]").forEach(b => b.onclick = () => act("/api/links/request", { to: b.dataset.ask }, b));
