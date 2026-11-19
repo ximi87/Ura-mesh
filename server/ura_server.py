@@ -661,7 +661,8 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/admin/state":
                 if not self.is_admin():
                     return self.reply({"error": "login"}, 401)
-                hubs = [dict(hub_public(h), email=h["email"], status=h["status"],
+                counts = {r["hub"]: r["n"] for r in db.q("SELECT hub, COUNT(*) n FROM nodes GROUP BY hub")}
+                hubs = [dict(hub_public(h), email=h["email"], status=h["status"], nodes=counts.get(h["id"], 0),
                              email_verified=bool(h["email_verified"]), created=h["created"])
                         for h in db.q("SELECT * FROM hubs WHERE status!='removed' ORDER BY created DESC")]
                 d = (adv("acme_domain") or "").lower()

@@ -76,14 +76,15 @@ with sync_playwright() as pw:
     check("hub shows 'waiting for approval' notice", "waiting for the administrator's approval" in a.inner_text("#app"))
     nav(s, S + "/#/admin"); s.wait_for_selector("button[data-a=approve]")
     check("admin menu badge shows 2 waiting hubs", s.inner_text("nav.menu a[href='#/admin']").strip().endswith("2"))
-    check("server shows 2 pending", s.locator("button[data-a=approve]").count() == 2)
+    check("server shows 2 pending, one line each with Approve on the line", s.locator("#hpending summary button[data-a=approve]").count() == 2)
+    check("admin overview tile counts waiting hubs", s.locator("a.tile[data-go=sec-pending] .v").inner_text().strip() == "2")
     for _ in range(2):
-        s.locator("button[data-a=approve]").first.click(); time.sleep(1.2)
+        s.locator("#hpending summary button[data-a=approve]").first.click(); time.sleep(1.2)
         s.wait_for_selector("text=Approved hubs")
     time.sleep(1)
     nav(s, S + "/#/admin"); s.wait_for_selector("text=Approved hubs (2)")
     check("admin badge gone after approval", s.locator("nav.menu .mbadge").count() == 0)
-    check("both hubs approved", True)
+    check("both hubs approved", s.locator("#happroved details[data-hub]").count() == 2 and "No requests waiting" in (s.text_content("#hpending") or ""))
 
     # hubs see each other, request + accept link
     time.sleep(3)
@@ -176,7 +177,10 @@ with sync_playwright() as pw:
     check("complaint resolution public", s.locator("text=Checked, fixed.").is_visible())
 
     # advanced settings: hub (valid value persists, invalid rejected + marked)
-    def adv_open(pg): pg.wait_for_selector("[data-adv=password_min]", state="attached"); pg.click("#advform [data-all='1']")
+    def adv_open(pg):
+        pg.wait_for_selector("[data-adv=password_min]", state="attached")
+        if pg.locator("details#sec-adv:not([open])").count(): pg.click("details#sec-adv > summary")   # admin page: section closed
+        pg.click("#advform [data-all='1']")
     nav(a, A + "/#/settings"); adv_open(a)
     check("hub advanced settings in sections", a.locator("details.adv-group").count() >= 5)
     a.fill("[data-adv=node_max_age_days]", "5")
@@ -223,8 +227,10 @@ with sync_playwright() as pw:
     s.click(".lang button[data-l=en]"); nav(s, S + "/#/hub/" + "x"); time.sleep(1)
 
     # removal: admin removes hub B -> link gone at A
-    nav(s, S + "/#/admin"); s.wait_for_selector("button[data-a=remove]")
+    nav(s, S + "/#/admin"); s.wait_for_selector("button[data-a=remove]", state="attached")
     s.on("dialog", lambda d: d.accept())
+    s.click("a.tile[data-go=sec-hubs]")                       # overview tile opens the Hubs section
+    s.locator("#happroved details", has_text="XB-BBB").locator("summary").click()
     s.locator("button[data-a=remove][data-code='XB-BBB']").click(); time.sleep(4)
     nav(a, A + "/#/links"); a.wait_for_selector("text=Other hubs on the server")
     check("after removal A has no links", "No links yet" in a.inner_text("#app"))

@@ -153,6 +153,11 @@ Ura.add({
   "a.email": { en: "E-mail", sq: "E-mail" }, "a.email_ok": { en: "confirmed", sq: "konfirmuar" },
   "a.email_no": { en: "not confirmed (mail sending not set up yet)", sq: "pa konfirmuar (dërgimi i postës ende s'është konfiguruar)" },
   "a.remove_q": { en: "Remove hub {x}? Its links end and its nodes disappear from the map.", sq: "Ta heq hub-in {x}? Lidhjet e tij mbyllen dhe nyjet e tij zhduken nga harta." },
+  "a.hubs_online": { en: "Hubs online", sq: "Hub-e në linjë" }, "a.open_compl": { en: "Open complaints", sq: "Ankesa të hapura" },
+  "a.days": { en: "{n} days left", sq: "edhe {n} ditë" }, "a.n_open": { en: "{n} open", sq: "{n} të hapura" },
+  "a.email_unconf": { en: "not confirmed", sq: "pa konfirmuar" },
+  "a.reject": { en: "Reject", sq: "Refuzo" }, "a.public_page": { en: "Public page", sq: "Faqja publike" },
+  "a.description": { en: "Description", sq: "Përshkrimi" },
   "a.complaints": { en: "Complaints", sq: "Ankesat" }, "a.set_status": { en: "Update case", sq: "Përditëso rastin" },
   "a.nopending": { en: "No requests waiting.", sq: "Nuk ka kërkesa në pritje." },
   "a.change_pw": { en: "Change admin password", sq: "Ndrysho fjalëkalimin e administratorit" },
@@ -581,6 +586,44 @@ async function pageComplaints() {
   };
 }
 
+const adminOpen = new Set();       // admin sections opened/closed by hand ("!id" = closed by hand)
+const openAdminHubs = new Set();
+/* Hubs on the admin page: one line per hub (Approve right on the line for waiting hubs), details on click,
+   search and 30 at a time. */
+function adminHubList(el, hubs, nLinks, pendingList) {
+  if (!hubs.length) { el.innerHTML = `<p class="muted">${pendingList ? t("a.nopending") : t("none")}</p>`; return; }
+  const st = { q: "", limit: 30 };
+  const mail = h => h.email_verified ? `<span class="badge ok">${t("a.email_ok")}</span>` : `<span class="badge warn">${t("a.email_no")}</span>`;
+  const btns = h => `${pendingList ? `<button class="primary small" data-a="approve" data-id="${h.id}">${t("a.approve")}</button>` : ""}
+      ${h.email_verified ? "" : `<button class="small" data-a="verify_email" data-id="${h.id}">${t("a.verify")}</button>`}
+      <button class="danger small" data-a="remove" data-id="${h.id}" data-code="${esc(h.code)}">${pendingList ? t("a.reject") : t("a.remove")}</button>`;
+  const line = h => `<details class="linkbox" data-hub="${h.id}" ${openAdminHubs.has(h.id) ? "open" : ""}><summary><div class="linkrow lhub">
+      <div class="lr-peer"><b>${esc(h.code)}</b> · ${esc(h.name)}</div><div>${onlineBadge(h.online)}</div>
+      <div class="small"><span class="lr-k">${t("a.email")}</span>${h.email_verified ? `<span class="badge ok">✓</span>` : `<span class="badge warn" title="${esc(t("a.email_no"))}">${t("a.email_unconf")}</span>`}</div>
+      <div class="muted small"><span class="lr-k">${pendingList ? t("a.requested") : t("hub.last_seen")}</span>${pendingList ? dshort(h.created) : h.online ? t("online") : ago(h.last_seen)}</div>
+      <div class="small"><span class="lr-k">${t("nodes")} · ${t("links")}</span>${h.nodes || 0} · ${nLinks[h.id] || 0}</div>
+      <div class="lr-tr">${pendingList ? `<button class="primary small" data-a="approve" data-id="${h.id}">${t("a.approve")}</button>` : ""}</div></div></summary>
+      <div class="linkbody"><dl class="kv" style="margin-top:.6rem">
+        <dt>${t("id")}</dt><dd class="mono">${esc(h.id)}</dd>
+        <dt>${t("a.email")}</dt><dd>${esc(h.email || "–")} ${mail(h)}</dd>
+        <dt>${t("position")}</dt><dd>${fmtPos(h.lat, h.lon)}</dd>
+        <dt>${t("a.requested")}</dt><dd>${dt(h.created)}</dd>
+        ${h.version ? `<dt>${t("hub.version")}</dt><dd>${esc(h.version)}</dd>` : ""}
+        ${h.description ? `<dt>${t("a.description")}</dt><dd>${esc(h.description)}</dd>` : ""}</dl>
+        <div class="row">${btns(h)}${pendingList ? "" : `<a class="small" href="#/hub/${encodeURIComponent(h.id)}">${t("a.public_page")} →</a>`}</div></div></details>`;
+  const draw = () => {
+    const q = st.q.toLowerCase();
+    const shown = hubs.filter(h => !q || (h.code + " " + h.name + " " + (h.email || "") + " " + h.id).toLowerCase().includes(q));
+    $(".hlist", el).innerHTML = shown.slice(0, st.limit).map(line).join("") || `<p class="muted">${t("c.none_filter")}</p>`;
+    $(".hmore", el).innerHTML = shown.length > st.limit ? `<button class="small" data-hmore>${t("c.more", { n: shown.length - st.limit })}</button>` : "";
+  };
+  el.innerHTML = `${hubs.length > 5 ? `<input type="text" class="hq" placeholder="${t("dt.search")}" style="max-width:280px">` : ""}<div class="hlist"></div><div class="hmore"></div>`;
+  el.addEventListener("click", e => { if (e.target.closest("[data-hmore]")) { st.limit += 30; draw(); } });
+  el.addEventListener("toggle", e => { const d = e.target; if (d.dataset && d.dataset.hub) { if (d.open) openAdminHubs.add(d.dataset.hub); else openAdminHubs.delete(d.dataset.hub); } }, true);
+  if ($(".hq", el)) $(".hq", el).oninput = e => { st.q = e.target.value; st.limit = 30; draw(); };
+  draw();
+}
+
 async function pageAdmin() {
   INFO = await api("GET", "/api/public/info");
   adminBadge();
@@ -597,23 +640,32 @@ async function pageAdmin() {
   }
   const s = await api("GET", "/api/admin/state");
   const pending = s.hubs.filter(h => h.status === "pending"), approved = s.hubs.filter(h => h.status === "approved");
-  const hubRow = (h, act) => `<tr><td><b>${esc(h.code)}</b></td><td>${esc(h.name)}<div class="muted small">${esc(h.id)}</div></td>
-     <td>${esc(h.email)}<div class="small">${h.email_verified ? `<span class="badge ok">${t("a.email_ok")}</span>` : `<span class="badge warn">${t("a.email_no")}</span>`}</div></td>
-     <td>${fmtPos(h.lat, h.lon)}</td><td>${dt(h.created)}</td><td>${onlineBadge(h.online)}</td>
-     <td class="row">${act ? `<button class="primary small" data-a="approve" data-id="${h.id}">${t("a.approve")}</button>` : ""}
-       ${h.email_verified ? "" : `<button class="small" data-a="verify_email" data-id="${h.id}">${t("a.verify")}</button>`}
-       <button class="danger small" data-a="remove" data-id="${h.id}" data-code="${esc(h.code)}">${t("a.remove")}</button></td></tr>`;
-  const head = `<tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("a.email")}</th><th>${t("position")}</th><th>${t("a.requested")}</th><th>${t("status")}</th><th></th></tr>`;
-  app().innerHTML = `<div class="spread"><h1>${t("a.title")}</h1><button id="lo">${t("logout")}</button></div>
-    <div class="card"><h2>${t("a.pending")} (${pending.length})</h2><div class="tablewrap"><table>${head}${pending.map(h => hubRow(h, true)).join("") || `<tr><td colspan="7" class="muted">${t("a.nopending")}</td></tr>`}</table></div></div>
-    <div class="card"><h2>${t("a.approved")} (${approved.length})</h2><div class="tablewrap"><table>${head}${approved.map(h => hubRow(h, false)).join("")}</table></div></div>
-    <div class="card"><h2>${t("a.complaints")} (${s.complaints.length})</h2><div id="acases"></div></div>
-    <div class="card narrow"><h2>${t("a.change_pw")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>
-    <div class="card"><h2>${t("le.title")}</h2><p class="muted small">${t("le.hint")}</p>
+  const nLinks = {}; (s.links || []).filter(l => l.state === "active").forEach(l => { nLinks[l.a] = (nLinks[l.a] || 0) + 1; nLinks[l.b] = (nLinks[l.b] || 0) + 1; });
+  const openC = s.complaints.filter(c => c.status === "open").length;
+  const cert = s.acme.cert, certWarn = s.acme.state !== "off" && (!cert || cert.days_left < 20);
+  const sec = (id, title, body, open, attention) => `<details class="acard card ${attention ? "attention" : ""}" id="${id}" ${adminOpen.has(id) || (open && !adminOpen.has("!" + id)) ? "open" : ""}>
+      <summary><h2>${title}</h2></summary><div class="acard-body">${body}</div></details>`;
+  const tile = (id, v, l, cls) => `<a class="stat tile ${cls || ""}" href="#/admin" data-go="${id}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
+  app().innerHTML = `<div id="adminroot"><div class="spread"><h1>${t("a.title")}</h1><button id="lo">${t("logout")}</button></div>
+    <div class="grid g4" style="margin-bottom:1rem">
+      ${tile("sec-pending", pending.length, t("a.pending"), pending.length ? "warn" : "")}
+      ${tile("sec-hubs", `${approved.filter(h => h.online).length} / ${approved.length}`, t("a.hubs_online"))}
+      ${tile("sec-compl", openC, t("a.open_compl"), openC ? "warn" : "")}
+      ${tile("sec-cert", s.acme.state === "off" ? t("le.st.off") : cert ? t("a.days", { n: cert.days_left }) : "–", t("le.title"), certWarn ? "warn" : "")}
+    </div>
+    ${sec("sec-pending", `${t("a.pending")} (${pending.length})`, `<div id="hpending"></div>`, pending.length > 0, pending.length > 0)}
+    ${sec("sec-hubs", `${t("a.approved")} (${approved.length})`, `<div id="happroved"></div>`, false)}
+    ${sec("sec-compl", `${t("a.complaints")} (${s.complaints.length})${openC ? ` <span class="badge warn">${t("a.n_open", { n: openC })}</span>` : ""}`, `<div id="acases"></div>`, openC > 0)}
+    ${sec("sec-cert", t("le.title"), `<p class="muted small">${t("le.hint")}</p>
       <p>${t("status")}: <b>${t("le.st." + (s.acme.state || "off"))}</b> ${s.acme.detail ? `<span class="muted small">— ${esc(s.acme.detail)}</span>` : ""}</p>
-      ${s.acme.cert ? `<p class="small">${t("le.cert", { i: esc(s.acme.cert.issuer), d: s.acme.cert.days_left })}</p>` : ""}
-      <button id="lerun">${t("le.run")}</button> <span class="muted small" id="lemsg"></span></div>
-    <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
+      ${cert ? `<p class="small">${t("le.cert", { i: esc(cert.issuer), d: cert.days_left })}</p>` : ""}
+      <button id="lerun">${t("le.run")}</button> <span class="muted small" id="lemsg"></span>`, certWarn)}
+    ${sec("sec-pw", t("a.change_pw"), `<div style="max-width:420px"><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>`, false)}
+    ${sec("sec-adv", t("adv.title"), `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`, false)}</div>`;
+  $$("details.acard").forEach(d => d.addEventListener("toggle", () => { adminOpen.delete(d.open ? "!" + d.id : d.id); adminOpen.add(d.open ? d.id : "!" + d.id); }));
+  $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const d = $("#" + a.dataset.go); d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); });
+  adminHubList($("#hpending"), pending, nLinks, true);
+  adminHubList($("#happroved"), approved, nLinks, false);
   $("#lerun").onclick = async () => { await api("POST", "/api/admin/acme/run", {}); $("#lemsg").textContent = t("le.started"); setTimeout(pageAdmin, 20000); };
   const af = advancedForm($("#advform"), s.advanced_spec, s.advanced, {
     groups: [["adv.g.reg", ["registrations_open", "project_url", "install_guide_url"]],
@@ -628,7 +680,9 @@ async function pageAdmin() {
     catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${t("adv.invalid")}</div>`; }
   };
   $("#lo").onclick = async () => { await api("POST", "/api/logout", {}); pageAdmin(); };
-  $$("button[data-a]").forEach(b => b.onclick = async () => {
+  $("#adminroot").addEventListener("click", async e => {
+    const b = e.target.closest("button[data-a]"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
     if (b.dataset.a === "remove" && !confirm(t("a.remove_q", { x: b.dataset.code }))) return;
     b.disabled = true; b.textContent = "…";
     await api("POST", `/api/admin/hub/${b.dataset.id}/${b.dataset.a}`, {}); pageAdmin();

@@ -217,3 +217,16 @@ details.linkbox[open] .linkrow::before { transform: rotate(90deg); }
 .cfilter button.primary .muted { color: inherit; opacity: .85; }
 .nowrap { white-space: nowrap; }
 .linkrow.lcase { grid-template-columns: 1.1rem 3.2rem 7.5rem 7.5rem minmax(7rem, .7fr) 2fr 6.5rem; }
+
+/* admin: collapsible sections, overview tiles, one line per hub */
+details.acard > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .5rem; }
+details.acard > summary::-webkit-details-marker { display: none; }
+details.acard > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+details.acard[open] > summary::before { transform: rotate(90deg); }
+details.acard > summary h2 { margin: 0; }
+details.acard .acard-body { margin-top: .8rem; }
+a.stat.tile { color: var(--text); display: block; }
+a.stat.tile:hover { text-decoration: none; border-color: var(--accent); }
+a.stat.tile.warn .v { color: var(--warn); }
+.linkrow.lhub { grid-template-columns: 1.1rem minmax(12rem, 1.4fr) 6rem 7rem 8.5rem 7rem 6rem; }
+@media (max-width: 900px) { .linkrow.lhub { grid-template-columns: 1.1rem 1fr 1fr; } .linkrow.lhub .lr-peer { grid-column: 2 / -1; } .linkrow.lhub .lr-tr { text-align: left; } }

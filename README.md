@@ -84,7 +84,9 @@ statistics. It holds no key that opens the traffic.
 **Server website** (`https://<server>`, public + admin)
 - World map of hubs, nodes and links with **live traffic**; hub and node pages; statistics per
   link (one bar per hour, split by direction); list of hubs and their codes; transparent complaints process.
-- Admin: approve or remove hubs, handle complaints, advanced settings.
+- Admin: overview (waiting hubs, hubs online, open complaints, certificate) and collapsible
+  sections — one line per hub with *Approve* on the line, complaints with the answer form inside,
+  certificate, password, advanced settings.
 
 **Security** — pinned TLS to the server, per-hub keys (stored hashed), end-to-end encryption
 between hubs (X25519, AES-256, HMAC) with safety codes and key-change protection, replay
