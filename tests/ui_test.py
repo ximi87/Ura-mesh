@@ -41,6 +41,15 @@ def hub_register(p, base, name, country, city, lat, lon):
     p.wait_for_selector("#strust")
     fp = p.inner_text("#sfp .mono")
     p.click("#strust"); p.wait_for_selector("#sjoin")
+    # the request only goes to the trusted server shown on the page
+    p.fill("#saddr", ""); p.wait_for_timeout(200)
+    hidden_empty = p.locator("#sjoinbox").is_hidden() and p.locator("#sjoinwarn").is_visible()
+    p.fill("#saddr", "10.9.9.9:8100"); p.wait_for_timeout(200)
+    hidden_other = p.locator("#sjoinbox").is_hidden()
+    refused = p.evaluate("fetch('/api/server/join', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({address: ''})}).then(r => r.json())")
+    p.fill("#saddr", "127.0.0.1:8198"); p.wait_for_timeout(200)
+    check(f"{name}: no registration with empty/other address (button hidden, API refuses)",
+          hidden_empty and hidden_other and refused.get("error") == "not_trusted" and p.locator("#sjoin").is_visible())
     p.click("#sjoin"); p.wait_for_selector("#jmsg .msg")
     return fp, p.inner_text("#jmsg")
 

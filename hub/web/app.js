@@ -127,6 +127,10 @@ Ura.add({
   "s.forget": { en: "Forget registration", sq: "Harro regjistrimin" },
   "s.forget_q": { en: "Leave the server? The server removes this hub and ends ALL its links at once (the partner hubs are told). You would need to register again.", sq: "Të largohem nga serveri? Serveri e heq këtë hub dhe mbyll menjëherë TË GJITHA lidhjet e tij (hub-et partnere njoftohen). Do t'ju duhet të regjistroheni përsëri." },
   "s.forget_force_q": { en: "The server could not be reached, so it cannot remove this hub and end its links now. Forget the registration here anyway? (The administrator can remove the hub on the server.)", sq: "Serveri nuk u arrit, ndaj nuk mund ta heqë tani këtë hub dhe të mbyllë lidhjet e tij. Ta harroj gjithsesi regjistrimin këtu? (Administratori mund ta heqë hub-in në server.)" },
+  "s.trusted_server": { en: "Trusted server:", sq: "Serveri i besuar:" },
+  "s.join_to": { en: "The registration request goes to {x}.", sq: "Kërkesa për regjistrim shkon te {x}." },
+  "s.join_check_first": { en: "The address above is not the trusted server. Press “Check server”, compare the fingerprint and trust it first.", sq: "Adresa më sipër nuk është serveri i besuar. Shtypni “Kontrollo serverin”, krahasoni gjurmën dhe besojeni së pari." },
+  "err.not_trusted": { en: "Send the request only to the trusted server shown above — check and trust the server first.", sq: "Dërgojeni kërkesën vetëm te serveri i besuar që shfaqet më sipër — kontrolloni dhe besojeni serverin së pari." },
   "err.leave_not_confirmed": { en: "The server could not be told.", sq: "Serveri nuk mund të njoftohej." },
   "loc.title": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
   "loc.hint": { en: "Where the hub is shown on the Ura map. It should be where the radio is.", sq: "Ku shfaqet hub-i në hartën e Ura. Duhet të jetë aty ku ndodhet radio." },
@@ -637,12 +641,13 @@ async function pageSettings() {
       ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}</div>
     <div class="card"><h2>${t("s.server")}</h2>
       <label>${t("s.address")}</label><div class="row"><input type="text" id="saddr" value="${esc(c.server.address)}" style="flex:1"><button id="scheck">${t("s.check")}</button></div>
-      ${c.server.fingerprint ? `<label>${t("s.trusted")}</label><div class="mono small">${esc(c.server.fingerprint)}</div>` : ""}
+      ${c.server.fingerprint ? `<div class="msg info small" style="margin-top:.6rem">${t("s.trusted_server")} <b class="mono">${esc(c.server.address)}</b><br>${t("s.trusted")}: <span class="mono">${esc(c.server.fingerprint)}</span></div>` : ""}
       <div id="sfp"></div>
       <h3>${t("s.registration")}</h3><p>${regText(c.server.status)} ${reg ? `<span class="muted small mono">${esc(c.server.hub_id)}</span>` : ""}</p>
       <p class="muted small">${t("st.server")}: ${t(srvState(s))} ${esc(s.link_detail || "")}</p>
       <div id="jmsg"></div>
-      ${!reg && c.server.fingerprint ? `<button class="primary" id="sjoin">${t("s.join")}</button>` : ""}
+      ${!reg && c.server.fingerprint ? `<div id="sjoinbox"><p class="small">${t("s.join_to", { x: `<b class="mono">${esc(c.server.address)}</b>` })}</p><button class="primary" id="sjoin">${t("s.join")}</button></div>
+        <p class="msg warn small hidden" id="sjoinwarn">${t("s.join_check_first")}</p>` : ""}
       ${reg ? `<button class="danger" id="sforget">${t("s.forget")}</button>` : ""}</div>
     <div class="card"><h2>${t("loc.title")}</h2>
       <p class="muted small">${t("loc.hint")}</p>
@@ -692,10 +697,15 @@ async function pageSettings() {
       $("#strust").onclick = async () => { await api("POST", "/api/server/trust", { address: r.address, fingerprint: r.fingerprint }); pageSettings(); };
     } catch (e) { $("#sfp").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
+  // the registration button only appears while the address field shows exactly the trusted server
+  const norm = a => { a = (a || "").trim().replace(/^[a-z]+:\/\//i, "").replace(/\/+$/, ""); return a && !a.includes(":") ? a + ":8100" : a; };
+  const syncJoin = () => { if (!$("#sjoinbox")) return; const ok = norm($("#saddr").value) === c.server.address;
+                           $("#sjoinbox").classList.toggle("hidden", !ok); $("#sjoinwarn").classList.toggle("hidden", ok); };
+  $("#saddr").addEventListener("input", syncJoin); syncJoin();
   if ($("#sjoin")) $("#sjoin").onclick = async () => {
     try {
       await api("POST", "/api/hub", hubBody());
-      const r = await api("POST", "/api/server/join", {});
+      const r = await api("POST", "/api/server/join", { address: $("#saddr").value });
       $("#jmsg").innerHTML = `<div class="msg ok">${t("s.joined", { x: esc(r.hub_id) })}</div>`; setTimeout(pageSettings, 2500);
     } catch (e) { $("#jmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };

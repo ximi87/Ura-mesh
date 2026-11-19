@@ -1535,6 +1535,13 @@ class Web(http.server.BaseHTTPRequestHandler):
             h = c["hub"]
             if c["server"]["hub_id"]:
                 return self.reply({"error": "already_registered"}, 400)
+            # the request goes only to the server the operator sees on the page AND has trusted
+            try:
+                shown = normalize_addr(b.get("address"))
+            except ValueError:
+                return self.reply({"error": "not_trusted"}, 400)
+            if not c["server"]["fingerprint"] or shown != c["server"]["address"]:
+                return self.reply({"error": "not_trusted"}, 400)
             try:
                 reply = run_coro(server_join(c["server"]["address"], c["server"]["fingerprint"],
                                              {k: h[k] for k in ("name", "email", "country", "city", "lat", "lon", "description")}))

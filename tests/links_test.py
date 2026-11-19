@@ -48,7 +48,7 @@ for i, (n, port) in enumerate(HUBS.items()):
     c("/api/hub", {"hub": {"name": "Hub " + n, "email": f"{n}@example.org", "country": "XX", "city": n * 2, "lat": 10 + i, "lon": 20 + i}})
     fp = c("/api/server/check", {"address": "127.0.0.1:8178"})["fingerprint"]
     c("/api/server/trust", {"address": "127.0.0.1:8178", "fingerprint": fp})
-    ids[n] = c("/api/server/join", {})["hub_id"]
+    ids[n] = c("/api/server/join", {"address": "127.0.0.1:8178"})["hub_id"]
 for n in HUBS:
     s(f"/api/admin/hub/{ids[n]}/approve", {})
 time.sleep(4)
