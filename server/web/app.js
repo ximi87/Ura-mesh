@@ -302,7 +302,7 @@ async function pageHub(id) {
     { key: "lat", label: t("position"), render: n => fmtPos(n.lat, n.lon), sort: n => n.lat != null ? 1 : 0 },
     { key: "last_heard", label: t("last_heard"), render: n => ago(n.last_heard) }],
     { searchKeys: ["name", "short", "id", "hw"], initialSort: "last_heard" });
-  const m = makeMap("hubmap", h.lat != null ? [h.lat, h.lon] : [45, 15], h.lat != null ? 10 : 4);
+  const m = makeMap("hubmap", h.lat != null ? [h.lat, h.lon] : [45, 15], h.lat != null ? 10 : 4, { guard: true });
   const b = [];
   if (h.lat != null) { L.circleMarker([h.lat, h.lon], { radius: 11, color: "#0f7b6c", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(esc(h.name)).addTo(m); b.push([h.lat, h.lon]); }
   d.nodes.forEach(n => { if (n.lat != null) { L.circleMarker([n.lat, n.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: "#0f7b6c", fillOpacity: .95 }).bindPopup(`<a href="${nodeHref(n)}">${esc(n.name || n.id)}</a>`).addTo(m); b.push([n.lat, n.lon]); } });
@@ -333,7 +333,7 @@ async function pageNode(hub, net, id) {
       <div class="card"><div id="nodemap" class="minimap"></div></div>
     </div>`;
   const ctr = n.lat != null ? [n.lat, n.lon] : (h.lat != null ? [h.lat, h.lon] : [45, 15]);
-  const m = makeMap("nodemap", ctr, n.lat != null ? 12 : 6);
+  const m = makeMap("nodemap", ctr, n.lat != null ? 12 : 6, { guard: true });
   if (n.lat != null) L.circleMarker([n.lat, n.lon], { radius: 8, color: "#fff", weight: 2, fillColor: "#0f7b6c", fillOpacity: 1 }).addTo(m);
   if (h.lat != null) L.circleMarker([h.lat, h.lon], { radius: 11, color: "#0f7b6c", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(esc(h.name)).addTo(m);
 }

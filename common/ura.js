@@ -95,14 +95,47 @@ function renderHeader(title, items, extraRight) {
 }
 
 /* Leaflet map with OpenStreetMap tiles. */
-function makeMap(el, center, zoom) {
+function makeMap(el, center, zoom, opts) {
   // no zoom animation: removing a map mid-animation (page change) throws inside Leaflet
   // canvas renderer: hundreds of node markers stay fast
-  const m = L.map(el, { worldCopyJump: true, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false, preferCanvas: true }).setView(center || [45, 15], zoom || 4);
+  // opts.guard: a map inside a scrolling page — the mouse wheel scrolls the PAGE; Ctrl/⌘ + wheel zooms the map;
+  // on touch screens one finger scrolls the page, two fingers move/zoom the map
+  const guard = !!(opts && opts.guard), touch = L.Browser.touch && L.Browser.mobile;
+  const m = L.map(el, { worldCopyJump: true, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false, preferCanvas: true,
+                        scrollWheelZoom: !guard, dragging: !(guard && touch), tap: !(guard && touch) }).setView(center || [45, 15], zoom || 4);
+  if (guard) mapGuard(m);
   // tiles come through Ura's own cache (OpenStreetMap blocks anonymous browser requests)
   L.tileLayer("/tiles/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(m);
   return m;
 }
+function mapGuard(m) {
+  const box = m.getContainer(), mac = /Mac|iPhone|iPad/.test(navigator.platform);
+  const hint = L.DomUtil.create("div", "map-hint", box);
+  let timer = 0, acc = 0, last = 0;
+  const show = text => { hint.textContent = text; hint.classList.add("on"); clearTimeout(timer); timer = setTimeout(() => hint.classList.remove("on"), 1200); };
+  box.addEventListener("wheel", e => {
+    if (!(e.ctrlKey || e.metaKey)) { show(t(mac ? "map.cmd" : "map.ctrl")); return; }   // let the page scroll
+    e.preventDefault();                                                                  // no browser page zoom
+    hint.classList.remove("on");
+    acc += e.deltaY;
+    const now = Date.now();
+    if (Math.abs(acc) < 40 && now - last < 250) return;
+    last = now;
+    const step = acc < 0 ? 1 : -1; acc = 0;
+    m.setZoomAround(m.mouseEventToContainerPoint(e), Math.max(m.getMinZoom(), Math.min(m.getMaxZoom(), m.getZoom() + step)));
+  }, { passive: false });
+  if (L.Browser.touch && L.Browser.mobile) {
+    box.addEventListener("touchstart", e => {
+      if (e.touches.length >= 2) { m.dragging.enable(); hint.classList.remove("on"); } else { m.dragging.disable(); }
+    }, { passive: true });
+    box.addEventListener("touchmove", e => { if (e.touches.length === 1) show(t("map.two")); }, { passive: true });
+    box.addEventListener("touchend", e => { if (e.touches.length < 2) m.dragging.disable(); }, { passive: true });
+  }
+}
+Ura.add({ "map.ctrl": { en: "Hold Ctrl and scroll to zoom the map", sq: "Mbani Ctrl dhe rrotulloni për të zmadhuar hartën" },
+          "map.cmd": { en: "Hold ⌘ and scroll to zoom the map", sq: "Mbani ⌘ dhe rrotulloni për të zmadhuar hartën" },
+          "map.two": { en: "Use two fingers to move the map", sq: "Përdorni dy gishta për të lëvizur hartën" } });
+
 const HUB_COLORS = ["#0f7b6c", "#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
 function colorFor(i) { return HUB_COLORS[i % HUB_COLORS.length]; }
 

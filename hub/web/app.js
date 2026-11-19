@@ -181,6 +181,9 @@ Ura.add({
   "adv.g.server": { en: "Connection to the server", sq: "Lidhja me serverin" },
   "adv.g.security": { en: "Security and login", sq: "Siguria dhe hyrja" },
   "adv.g.web": { en: "Map and website", sq: "Harta dhe faqja" },
+  "map.title": { en: "Nodes heard by this hub's radio", sq: "Nyjet që dëgjon radio e këtij hub-i" },
+  "map.own_only": { en: "Nodes of other hubs are listed below the map", sq: "Nyjet e hub-eve të tjera janë në listën poshtë hartës" },
+  "map.this_radio": { en: "This hub's radio", sq: "Radio e këtij hub-i" },
   "wd.last": { en: "Last message from the radio", sq: "Mesazhi i fundit nga radio" },
   "wd.events": { en: "The radio stopped talking to the hub and was restarted automatically {n}× in the last 7 days (last: {x}). If this repeats, check that nothing else is connected to this radio (app over Wi-Fi or Bluetooth) — or switch its Wi-Fi/Bluetooth off under Device settings.",
                  sq: "Radio ndaloi së foluri me hub-in dhe u rindez automatikisht {n}× në 7 ditët e fundit (së fundi: {x}). Nëse përsëritet, kontrolloni që asgjë tjetër të mos jetë e lidhur me këtë radio (aplikacion përmes Wi-Fi ose Bluetooth) — ose fikni Wi-Fi/Bluetooth te Cilësimet e pajisjes." },
@@ -336,6 +339,10 @@ async function pageStatus() {
                     : s.server.status === "removed" ? `<div class="msg bad">${t("pend.removed")}</div>`
                     : !s.server.hub_id ? `<div class="msg info">${t("pend.none")} <a href="#/settings">${t("nav.settings")} →</a></div>` : "";
   app().innerHTML = `${pendingNote}
+    <div class="card"><div class="spread"><h2>${t("map.title")}</h2><span class="muted small">${t("map.own_only")}</span></div>
+      <div id="map" class="minimap" style="height:440px"></div>
+      <div class="legend"><span><span class="dot big" style="background:${LOCAL_COLOR}"></span>${t("map.this_radio")}</span>
+        <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
     <div class="grid g3">
       <div class="card"><h2>${t("st.hub")}</h2><dl class="kv">
         <dt>${t("name")}</dt><dd><b>${esc(s.hub.name || "–")}</b></dd>
@@ -372,9 +379,6 @@ async function pageStatus() {
            ${t("st.day")}: <b>${pct(a.used_day, 86400)}</b> (${a.limits.pct_day ? t("st.limit", { x: a.limits.pct_day + " %" }) : t("st.nolimit")})</p>
         <div class="row"><button id="ann">${t("st.announce")}</button><button id="ask">${t("st.ask")}</button><span id="annmsg" class="muted"></span></div></div>
     </div>
-    <div class="card"><div id="map" class="minimap" style="height:440px"></div>
-      <div class="legend"><span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span>
-        ${gkeys.map(k => `<span><span class="dot" style="background:${color[k]}"></span>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</span>`).join("")}</div></div>
     <div>
       <div class="card"><div class="spread"><h2>${t("nl.local")} (${localRecent.length})</h2>
         ${hidden ? `<label class="check small"><input type="checkbox" id="showold" ${showOld ? "checked" : ""}> ${t("nl.show_old", { n: hidden })}</label>` : ""}</div>
@@ -400,11 +404,10 @@ async function pageStatus() {
     d.addEventListener("toggle", fill);
   });
   const b = [];
-  mapObj = makeMap("map");
+  mapObj = makeMap("map", null, null, { guard: true });
   const dot = (n, c, rad) => { if (n.lat == null) return; L.circleMarker([n.lat, n.lon], { radius: rad, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: .95 })
       .bindPopup(`<b>${esc(n.name || n.id)}</b> ${esc(n.short || "")}<br>${t("last_heard")}: ${ago(n.last_heard)}`).addTo(mapObj); b.push([n.lat, n.lon]); };
-  local.forEach(n => dot(n, LOCAL_COLOR, 6));
-  gkeys.forEach(k => groups[k].forEach(n => dot(n, color[k], 6)));
+  local.forEach(n => dot(n, LOCAL_COLOR, 6));        // only nodes this hub's radio hears; remote nodes are in the list below
   if (own) dot(own, LOCAL_COLOR, 10);
   if (b.length) mapObj.fitBounds(b, { padding: [30, 30], maxZoom: 12 });
   if ($("#showold")) $("#showold").onchange = e => { showOld = e.target.checked; if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus(); };

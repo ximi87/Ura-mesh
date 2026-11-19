@@ -159,3 +159,10 @@ details.adv-group[open] > summary::before { transform: rotate(90deg); }
 .switch input:checked + span::before { transform: translateX(1.15rem); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 640px) { .adv-row { grid-template-columns: 1fr; } }
+
+/* hint over a map inside a scrolling page (Ctrl + wheel / two fingers) */
+.map-hint { position: absolute; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .45); color: #fff; font-size: 1.15rem; font-weight: 600; text-align: center; padding: 1rem;
+  pointer-events: none; opacity: 0; transition: opacity .25s; }
+.map-hint.on { opacity: 1; }
+.dot.big { width: 13px; height: 13px; vertical-align: -2px; }
