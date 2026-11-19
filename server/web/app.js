@@ -87,6 +87,9 @@ Ura.add({
   "stats.range": { en: "Period", sq: "Periudha" }, "stats.24h": { en: "24 hours", sq: "24 orë" },
   "stats.7d": { en: "7 days", sq: "7 ditë" }, "stats.30d": { en: "30 days", sq: "30 ditë" },
   "stats.total": { en: "Total", sq: "Gjithsej" }, "stats.none": { en: "No traffic in this period.", sq: "Nuk ka trafik në këtë periudhë." },
+  "stats.share": { en: "Share", sq: "Pjesa" }, "stats.no_traffic": { en: "no traffic", sq: "pa trafik" },
+  "stats.lines_hint": { en: "One line per link, busiest first: packets in each direction, their share, and a small chart. Click a line for the full chart (hover a bar for the numbers).",
+                        sq: "Një rresht për çdo lidhje, më e ngarkuara e para: paketat në secilin drejtim, pjesa e tyre dhe një grafik i vogël. Klikoni një rresht për grafikun e plotë (kaloni mbi një shtyllë për numrat)." },
   "stats.links_active": { en: "Active links", sq: "Lidhje aktive" }, "stats.hubs_online": { en: "Hubs online", sq: "Hub-e në linjë" },
   "stats.nodes": { en: "Nodes seen", sq: "Nyje të para" }, "stats.packets": { en: "Packets", sq: "Paketa" },
   "join.title": { en: "Register a hub", sq: "Regjistro një hub" },
@@ -374,6 +377,7 @@ async function pageNode(hub, net, id) {
   if (h.lat != null) L.circleMarker([h.lat, h.lon], { radius: 11, color: "#0f7b6c", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(esc(h.name)).addTo(m);
 }
 
+const openStats = new Set();      // links whose chart is open on the Statistics page
 async function pageStats() {
   const hours = +(new URLSearchParams(location.hash.split("?")[1] || "").get("h") || 168);
   const [d, hubs, nodes] = await Promise.all([api("GET", "/api/public/stats?hours=" + hours), api("GET", "/api/public/hubs"), api("GET", "/api/public/nodes")]);
@@ -396,18 +400,39 @@ async function pageStats() {
       <div class="stat"><div class="v">${nodes.length}</div><div class="l">${t("stats.nodes")}</div></div>
       <div class="stat"><div class="v">${total}</div><div class="l">${t("stats.packets")}</div></div>
     </div><div id="charts" style="margin-top:1rem"></div>`;
-  // one chart per link: both directions in two colours
+  // one line per link (busiest first); a click opens its chart. Active links without traffic are listed too.
   const linksSeen = {};
-  Object.values(pairs).forEach(p => { const [a, b] = [p.src, p.dst].sort(); (linksSeen[a + "|" + b] = linksSeen[a + "|" + b] || { a, b, total: 0 }).total += p.total; });
-  const lk = Object.values(linksSeen).sort((x, y) => y.total - x.total);
+  const addLink = (a, b) => { [a, b] = [a, b].sort(); return linksSeen[a + "|" + b] = linksSeen[a + "|" + b] || { a, b, total: 0 }; };
+  Object.values(pairs).forEach(p => addLink(p.src, p.dst).total += p.total);
+  const byId = {}; hubs.forEach(h => byId[h.id] = h);
+  const byCode = {}; hubs.forEach(h => byCode[h.code] = h);
+  links.forEach(k => { const [x, y] = k.split(","); if (byId[x] && byId[y]) addLink(byId[x].code, byId[y].code); });
+  const lk = Object.values(linksSeen).sort((x, y) => y.total - x.total || (x.a + x.b).localeCompare(y.a + y.b));
   const ser = (src, dst) => pairs[src + ">" + dst] ? series(src + ">" + dst) : Array(n).fill(0);
   const tot = (src, dst) => pairs[src + ">" + dst] ? pairs[src + ">" + dst].total : 0;
-  $("#charts").innerHTML = lk.length ? lk.map((x, i) => `<div class="card"><div class="spread"><h2>${esc(name(x.a))} ⇄ ${esc(name(x.b))}</h2>
-      <div class="legend" style="margin:0"><span><span class="dot" style="background:var(--accent)"></span>${esc(name(x.a))} → ${esc(name(x.b))}: <b>${tot(x.a, x.b)}</b></span>
-      <span><span class="dot" style="background:var(--info)"></span>${esc(name(x.b))} → ${esc(name(x.a))}: <b>${tot(x.b, x.a)}</b></span></div></div>
-      <div class="chart" id="ch${i}"></div></div>`).join("") : `<div class="card muted">${t("stats.none")}</div>`;
-  lk.forEach((x, i) => splitBarChart($("#ch" + i), labels, ser(x.a, x.b), ser(x.b, x.a),
-                                      [name(x.a) + " → " + name(x.b), name(x.b) + " → " + name(x.a)]));
+  if (lk.length && !openStats.size && lk[0].total) openStats.add(lk[0].a + "|" + lk[0].b);
+  const hubA = c => { const h = byCode[c]; return h ? `<a href="#/hub/${encodeURIComponent(h.id)}"><b>${esc(c)}</b></a><span class="dot ${h.online ? "ok" : "bad"}" style="margin-left:.3rem" title="${esc(t(h.online ? "online" : "offline"))}"></span>` : `<b>${esc(c)}</b>`; };
+  const line = (x, i) => { const ab = tot(x.a, x.b), ba = tot(x.b, x.a), all = ab + ba, pa = all ? Math.round(100 * ab / all) : 0;
+    return `<details class="linkbox" data-k="${esc(x.a + "|" + x.b)}" data-i="${i}" data-q="${esc((x.a + " " + x.b).toLowerCase())}" ${openStats.has(x.a + "|" + x.b) ? "open" : ""}>
+      <summary><div class="linkrow lstat">
+        <div class="lr-peer">${hubA(x.a)} ⇄ ${hubA(x.b)}</div>
+        <div class="chart mini" id="sp${i}"></div>
+        <div><span class="lr-k">${esc(x.a)} → ${esc(x.b)}</span><span class="dot" style="background:var(--accent)"></span><b>${ab}</b></div>
+        <div><span class="lr-k">${esc(x.b)} → ${esc(x.a)}</span><span class="dot" style="background:var(--info)"></span><b>${ba}</b></div>
+        <div><span class="lr-k">${t("stats.share")}</span>${all ? `<div class="sharebar" title="${pa}% / ${100 - pa}%"><span style="width:${pa}%"></span></div>` : `<span class="muted small">${t("stats.no_traffic")}</span>`}</div>
+        <div class="lr-tr"><span class="lr-k">${t("stats.total")}</span><b>${all}</b></div></div></summary>
+      <div class="linkbody"><div class="chart" id="ch${i}"></div></div></details>`; };
+  $("#charts").innerHTML = `<div class="card"><div class="spread"><h2>${t("links")} (${lk.length})</h2>
+      ${lk.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("ls.open_all")}</button><button class="small" data-lall="0">${t("ls.close_all")}</button></div>` : ""}</div>
+      ${lk.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
+      ${lk.length ? `<p class="muted small">${t("stats.lines_hint")}</p>` + lk.map(line).join("") : `<p class="muted">${t("stats.none")}</p>`}</div>`;
+  const names2 = x => [x.a + " → " + x.b, x.b + " → " + x.a];
+  lk.forEach((x, i) => splitBarChart($("#sp" + i), labels, ser(x.a, x.b), ser(x.b, x.a), names2(x), { mini: true }));
+  const draw = d => { const x = lk[+d.dataset.i]; if (d.open && !d.dataset.drawn) { d.dataset.drawn = 1; splitBarChart($("#ch" + d.dataset.i), labels, ser(x.a, x.b), ser(x.b, x.a), names2(x)); } };
+  $$("#charts details.linkbox").forEach(d => { draw(d); d.addEventListener("toggle", () => { draw(d); if (d.open) openStats.add(d.dataset.k); else openStats.delete(d.dataset.k); }); });
+  $$("#charts button[data-lall]").forEach(b => b.onclick = () => $$("#charts details.linkbox").forEach(d => d.open = b.dataset.lall === "1"));
+  if ($("#lfilter")) $("#lfilter").oninput = e => { const q = e.target.value.toLowerCase(); $$("#charts details.linkbox").forEach(d => d.style.display = d.dataset.q.includes(q) ? "" : "none"); };
+  $$("#charts summary a").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
 }
 
 function pageJoin() {

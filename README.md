@@ -96,7 +96,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security-model).
 | | |
 |---|---|
 | ![Nodes heard by one hub, on the live map](docs/img/map-nodes.jpg) | ![Statistics per link, both directions](docs/img/server-stats.jpg) |
-| *Live map: the nodes one hub hears* | *Statistics: every link, both directions* |
+| *Live map: the nodes one hub hears* | *Statistics: one line per link, click for its chart* |
 | ![A hub's Links & rules page](docs/img/hub-links.jpg) | ![A hub's public page with its rules](docs/img/server-hub.jpg) |
 | *Hub: safety code, send/receive rules, how far packets may go (per link)* | *Server: a hub's public page — links, published rules, traffic, nodes* |
 | ![A hub's multi-hop settings](docs/img/hub-settings.jpg) | ![A hub's advanced settings](docs/img/hub-advanced.jpg) |

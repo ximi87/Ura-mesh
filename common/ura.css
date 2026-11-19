@@ -187,3 +187,12 @@ details.linkbox[open] .linkrow::before { transform: rotate(90deg); }
 
 .linkrow.srv { grid-template-columns: 1.1rem minmax(13rem, 1.3fr) 1fr 1fr minmax(8rem, .8fr) 9.5rem; padding-right: .3rem; }
 @media (max-width: 900px) { .linkrow.srv { grid-template-columns: 1.1rem 1fr; } .linkrow.srv > div { grid-column: 2; } .linkrow.srv .lr-tr { text-align: left; } }
+
+/* statistics: one line per link */
+.linkrow.lstat { grid-template-columns: 1.1rem minmax(11rem, 1.1fr) minmax(8rem, 1.2fr) 1fr 1fr minmax(6rem, .8fr) 5rem; }
+.chart.mini { height: 34px; }
+.chart.mini svg { height: 34px; }
+.sharebar { height: 8px; border-radius: 4px; background: var(--info); overflow: hidden; margin-top: .3rem; }
+.sharebar span { display: block; height: 100%; background: var(--accent); }
+@media (max-width: 900px) { .linkrow.lstat { grid-template-columns: 1.1rem 1fr 1fr; } .linkrow.lstat .lr-peer, .linkrow.lstat .chart.mini { grid-column: 2 / -1; } .linkrow.lstat .lr-tr { text-align: left; } }
+@media (max-width: 900px) { .linkrow.lstat { grid-template-columns: 1fr 1fr; } .linkrow.lstat::before { display: none; } .linkrow.lstat .lr-peer, .linkrow.lstat .chart.mini { grid-column: 1 / -1; } }

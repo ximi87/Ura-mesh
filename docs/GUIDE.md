@@ -208,14 +208,16 @@ key in without the operators noticing — the safety codes would no longer match
 - **Hubs** — a searchable list of every hub with its code, status, nodes and the hubs it is linked
   with. Each hub page shows one line per link — what it sends and accepts, how far its packets may
   go, packets in the last 30 days — and a click opens that link's full published rules.
-- **Statistics** — one chart per link over 24 hours, 7 or 30 days: one bar per hour (or day),
-  split in two colours for the two directions; hovering a bar shows both counts and their share.
+- **Statistics** — over 24 hours, 7 or 30 days, **one line per link**, busiest first: packets in
+  each direction, their share, the total and a small chart. Active links without traffic are listed
+  too. A click opens the full chart: one bar per hour (or day), split in two colours for the two
+  directions; hovering a bar shows both counts and their share.
 - **Complaints** — anyone can report a problem with a hub or node; every case and its answer is
   public.
 
 ![Live map close-up: nodes heard by one hub](img/map-nodes.jpg)
 
-![Statistics: one chart per link, both directions](img/server-stats.jpg)
+![Statistics: one line per link, the busiest one opened with its chart](img/server-stats.jpg)
 
 ---
 
