@@ -48,6 +48,13 @@ Ura.add({
   "rule.onward": { en: "How far its packets may go (multi-hop)", sq: "Sa larg mund të shkojnë paketat e tij (shumë-hop)" },
   "reach.0": { en: "stop at this hub", sq: "ndalojnë te ky hub" }, "reach.n": { en: "up to {n} hub(s) further", sq: "deri në {n} hub më tej" },
   "reach.any": { en: "anywhere", sq: "kudo" },
+  "ls.pub": { en: "public", sq: "publik" }, "ls.priv": { en: "private", sq: "privat" }, "ls.pos": { en: "positions", sq: "pozicione" },
+  "ls.grp": { en: "{n} group(s)", sq: "{n} grup(e)" }, "ls.nothing": { en: "nothing", sq: "asgjë" }, "ls.reach": { en: "How far", sq: "Sa larg" },
+  "ls.stop": { en: "stops at {x}", sq: "ndalon te {x}" }, "ls.30d": { en: "30 days", sq: "30 ditë" },
+  "ls.open_all": { en: "Open all", sq: "Hapi të gjitha" }, "ls.close_all": { en: "Close all", sq: "Mbylli të gjitha" },
+  "ls.rules_of": { en: "Rules {x} applies on its link with {y}", sq: "Rregullat që zbaton {x} në lidhjen me {y}" },
+  "ls.hint_srv": { en: "One line per link, as published by this hub: what it sends and accepts, how far its packets may go, packets sent ↑ / received ↓ in the last 30 days. Click a line for the full rules.",
+                   sq: "Një rresht për çdo lidhje, siç e publikon ky hub: çfarë dërgon dhe pranon, sa larg mund të shkojnë paketat e tij, paketa të dërguara ↑ / të marra ↓ në 30 ditët e fundit. Klikoni një rresht për rregullat e plota." },
   "rule.transit": { en: "Passes other hubs' packets on", sq: "Kalon paketat e hub-eve të tjerë" },
   "rule.from_beyond": { en: "Accepts packets from hubs further away", sq: "Pranon paketa nga hub-e më larg" },
   "live.on": { en: "Live traffic", sq: "Trafiku drejtpërdrejt" },
@@ -156,10 +163,11 @@ function hubLink(h) { return h ? `<a href="#/hub/${encodeURIComponent(h.id)}">${
 function nodeHref(n) { return `#/node/${encodeURIComponent(n.hub)}/${encodeURIComponent(n.net)}/${encodeURIComponent(n.id)}`; }
 function netBadge(net) { return `<span class="badge ${net === "mc" ? "warn" : "info"}">${t("net." + net)}</span>`; }
 
-function rulesHtml(r) {
-  if (!r) return `<p class="muted">${t("hub.rules.none")}</p>`;
-  const yn = v => v ? `<span class="badge ok">${t("rule.on")}</span>` : `<span class="badge bad">${t("rule.off")}</span>`;
-  const one = (x) => x ? `<table><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
+const ynBadge = v => v ? `<span class="badge ok">${t("rule.on")}</span>` : `<span class="badge bad">${t("rule.off")}</span>`;
+function ruleTable(x) {
+  if (!x) return `<p class="muted small">${t("hub.rules.none")}</p>`;
+  const yn = ynBadge;
+  return `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
       <tr><td>${t("link")}</td><td>${yn(x.send && x.send.on)}</td><td>${yn(x.receive && x.receive.on)}</td></tr>
       <tr><td>${t("rule.public")}</td><td>${yn(x.send && x.send.public)}</td><td>${yn(x.receive && x.receive.public)}</td></tr>
       <tr><td>${t("rule.groups")}</td><td>${esc(((x.send && x.send.groups) || []).join(", ") || t("none"))}</td><td>${esc(((x.receive && x.receive.groups) || []).join(", ") || t("none"))}</td></tr>
@@ -167,13 +175,19 @@ function rulesHtml(r) {
       <tr><td>${t("rule.positions")}</td><td>${yn(x.send && x.send.positions)}</td><td>${yn(x.receive && x.receive.positions)}</td></tr>
       <tr><td>${t("rule.onward")}</td><td>${reachTxt(x.send || {})}</td><td></td></tr>
       <tr><td>${t("rule.transit")}</td><td>${yn(x.send && x.send.transit !== false)}</td><td></td></tr>
-      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(!x.receive || x.receive.from_beyond !== false)}</td></tr></table>` : "";
+      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(!x.receive || x.receive.from_beyond !== false)}</td></tr></table>`;
+}
+function generalRules(r) {
+  if (!r) return `<p class="muted">${t("hub.rules.none")}</p>`;
   let s = "";
   if (r.transit) s += `<p>${t("hub.transit")}: <b>${r.transit.enabled ? t("hub.transit.on", { n: r.transit.max_hops }) : t("rule.off")}</b>${(r.transit_to || []).length ? ` — ${t("hub.transit_to", { n: r.transit_to.length })}` : ""}</p>`;
   if (r.airtime) s += `<p>${t("rule.airtime")}: <b>${r.airtime.pct_hour}${t("pct_hour")}</b>${r.airtime.pct_day ? `, <b>${r.airtime.pct_day}${t("pct_day")}</b>` : ""}</p>`;
-  if (r.links) for (const code in r.links) s += `<h3>${t("link")} ↔ ${esc(code)}</h3>` + one(r.links[code]);
-  return s || `<p class="muted">${t("hub.rules.none")}</p>`;
+  return s;
 }
+const chipsOf = r => !r ? `<span class="muted small">–</span>` : !r.on ? `<span class="badge bad">${t("rule.off")}</span>`
+  : [r.public && t("ls.pub"), r.private && t("ls.priv"), r.positions && t("ls.pos"), (r.groups || []).length && t("ls.grp", { n: r.groups.length })]
+      .filter(Boolean).map(x => `<span class="chip">${x}</span>`).join("") || `<span class="muted small">${t("ls.nothing")}</span>`;
+const openHubLinks = new Set();   // links opened on a hub page (kept while browsing)
 
 /* ───────── pages ───────── */
 
@@ -249,12 +263,15 @@ function liveTraffic(m, byId, color) {
 
 async function pageHubs() {
   const hubs = await api("GET", "/api/public/hubs");
-  app().innerHTML = `<div class="card"><h2>${t("hubs.title")}</h2><p class="muted small">${t("hubs.codes")}</p><div class="tablewrap"><table>
-    <tr><th>${t("code")}</th><th>${t("name")}</th><th>${t("status")}</th><th>${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span></th><th>${t("hubs.links")}</th><th>${t("hub.last_seen")}</th></tr>
-    ${hubs.map(h => `<tr><td><a href="#/hub/${h.id}"><b>${esc(h.code)}</b></a></td><td>${esc(h.name)}</td><td>${onlineBadge(h.online)}</td>
-      <td>${h.nodes}</td><td>${(h.links || []).map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)}</a>`).join(", ") || "–"}</td><td>${h.online ? t("online") : ago(h.last_seen)}</td></tr>`).join("")
-      || `<tr><td colspan="6" class="muted">${t("map.nohubs")}</td></tr>`}
-    </table></div></div>`;
+  app().innerHTML = `<div class="card"><h2>${t("hubs.title")} (${hubs.length})</h2><p class="muted small">${t("hubs.codes")}</p><div id="hubtable"></div></div>`;
+  dataTable($("#hubtable"), hubs.map(h => Object.assign({ nlinks: (h.links || []).length, linkcodes: (h.links || []).map(l => l.peer_code).join(" ") }, h)), [
+    { key: "code", label: t("code"), render: h => `<a href="#/hub/${encodeURIComponent(h.id)}"><b>${esc(h.code)}</b></a>` },
+    { key: "name", label: t("name"), render: h => esc(h.name), sort: h => (h.name || "").toLowerCase() },
+    { key: "online", label: t("status"), render: h => onlineBadge(h.online), sort: h => h.online ? 1 : 0 },
+    { key: "nodes", label: `${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span>` },
+    { key: "nlinks", label: t("hubs.links"), render: h => h.nlinks ? `<b>${h.nlinks}</b> <span class="muted small">${(h.links || []).slice(0, 4).map(l => `<a href="#/hub/${encodeURIComponent(l.peer)}">${esc(l.peer_code)}</a>`).join(", ")}${h.nlinks > 4 ? " …" : ""}</span>` : "–" },
+    { key: "last_seen", label: t("hub.last_seen"), render: h => h.online ? t("online") : ago(h.last_seen), sort: h => h.online ? 9e12 : (h.last_seen || 0) }],
+    { searchKeys: ["code", "name", "linkcodes"], initialSort: "online", pageSize: 50, empty: t("map.nohubs") });
 }
 
 function nodesTable(nodes) {
@@ -269,9 +286,20 @@ async function pageHub(id) {
   let d;
   try { d = await api("GET", "/api/public/hub/" + encodeURIComponent(id)); } catch (e) { app().innerHTML = `<div class="card">${t("notfound")}</div>`; return; }
   const h = d.hub;
-  const names = {}; d.links.forEach(l => names[l.peer] = l.peer_code);
-  const traffic = d.stats30d.map(s => s.src === h.id ? `${t("hub.sent_to", { x: esc(names[s.dst] || s.dst) })}: <b>${s.frames}</b> ${t("frames")}`
-                                                     : `${t("hub.recv_from", { x: esc(names[s.src] || s.src) })}: <b>${s.frames}</b> ${t("frames")}`);
+  const tr = {}; d.stats30d.forEach(r => { const peer = r.src === h.id ? r.dst : r.src, k = r.src === h.id ? "sent" : "recv";
+    (tr[peer] = tr[peer] || { sent: 0, recv: 0 })[k] += r.frames; });
+  const rulesBy = (h.rules && h.rules.links) || {};
+  const links = d.links.slice().sort((x, y) => ((tr[y.peer] || {}).sent || 0) + ((tr[y.peer] || {}).recv || 0) - ((tr[x.peer] || {}).sent || 0) - ((tr[x.peer] || {}).recv || 0));
+  if (links.length === 1) openHubLinks.add(h.id + ">" + links[0].peer);
+  const reachLine = (x, code) => { if (!x || !x.send || !x.send.on) return "–"; const n = x.send.reach != null ? +x.send.reach : ((x.send.onward_to || []).length ? 1 : 0);
+    return n === 0 ? t("ls.stop", { x: esc(code) }) : reachTxt(x.send); };
+  const linkLine = l => { const x = rulesBy[l.peer_code], c = tr[l.peer] || { sent: 0, recv: 0 };
+    return `<div class="linkrow srv">
+      <div class="lr-peer"><a href="#/hub/${encodeURIComponent(l.peer)}"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)}</a> ${onlineBadge(l.peer_online)}</div>
+      <div class="lr-dir"><span class="lr-k">${t("rule.send")}</span>${chipsOf(x && x.send)}</div>
+      <div class="lr-dir"><span class="lr-k">${t("rule.receive")}</span>${chipsOf(x && x.receive)}</div>
+      <div class="lr-reach"><span class="lr-k">${t("ls.reach")}</span>${reachLine(x, l.peer_code)}</div>
+      <div class="lr-tr"><span class="lr-k">${t("ls.30d")}</span><span title="${esc(t("hub.sent_to", { x: l.peer_code }))}">↑ ${c.sent}</span> <span title="${esc(t("hub.recv_from", { x: l.peer_code }))}">↓ ${c.recv}</span></div></div>`; };
   app().innerHTML = `
     <div class="spread"><h1>${t("hub.title", { code: esc(h.code) })} · ${esc(h.name)}</h1>${onlineBadge(h.online)}</div>
     <div class="grid g2">
@@ -283,17 +311,25 @@ async function pageHub(id) {
         <dt>${t("hub.version")}</dt><dd>${esc(h.version || "–")}</dd>
         <dt>${t("hub.e2e")}</dt><dd>${h.e2e ? `<span class="badge ok">🔒 ${t("yes")}</span> <span class="muted small">${t("hub.e2e.hint")}</span>` : `<span class="badge warn">${t("no")}</span>`}</dd>
         <dt>${t("hub.radios")}</dt><dd>${(h.radios || []).map(r => `${netBadge(r.net)} ${esc(r.name || "")} <span class="muted">${esc(r.hw || "")} ${esc(r.firmware || "")}</span>`).join("<br>") || "–"}</dd>
-        <dt>${t("links")}</dt><dd>${d.links.map(l => `<a href="#/hub/${l.peer}">${esc(l.peer_code)} · ${esc(l.peer_name)}</a>`).join("<br>") || t("none")}</dd>
+        <dt>${t("links")}</dt><dd>${d.links.length || t("none")}</dd>
       </dl>${h.description ? `<p>${esc(h.description)}</p>` : ""}</div>
       <div class="card"><div id="hubmap" class="minimap"></div></div>
     </div>
-    <div class="grid g2">
-      <div class="card"><h2>${t("hub.rules")}</h2>${rulesHtml(h.rules)}</div>
-      <div class="card"><h2>${t("hub.traffic30")}</h2>${traffic.length ? "<p>" + traffic.join("<br>") + "</p>" : `<p class="muted">${t("stats.none")}</p>`}
-        <h3>${t("hub.complaints")}</h3>${d.complaints.length ? d.complaints.map(c => `<div>#${c.id} · ${dt(c.created)} · ${cStatus(c.status)}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}
-        <p><a href="#/complaints?hub=${encodeURIComponent(h.id)}">${t("hub.complain")} →</a></p></div>
-    </div>
-    <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2><div id="hubnodes"></div></div>`;
+    <div class="card"><div class="spread"><h2>${t("links")} (${links.length})</h2>
+        ${links.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("ls.open_all")}</button><button class="small" data-lall="0">${t("ls.close_all")}</button></div>` : ""}</div>
+      ${generalRules(h.rules)}
+      ${links.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
+      ${links.length ? `<p class="muted small">${t("ls.hint_srv")}</p>` + links.map(l => `
+        <details class="linkbox" data-k="${esc(h.id + ">" + l.peer)}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openHubLinks.has(h.id + ">" + l.peer) ? "open" : ""}>
+          <summary>${linkLine(l)}</summary><div class="linkbody"><h3>${t("ls.rules_of", { x: esc(h.code), y: esc(l.peer_code) })}</h3>${ruleTable(rulesBy[l.peer_code])}</div></details>`).join("")
+        : `<p class="muted">${t("none")}</p>`}</div>
+    <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2><div id="hubnodes"></div></div>
+    <div class="card"><h2>${t("hub.complaints")}</h2>${d.complaints.length ? d.complaints.map(c => `<div>#${c.id} · ${dt(c.created)} · ${cStatus(c.status)}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}
+      <p><a href="#/complaints?hub=${encodeURIComponent(h.id)}">${t("hub.complain")} →</a></p></div>`;
+  $$("details.linkbox").forEach(x => x.addEventListener("toggle", () => { if (x.open) openHubLinks.add(x.dataset.k); else openHubLinks.delete(x.dataset.k); }));
+  $$("button[data-lall]").forEach(b => b.onclick = () => $$("details.linkbox").forEach(x => x.open = b.dataset.lall === "1"));
+  if ($("#lfilter")) $("#lfilter").oninput = e => { const q = e.target.value.toLowerCase(); $$("details.linkbox").forEach(x => x.style.display = x.dataset.q.includes(q) ? "" : "none"); };
+  $$("details.linkbox summary a").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
   dataTable($("#hubnodes"), d.nodes, [
     { key: "name", label: t("name"), render: n => `<a href="${nodeHref(n)}">${esc(n.name || n.id)}</a> <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
     { key: "id", label: t("id"), render: n => `<span class="mono">${esc(n.id)}</span>` },

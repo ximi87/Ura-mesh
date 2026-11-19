@@ -132,13 +132,13 @@ with sync_playwright() as pw:
     a.click("button[data-trust]"); time.sleep(1.5)
     nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")
     check("after trusting, link sealed again", "Everything on this link is sealed" in a.inner_text("#app"))
-    nav(s, S + "/#/hubs"); s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
+    nav(s, S + "/#/hubs"); s.click("table td:first-child a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
     check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
 
     # location change after registration reaches the server
     nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "10.6123"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
     time.sleep(35)
-    nav(s, S + "/#/hubs"); s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
+    nav(s, S + "/#/hubs"); s.click("table td:first-child a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
     check("new hub location shown on server", "10.61230" in s.inner_text("#app"))
 
     # status + radio pages (no radio)
@@ -153,7 +153,8 @@ with sync_playwright() as pw:
     nav(a, A + "/#/device"); a.wait_for_selector("#app .msg")
     check("device page without radio says so", "radio" in a.inner_text("#app").lower())
     nav(s, S + "/#/hubs"); s.wait_for_selector("text=XA-AAA"); check("hubs table", "XB-BBB" in s.inner_text("#app"))
-    s.click("table a >> text=XA-AAA"); s.wait_for_selector("text=About this hub"); check("hub page", "Rules this hub applies" in s.inner_text("#app"))
+    s.fill("#hubtable .dt-q", "Hub B"); check("hubs list is searchable (by name)", "XB-BBB" in s.inner_text("#hubtable") and s.locator("#hubtable td:first-child a >> text=XA-AAA").count() == 0); s.fill("#hubtable .dt-q", "")
+    s.click("table td:first-child a >> text=XA-AAA"); s.wait_for_selector("text=About this hub"); check("hub page: one line per link, single link opened with its rules", s.locator("details.linkbox").count() == 1 and s.locator("details.linkbox[open]").count() == 1 and "applies on its link with XB-BBB" in s.inner_text("#app"))
     nav(s, S + "/#/stats"); s.wait_for_selector("text=Traffic between hubs"); check("stats page", "Active links" in s.inner_text("#app"))
     nav(s, S + "/#/hubs"); s.wait_for_selector("text=XA-AAA"); check("hubs page explains codes", "One hub per place" in s.inner_text("#app"))
     check("no shortcodes menu", s.locator("nav.menu >> text=Shortcodes").count() == 0)

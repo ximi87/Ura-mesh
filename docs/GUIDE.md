@@ -156,7 +156,7 @@ Examples:
 Every hub **publishes its rules** on the server (transparency): anyone can read on the hub's page
 what it passes on and accepts.
 
-![A hub's public page on the server: its links, rules (including multi-hop), traffic and nodes](img/server-hub.jpg)
+![A hub's public page on the server: one line per link, one opened with its full rules](img/server-hub.jpg)
 
 ---
 
@@ -205,7 +205,9 @@ key in without the operators noticing — the safety codes would no longer match
 ## 6. The public view
 
 - **Map** — all hubs, their nodes (heard in the last days) and links; live packet dots.
-- **Hubs** — every hub with its code, status and links; each hub page shows its rules and traffic.
+- **Hubs** — a searchable list of every hub with its code, status, nodes and the hubs it is linked
+  with. Each hub page shows one line per link — what it sends and accepts, how far its packets may
+  go, packets in the last 30 days — and a click opens that link's full published rules.
 - **Statistics** — one chart per link over 24 hours, 7 or 30 days: one bar per hour (or day),
   split in two colours for the two directions; hovering a bar shows both counts and their share.
 - **Complaints** — anyone can report a problem with a hub or node; every case and its answer is

@@ -184,3 +184,6 @@ details.linkbox[open] .linkrow::before { transform: rotate(90deg); }
 .reqrow { padding: .5rem 0; border-top: 1px solid var(--line); }
 @media (max-width: 900px) { .linkrow { grid-template-columns: 1.1rem 1fr auto; } .lr-dir, .lr-reach { grid-column: 2 / -1; } .lr-tr { grid-column: 2 / -1; text-align: left; } }
 @media (max-width: 900px) { .lr-k { display: inline; margin-right: .4rem; } .linkrow { gap: .2rem .6rem; } }
+
+.linkrow.srv { grid-template-columns: 1.1rem minmax(13rem, 1.3fr) 1fr 1fr minmax(8rem, .8fr) 9.5rem; padding-right: .3rem; }
+@media (max-width: 900px) { .linkrow.srv { grid-template-columns: 1.1rem 1fr; } .linkrow.srv > div { grid-column: 2; } .linkrow.srv .lr-tr { text-align: left; } }
