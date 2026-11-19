@@ -99,7 +99,7 @@ Ura.add({
   "join.intro": { en: "A hub is a small computer (mini PC or Raspberry Pi) next to a Meshtastic or MeshCore radio. It connects out to this server — no port forwarding needed at your site.",
                   sq: "Hub-i është një kompjuter i vogël (mini PC ose Raspberry Pi) pranë një radioje Meshtastic ose MeshCore. Ai lidhet me këtë server nga brenda — nuk nevojitet hapje portash në vendin tuaj." },
   "join.s1": { en: "Install ura-hub on the computer and connect your radio (USB, Wi-Fi/IP or Bluetooth).", sq: "Instaloni ura-hub në kompjuter dhe lidhni radion (USB, Wi-Fi/IP ose Bluetooth)." },
-  "join.s2": { en: "Open the hub's own page, enter this server's address and check the fingerprint below.", sq: "Hapni faqen e hub-it, vendosni adresën e këtij serveri dhe kontrolloni gjurmën më poshtë." },
+  "join.s2": { en: "Open the hub's own page, enter this server's address and check the fingerprint above.", sq: "Hapni faqen e hub-it, vendosni adresën e këtij serveri dhe kontrolloni gjurmën më lart." },
   "join.s3": { en: "Fill in the hub name, your e-mail address, the country and place code and the hub's location, then send the request.",
                sq: "Plotësoni emrin e hub-it, adresën tuaj të e-mail-it, kodin e shtetit dhe të vendit dhe vendndodhjen e hub-it, pastaj dërgoni kërkesën." },
   "join.s4": { en: "The administrator checks the request. Once approved, your hub and its nodes appear on the map. No traffic flows yet.",
@@ -123,6 +123,26 @@ Ura.add({
   "adv.acme_staging": { en: "Test mode (Let's Encrypt staging — not trusted by browsers)", sq: "Mënyrë testimi (Let's Encrypt staging — jo e besuar nga shfletuesit)" },
   "adv.project_url": { en: "Project page (source code, documentation)", sq: "Faqja e projektit (kodi, dokumentacioni)" },
   "adv.install_guide_url": { en: "Install guide for hub operators", sq: "Udhëzuesi i instalimit për operatorët e hub-eve" },
+  "join.copy": { en: "Copy", sq: "Kopjo" }, "join.copied": { en: "copied", sq: "u kopjua" },
+  "join.open": { en: "open", sq: "të hapura" }, "join.closed_short": { en: "closed", sq: "të mbyllura" },
+  "join.registrations": { en: "New registrations", sq: "Regjistrime të reja" }, "join.hubs_here": { en: "Hubs on this server", sq: "Hub-e në këtë server" },
+  "join.server_hint": { en: "Enter the address in your hub (Settings → Ura server), press Check server and compare the fingerprint it shows with the one here. Only if they are identical, trust it.",
+                        sq: "Vendosni adresën në hub-in tuaj (Cilësimet → Serveri Ura), shtypni Kontrollo serverin dhe krahasoni gjurmën që shfaq me këtë këtu. Vetëm nëse janë identike, besojeni." },
+  "join.steps": { en: "Steps", sq: "Hapat" },
+  "join.steps_hint": { en: "One line per step. Click a line for what to do and where in the hub.", sq: "Një rresht për çdo hap. Klikoni një rresht për çfarë të bëni dhe ku në hub." },
+  "join.t1": { en: "Install the hub", sq: "Instaloni hub-in" }, "join.w1": { en: "on the computer next to your radio", sq: "në kompjuterin pranë radios" },
+  "join.d1": { en: "Follow the install guide (button above). The hub's page then runs on https://&lt;computer&gt;:8091. In Radio choose the port and press Prepare radio for Ura.",
+               sq: "Ndiqni udhëzuesin e instalimit (butoni lart). Faqja e hub-it pastaj punon në https://&lt;kompjuteri&gt;:8091. Te Radio zgjidhni portën dhe shtypni Përgatit radion për Ura." },
+  "join.t2": { en: "Connect to this server", sq: "Lidhuni me këtë server" }, "join.w2": { en: "hub → Settings → Ura server", sq: "hub → Cilësimet → Serveri Ura" },
+  "join.d2": { en: "Use the address and fingerprint from the box above. A different fingerprint means you are not talking to this server — do not trust it.",
+               sq: "Përdorni adresën dhe gjurmën nga kutia lart. Një gjurmë tjetër do të thotë që nuk po flisni me këtë server — mos e besoni." },
+  "join.t3": { en: "Describe your hub and send the request", sq: "Përshkruani hub-in dhe dërgoni kërkesën" }, "join.w3": { en: "hub → Settings", sq: "hub → Cilësimet" },
+  "join.d3": { en: "The code is your country (ISO) plus a short place code, e.g. XX-ABC — one hub per place. The location can follow the radio's GPS or be typed in.",
+               sq: "Kodi është shteti juaj (ISO) plus një kod i shkurtër vendi, p.sh. XX-ABC — një hub për vend. Vendndodhja mund të ndjekë GPS-in e radios ose të shkruhet me dorë." },
+  "join.t4": { en: "Wait for approval", sq: "Prisni miratimin" }, "join.w4": { en: "the hub's Status page shows it", sq: "faqja Gjendja e hub-it e tregon" },
+  "join.t5": { en: "Ask another hub for a link", sq: "Kërkoni lidhje me një hub tjetër" }, "join.w5": { en: "hub → Links & rules", sq: "hub → Lidhjet & rregullat" },
+  "join.d5": { en: "Compare the safety code with the other operator once. Then set, per link, what you send and receive and how far your packets may go.",
+               sq: "Krahasoni kodin e sigurisë me operatorin tjetër një herë. Pastaj caktoni, për çdo lidhje, çfarë dërgoni dhe merrni dhe sa larg mund të shkojnë paketat tuaja." },
   "join.server": { en: "This server", sq: "Ky server" }, "join.address": { en: "Address for hubs", sq: "Adresa për hub-et" },
   "join.fp": { en: "Certificate fingerprint (SHA-256)", sq: "Gjurma e certifikatës (SHA-256)" },
   "join.email_note": { en: "Your e-mail address is only visible to the administrator. It is used for questions about your hub and for complaints.",
@@ -497,18 +517,41 @@ async function pageStats() {
   $$("#charts summary a").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
 }
 
-function pageJoin() {
-  const host = location.hostname;
-  app().innerHTML = `<div class="grid g2"><div class="card"><h1>${t("join.title")}</h1><p>${t("join.intro")}</p>
-      <p><a class="btn primary" href="${esc(INFO.install_guide_url)}" target="_blank" rel="noopener">${t("join.guide")}</a>
-         <a class="btn" href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("join.project")}</a></p>
-      ${INFO.registrations_open ? "" : `<div class="msg warn">${t("join.closed")}</div>`}
-      <ol class="steps"><li>${t("join.s1")}</li><li>${t("join.s2")}</li><li>${t("join.s3")}</li><li>${t("join.s4")}</li><li>${t("join.s5")}</li></ol>
-      <p class="muted small">${t("join.email_note")}</p></div>
-    <div class="card"><h2>${t("join.server")}</h2><dl class="kv">
-      <dt>${t("join.address")}</dt><dd class="mono">${esc(host)}:${INFO.hub_port}</dd>
-      <dt>${t("join.fp")}</dt><dd class="mono small">${esc(INFO.fingerprint)}</dd>
-      <dt>${t("hub.version")}</dt><dd>${esc(INFO.version)}</dd></dl></div></div>`;
+const openSteps = new Set([1]);
+async function pageJoin() {
+  const host = location.hostname, addr = `${host}:${INFO.hub_port}`;
+  const hubs = await api("GET", "/api/public/hubs").catch(() => []);
+  const copyRow = (label, value, id) => `<div class="copyrow"><div class="lr-k">${label}</div>
+      <div class="copybox"><code id="${id}">${esc(value)}</code><button class="small" data-copy="${id}">${t("join.copy")}</button></div></div>`;
+  const steps = [1, 2, 3, 4, 5].map(i => `<details class="linkbox" data-step="${i}" ${openSteps.has(i) ? "open" : ""}>
+      <summary><div class="linkrow lstep"><div class="stepno">${i}</div><div><b>${t("join.t" + i)}</b>
+        <div class="muted small">${t("join.w" + i)}</div></div></div></summary>
+      <div class="linkbody"><p>${t("join.s" + i)}</p>${t("join.d" + i) !== "join.d" + i ? `<p class="muted small">${t("join.d" + i)}</p>` : ""}</div></details>`).join("");
+  app().innerHTML = `<div class="card"><div class="spread"><h1>${t("join.title")}</h1>
+        <div class="row"><a class="btn primary" href="${esc(INFO.install_guide_url)}" target="_blank" rel="noopener">${t("join.guide")}</a>
+        <a class="btn" href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("join.project")}</a></div></div>
+      <p>${t("join.intro")}</p>
+      ${INFO.registrations_open ? "" : `<div class="msg warn">${t("join.closed")}</div>`}</div>
+    <div class="grid g4" style="margin-bottom:1rem">
+      <div class="stat"><div class="v">${INFO.registrations_open ? `<span style="color:var(--ok)">${t("join.open")}</span>` : `<span style="color:var(--warn)">${t("join.closed_short")}</span>`}</div><div class="l">${t("join.registrations")}</div></div>
+      <div class="stat"><div class="v">${hubs.length}</div><div class="l">${t("join.hubs_here")}</div></div>
+      <div class="stat"><div class="v">${hubs.filter(h => h.online).length}</div><div class="l">${t("stats.hubs_online")}</div></div>
+      <div class="stat"><div class="v">${esc(INFO.version || "–")}</div><div class="l">${t("hub.version")}</div></div>
+    </div>
+    <div class="card"><h2>${t("join.server")}</h2><p class="muted small">${t("join.server_hint")}</p>
+      ${copyRow(t("join.address"), addr, "jaddr")}${copyRow(t("join.fp"), INFO.fingerprint || "", "jfp")}</div>
+    <div class="card"><div class="spread"><h2>${t("join.steps")} (5)</h2>
+        <div class="row"><button class="small" data-sall="1">${t("ls.open_all")}</button><button class="small" data-sall="0">${t("ls.close_all")}</button></div></div>
+      <p class="muted small">${t("join.steps_hint")}</p>${steps}
+      <p class="muted small" style="margin-top:.8rem">${t("join.email_note")}</p></div>`;
+  $$("details[data-step]").forEach(d => d.addEventListener("toggle", () => { const i = +d.dataset.step; if (d.open) openSteps.add(i); else openSteps.delete(i); }));
+  $$("button[data-sall]").forEach(b => b.onclick = () => $$("details[data-step]").forEach(d => d.open = b.dataset.sall === "1"));
+  $$("button[data-copy]").forEach(b => b.onclick = async () => {
+    const txt = $("#" + b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(txt); }
+    catch (e) { const r = document.createRange(); r.selectNodeContents($("#" + b.dataset.copy)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("copy"); }
+    b.textContent = "✓ " + t("join.copied"); setTimeout(() => b.textContent = t("join.copy"), 2000);
+  });
 }
 
 function cStatus(s) { const c = { open: "warn", review: "info", resolved: "ok", rejected: "bad" }[s] || ""; return `<span class="badge ${c}">${t("c.st." + s)}</span>`; }

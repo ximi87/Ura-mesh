@@ -62,7 +62,9 @@ with sync_playwright() as pw:
     nav(s, S + "/#/admin"); s.wait_for_selector("#pw"); s.fill("#pw", PW); s.click("#lbtn")
     s.wait_for_selector("text=Waiting for approval"); check("server admin setup + login", True)
     nav(s, S + "/#/join"); s.wait_for_selector("text=Certificate fingerprint")
-    server_fp = s.inner_text("dd.mono.small")
+    server_fp = s.inner_text("#jfp")
+    check("register page: one line per step, first open", s.locator("details[data-step]").count() == 5 and s.locator("details[data-step][open]").count() == 1)
+    check("register page: address + fingerprint with copy buttons", s.locator("button[data-copy]").count() == 2 and ":" in s.inner_text("#jaddr"))
 
     fpA, msgA = hub_register(a, A, "Test Hub A", "XA", "AAA", 10.5, 20.5)
     check("hub A sees same fingerprint as server page", fpA.strip() == server_fp.strip())

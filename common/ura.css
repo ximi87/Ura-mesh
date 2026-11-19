@@ -230,3 +230,10 @@ a.stat.tile:hover { text-decoration: none; border-color: var(--accent); }
 a.stat.tile.warn .v { color: var(--warn); }
 .linkrow.lhub { grid-template-columns: 1.1rem minmax(12rem, 1.4fr) 6rem 7rem 8.5rem 7rem 6rem; }
 @media (max-width: 900px) { .linkrow.lhub { grid-template-columns: 1.1rem 1fr 1fr; } .linkrow.lhub .lr-peer { grid-column: 2 / -1; } .linkrow.lhub .lr-tr { text-align: left; } }
+
+/* register a hub: copy boxes + one line per step */
+.copyrow { margin: .6rem 0; }
+.copybox { display: flex; gap: .5rem; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; }
+.copybox code { flex: 1; word-break: break-all; font-size: .9rem; }
+.linkrow.lstep { grid-template-columns: 1.1rem 2rem 1fr; }
+.stepno { width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent-2); display: flex; align-items: center; justify-content: center; font-weight: 700; }
