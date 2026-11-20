@@ -278,20 +278,16 @@ def from_thread(coro):
     asyncio.run_coroutine_threadsafe(coro, loop)
 
 
-_last_cleanup = 0
 live_events, live_seq, live_lock = [], 0, threading.Lock()   # recent relays for the live map (no content)
 
 
 def count(src, dst, net, size):
-    global _last_cleanup, live_seq
+    global live_seq
     with live_lock:
         live_seq += 1
         live_events.append({"seq": live_seq, "t": round(time.time(), 2), "src": src, "dst": dst, "net": net})
         del live_events[:-500]
     hour = now() // 3600 * 3600
-    if time.time() - _last_cleanup > 3600:
-        _last_cleanup = time.time()
-        db.x("DELETE FROM stats WHERE hour < ?", (now() - adv("stats_retention_days") * 86400,))
     db.x("""INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES(?,?,?,?,1,?)
             ON CONFLICT(src,dst,net,hour) DO UPDATE SET frames=frames+1, bytes=bytes+excluded.bytes""",
          (src, dst, net, hour, size))
@@ -864,6 +860,18 @@ def run_web(crt, key):
     srv.serve_forever()
 
 
+def cleanup_loop():
+    """Remove statistics older than the retention time: at start, then every hour (traffic or not)."""
+    while True:
+        try:
+            n = db.x("DELETE FROM stats WHERE hour < ?", (now() - adv("stats_retention_days") * 86400,)).rowcount
+            if n:
+                log.info("removed %d statistics rows older than %d days", n, adv("stats_retention_days"))
+        except Exception as e:
+            log.warning("statistics clean-up: %s", e)
+        time.sleep(3600)
+
+
 async def main():
     global db, loop, FINGERPRINT
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -875,6 +883,7 @@ async def main():
     global acme
     acme = Acme(DATA_DIR)
     threading.Thread(target=acme_loop, daemon=True).start()
+    threading.Thread(target=cleanup_loop, daemon=True).start()
     threading.Thread(target=run_web, args=(crt, key), daemon=True).start()
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ctx.load_cert_chain(crt, key)

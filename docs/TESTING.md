@@ -7,8 +7,8 @@ sent, and the test checks that the other hub's radio did — or did not — put 
 
 | Test | What it does | Checks |
 |---|---|---|
-| `tests/functions_test.py` | Test server + hubs A, B, C with simulated radios (`tests/fake_radio.py`), from scratch through registration, links, every rule, multi-hop, key change, removal, leaving and registering again | 133 |
-| `tests/ui_controls_test.py` | Clicks every tick box and field on the hub pages in a real browser, saves, checks the setting changed **and that the partner's page shows it** | 43 |
+| `tests/functions_test.py` | Test server + hubs A, B, C, D with simulated radios (`tests/fake_radio.py`), from scratch: registration, links, every rule, defaults, multi-hop and max hops (chain of 4), hourly and daily airtime, duplicates, replayed and altered packets, diagnostics, prepare radio, key change, removal, leaving, registering again, every hub and server advanced setting by its effect, server restart with queued packets, frozen server, lockouts, watchdog | 192 |
+| `tests/ui_controls_test.py` | Clicks every control on the hub pages in a real browser (rules, reach and onward ticks, link ask/decline/cancel/accept/end, trust new key, settings, older nodes, remote nodes by hub, diagnostics, prepare, channel, fixed position), saves, checks the setting changed **and that the partner's page shows it** | 58 |
 | `tests/ui_test.py` | Browser walk through all server and hub pages (start with `tests/run_test.sh`) | 64 |
 | `tests/multihop_test.py`, `tests/links_test.py` | Multi-hop chains/triangles; link and registration consistency | 12 + 12 |
 
@@ -32,11 +32,23 @@ readable at `GET /api/test/radio` — only when the hub runs with `URA_TEST_INJE
 | Location changes were sent only every 30 s | Saved positions appeared late | Sent at once when saved |
 | A link without saved rules followed the hub's *current* defaults | Changing "defaults for new links" silently changed existing links | Each link gets its own copy of the defaults when it appears |
 | Leaving the server kept old link rules and partner keys; the link list received on connect skipped the clean-up | Rules of old registrations stayed in the hub's settings | Leaving clears them; rules are kept only for hubs the hub is linked with |
+| Packets heard while the server was unreachable were sent the moment the hub reconnected — before its partners were back — and the server dropped them; the queue size only changed after a restart | "Packets kept while the server is unreachable" did not work | After a reconnect the hub waits (up to 15 s) until its linked hubs are online; the size limit applies at once |
+| Old statistics were only removed when traffic flowed | Retention did nothing on a quiet server | Clean-up at start and every hour |
+| Keepalive and server timeout were read only at the start of each wait (up to 2 min) | A frozen server went unnoticed; changed values applied late | Both re-read continuously |
+| Diagnostics took a node's plain "received" confirmation as the answer to a telemetry/position/traceroute request | Showed "delivered" although no data came back (seen live with a Tag) | Waits for the data; otherwise "received, but no data" |
 
 After the fixes both live hubs left the server, registered again from scratch, were approved and linked;
 end-to-end keys, safety code, defaults, nodes, locations and traffic in both directions were checked live.
 
-## Not testable without real radios
+## Live checks on the real radios (2026-11-20)
 
-Diagnostics (private message / traceroute / telemetry / position requests) need a real answer from a
-node; they are checked live on the hubs' Radio page.
+| From | To | Test | Result |
+|---|---|---|---|
+| hub 1 | other hub's radio, across the link | private message, traceroute | delivered, confirmed by the target / answered |
+| hub 2 | other hub's radio, across the link | private message, telemetry | delivered / answered |
+| hub 1 | a nearby node | position, traceroute | answered |
+| hub 1 | a nearby node | telemetry | "received, but no data" (that node does not send telemetry) |
+| hub 1 | a nearby node | private message | the node answered NO_CHANNEL — it holds an outdated key for the hub's radio (fix on that node: remove the radio from its node list so it learns the key again) |
+
+Not covered by tests: Let's Encrypt (needs a public domain; runs live), and `refused_retry_s` (how long a
+refused hub waits before trying again).

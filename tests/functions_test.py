@@ -19,7 +19,8 @@ from fake_radio import TEAM_PSK                                   # noqa: E402
 T = os.environ.get("URA_TEST_DIR", "/tmp/ura-fn"); PW = "TestPass123"
 HUBPY = os.environ.get("URA_HUB_PYTHON", sys.executable)
 SRV_HUB_PORT, SRV_WEB = 8178, 8179
-HUBS = {"A": (8177, 41.0, 19.0), "B": (8176, 48.0, 9.0), "C": (8175, 52.0, 13.0)}
+HUBS = {"A": (8177, 41.0, 19.0), "B": (8176, 48.0, 9.0), "C": (8175, 52.0, 13.0), "D": (8174, 50.0, 8.0)}
+NODE = {"A": "a1", "B": "b2", "C": "c3", "D": "d4"}
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
 results, section = [], ["setup"]
 
@@ -58,7 +59,7 @@ def kill_ports():
 def start_hub(n, fresh=True):
     port, lat, lon = HUBS[n]
     if fresh: subprocess.run(f"rm -rf {T}/h{n}", shell=True)
-    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE={ {'A': 'a1', 'B': 'b2', 'C': 'c3'}[n] }00000 "
+    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE={NODE[n]}00000 URA_TEST_EXTRA_NODES={15 if n == 'D' else 0} "
                      f"URA_TEST_LAT={lat} URA_TEST_LON={lon} URA_DATA={T}/h{n} URA_WEB_PORT={port} "
                      f"setsid nohup {HUBPY} -u ura_hub.py >> {T}/hub{n}.log 2>&1 < /dev/null &", shell=True)
 
@@ -85,7 +86,7 @@ PORT = {"text": portnums_pb2.PortNum.TEXT_MESSAGE_APP, "position": portnums_pb2.
         "telemetry": portnums_pb2.PortNum.TELEMETRY_APP}
 
 
-def packet(channel, kind="text"):
+def packet(channel, kind="text", size=6):
     """A packet as the radio hands it to the hub (channel-encrypted ServiceEnvelope). PKI = private message."""
     sender, pid = random.randint(0x10000000, 0x7FFFFFFF), random.randint(1, 2**31)
     env = mqtt_pb2.ServiceEnvelope(); env.channel_id = channel; env.gateway_id = "!a1000000"
@@ -94,7 +95,7 @@ def packet(channel, kind="text"):
         p.to = 0x12345678; p.encrypted = os.urandom(48); p.pki_encrypted = True
     else:
         p.to = 0xFFFFFFFF
-        d = mesh_pb2.Data(portnum=PORT[kind], payload=b"ura test " + os.urandom(6))
+        d = mesh_pb2.Data(portnum=PORT[kind], payload=b"ura test " + os.urandom(size))
         p.encrypted = decrypt_packet(KEYS[channel], pid, sender, d.SerializeToString())   # CTR: same op encrypts
     return f"msh/EU_868/2/e/{channel}/!a1000000", env.SerializeToString(), sender
 
@@ -189,7 +190,7 @@ check("radio connects after saving its port", r)
 check("radio details read (name, firmware, channels)", r and r.get("name") and r.get("firmware") and len(r.get("channels", [])) == 2, r)
 check("readiness checks all pass on a prepared radio", r and r.get("ready"), r and r.get("checks"))
 check("clock set on connect", wait(lambda: any(c["call"] == "setTime" for c in h["A"]("/api/test/radio")["calls"])))
-check("node list: own + neighbours, remote none", (lambda ns: any(x["own"] for x in ns) and sum(1 for x in ns if not x["own"]) == 3)(h["A"]("/api/nodes")))
+check("node list: own + neighbours, remote none", (lambda ns: any(x["own"] for x in ns) and sum(1 for x in ns if not x["own"]) == 4)(h["A"]("/api/nodes")))
 h["A"]("/api/radio/announce", {"ask": False})
 sent = h["A"]("/api/test/radio")["sent"]
 check("announce sends node info + telemetry + position", {x["kind"] for x in sent} >= {"data", "telemetry", "position"}, sent)
@@ -240,9 +241,9 @@ check("registrations closed -> join refused", not rj.get("hub_id"), rj)
 S("/api/admin/advanced", {"advanced": {"registrations_open": True}})
 check("join with empty address refused", h["A"]("/api/server/join", {"address": ""}).get("error") == "not_trusted")
 for n in HUBS: ids[n] = register(n)
-check("all three hubs registered", all(ids.values()), ids)
+check("all hubs registered", all(ids.values()), ids)
 st = S("/api/admin/state")
-check("server lists them as pending", sum(1 for x in st["hubs"] if x["status"] == "pending") == 3)
+check("server lists them as pending", sum(1 for x in st["hubs"] if x["status"] == "pending") == len(HUBS))
 check("public list hides pending hubs", not S("/api/public/hubs"))
 check("hub shows 'pending'", wait(lambda: status("A")["server"]["status"] == "pending"))
 check("pending hub cannot ask for links", (h["A"]("/api/links/request", {"to": ids["B"]}), time.sleep(1.5), not link_with("B", "A"))[2])
@@ -250,7 +251,7 @@ h["A"]("/api/hub", {"hub": {"name": "Changed"}})
 check("hub details locked once registered", h["A"]("/api/config")["hub"]["name"] == "Hub A")
 for n in HUBS: S(f"/api/admin/hub/{ids[n]}/approve", {})
 check("approval reaches the hub at once", wait(lambda: all(status(n)["server"]["status"] == "approved" for n in HUBS), 8))
-check("approved hubs public", len(S("/api/public/hubs")) == 3)
+check("approved hubs public", len(S("/api/public/hubs")) == len(HUBS))
 S(f"/api/admin/hub/{ids['A']}/verify_email", {})
 check("admin: e-mail marked verified", next(x for x in S("/api/admin/state")["hubs"] if x["id"] == ids["A"])["email_verified"])
 
@@ -263,7 +264,7 @@ check("changed manual location reaches server within 5 s", wait(lambda: abs(pub(
 h["A"]("/api/hub", {"hub": {"location_mode": "radio"}})
 h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": 41.6, "lon": 19.6, "alt": 10}})
 check("location follows the radio within 5 s", wait(lambda: abs(pub("A")["hub"]["lat"] - 41.6) < 1e-3, 5), pub("A")["hub"]["lat"])
-check("server shows the hub's radio nodes right after approval (recent only)", wait(lambda: len(pub("A")["nodes"]) == 3, 8), [x["name"] for x in pub("A")["nodes"]])
+check("server shows the hub's radio nodes right after approval (recent only)", wait(lambda: len(pub("A")["nodes"]) == 4, 8), [x["name"] for x in pub("A")["nodes"]])
 check("node positions shown", pub("A")["nodes"] and all(x["lat"] is not None for x in pub("A")["nodes"]))
 h["A"]("/api/hub", {"share_positions_on_map": False})
 check("'positions on map' off -> server has no node positions (within 5 s)", wait(lambda: pub("A")["nodes"] and all(x["lat"] is None for x in pub("A")["nodes"]), 5),
@@ -369,12 +370,34 @@ rules("C", "B", receive={"from_beyond": False})
 check("C 'from beyond' off -> not on air", not arrives("A", "C", "LongFast", expect=False) and blocked("C", "B", "recv", "from_beyond") > 0)
 rules("C", "B")
 check("C still gets B's own packets", arrives("B", "C", "LongFast"))
+
+sec("max hops: chain A - B - C - D")
+check("link C - D", make_link("C", "D"))
+rules("C", "D"); rules("D", "C")
+h["B"]("/api/hub", {"transit": {"enabled": True, "max_hops": 3}})
+h["C"]("/api/hub", {"transit": {"enabled": True, "max_hops": 2}})
+rules("A", "B", send={"reach": 7})
+check("C allows 2 hops -> A's packet reaches C but not D", arrives("A", "C", "LongFast") and not arrives("A", "D", "LongFast", expect=False))
+h["C"]("/api/hub", {"transit": {"enabled": True, "max_hops": 3}})
+s3 = send("A", "LongFast")
+check("C allows 3 hops -> A's packet reaches D (3 hubs away)", wait(lambda: s3 in senders_on_air("D"), 6))
+check("D knows that node came from A (not from C)", wait(lambda: next((x for x in h["D"]("/api/nodes") if x["id"] == f"!{s3:08x}"), {}).get("origin") == ids["A"], 6),
+      next((x for x in h["D"]("/api/nodes") if x["id"] == f"!{s3:08x}"), None))
+rules("A", "B", send={"reach": 1, "onward_to": [ids["C"]]})
+check("A allows only 1 hub beyond B -> stops at C even though C allows more", arrives("A", "C", "LongFast") and not arrives("A", "D", "LongFast", expect=False))
+rules("A", "B", send={"reach": 2, "onward_to": [ids["C"]]})
+check("A allows 2 hubs beyond B -> reaches D", arrives("A", "D", "LongFast"))
+rules("A", "B", send={"reach": 7, "onward_to": []})
 check("triangle: link A - C", make_link("A", "C"))
 rules("A", "C"); rules("C", "A")
 s0 = send("A", "LongFast"); time.sleep(4)
 cnt = sum(1 for d in h["C"]("/api/test/radio")["downlink"] if (lambda e: (e.ParseFromString(base64.b64decode(d["data"])), getattr(e.packet, "from"))[1])(mqtt_pb2.ServiceEnvelope()) == s0)
 check("triangle: C puts it on air exactly once (no duplicate, no loop)", cnt == 1, cnt)
-check("origin of remote nodes noted (A's sender shown as from A at C)", True)
+check("C lists A's node as remote, from A", next((x for x in h["C"]("/api/nodes") if x["id"] == f"!{s0:08x}"), {}).get("origin") == ids["A"],
+      next((x for x in h["C"]("/api/nodes") if x["id"] == f"!{s0:08x}"), None))
+sb = send("B", "LongFast")
+check("C lists B's node as remote, from B", wait(lambda: next((x for x in h["C"]("/api/nodes") if x["id"] == f"!{sb:08x}"), {}).get("origin") == ids["B"], 6))
+check("remote nodes are not reported to the server as C's own", wait(lambda: f"!{s0:08x}" not in [x["id"] for x in pub("C")["nodes"]], 3))
 
 # ── keys ───────────────────────────────────────────────────────────────────
 sec("end-to-end key change")
@@ -382,7 +405,7 @@ stop_hub("C"); os.remove(f"{T}/hC/identity.key"); start_hub("C", fresh=False)
 time.sleep(4); h["C"] = client(f"https://127.0.0.1:{HUBS['C'][0]}"); h["C"]("/api/login", {"password": PW})
 check("hub keeps its registration and links after a restart", wait(lambda: status("C")["server"]["status"] == "approved" and link_with("C", "A"), 20))
 cfgC = h["C"]("/api/config")
-check("after a restart: rules only for linked hubs (welcome list applied)", set(cfgC["rules"]) == {ids["A"], ids["B"]}, list(cfgC["rules"]))
+check("after a restart: rules only for linked hubs (welcome list applied)", set(cfgC["rules"]) == {l["peer"] for l in status("C")["links"]} == {ids["A"], ids["B"], ids["D"]}, list(cfgC["rules"]))
 check("A notices C's key changed", wait(lambda: link_with("A", "C")["e2e"]["state"] == "changed", 20), link_with("A", "C")["e2e"])
 check("nothing sent to C while key unconfirmed", not arrives("A", "C", "LongFast", expect=False) or blocked("A", "C", "send", "key_changed") > 0)
 h["A"]("/api/links/trust_key", {"peer": ids["C"]})
@@ -443,6 +466,171 @@ spec = h["A"]("/api/advanced_spec")
 check("advanced: out-of-range refused", h["A"]("/api/advanced", {"advanced": {"keepalive_s": 0}}).get("_status") == 400)
 h["A"]("/api/advanced", {"advanced": {"page_refresh_s": 45}})
 check("advanced: saved value used (page refresh)", h["A"]("/api/session")["page_refresh_s"] == 45)
+
+# ── more functions ─────────────────────────────────────────────────────────
+import signal, sqlite3
+me = lambda n: int(NODE[n] + "00000", 16)
+
+sec("diagnostics (Radio page)")
+h["A"]("/api/advanced", {"advanced": {"diag_timeout_s": 10}})
+r = h["A"]("/api/diag", {"node": f"!{me('A') + 1:08x}", "kind": "dm", "text": "hi"})
+check("private message: delivered, confirmed by the node itself (own radio's ack ignored)", r.get("result") == "delivered" and r.get("from") == f"!{me('A') + 1:08x}", r)
+r = h["A"]("/api/diag", {"node": f"!{me('A') + 1:08x}", "kind": "trace"})
+check("traceroute: route both ways", r.get("result") == "route" and r.get("route_to") == ["Neighbour two"] and r.get("route_back") == ["Neighbour two"], r)
+r = h["A"]("/api/diag", {"node": f"!{me('A') + 1:08x}", "kind": "telemetry"})
+check("telemetry request answered", r.get("result") == "telemetry" and r["telemetry"].get("deviceMetrics", {}).get("batteryLevel") == 88, r)
+t0 = time.time(); r = h["A"]("/api/diag", {"node": f"!{me('A') + 2:08x}", "kind": "telemetry"})
+check("telemetry: node only confirms, sends no data -> 'received, no data' (not 'delivered')", r.get("result") == "no_data" and r.get("answered") is False, r)
+r = h["A"]("/api/diag", {"node": f"!{me('A') + 2:08x}", "kind": "position"})
+check("position request answered", r.get("result") == "position" and r["position"]["lat"], r)
+t0 = time.time(); r = h["A"]("/api/diag", {"node": f"!{me('A') + 50:08x}", "kind": "dm"})
+check("no answer -> 'no answer' after the set waiting time (10 s)", r.get("answered") is False and 9.5 <= time.time() - t0 < 14, (r, round(time.time() - t0, 1)))
+r = h["A"]("/api/diag", {"node": "", "kind": "broadcast", "channel": 1, "text": "group test"})
+check("channel test message sent on the chosen channel", r.get("result") == "sent" and any(x["kind"] == "text" and x["channel"] == 1 for x in h["A"]("/api/test/radio")["sent"]), r)
+check("bad node id refused", h["A"]("/api/diag", {"node": "xyz", "kind": "dm"}).get("_status") == 400)
+
+sec("prepare radio for Ura")
+h["A"]("/api/radio/section", {"kind": "module", "section": "mqtt", "values": {"enabled": False}})
+check("radio with MQTT off is shown as not ready", wait(lambda: status("A")["radio"]["ready"] is False, 5), status("A")["radio"].get("checks"))
+h["A"]("/api/advanced", {"advanced": {"mqtt_address": "127.0.0.2"}})
+h["A"]("/api/radio/prepare", {})
+w = [c for c in h["A"]("/api/test/radio")["calls"] if c["call"] == "writeConfig" and c["section"] == "mqtt"][-1]["values"]
+check("prepare writes MQTT on + proxy + encryption + the set address", w.get("enabled") and w.get("proxy_to_client_enabled") and w.get("encryption_enabled") and w.get("address") == "127.0.0.2", w)
+check("prepare in one transaction (one restart)", [c["call"] for c in h["A"]("/api/test/radio")["calls"]][-6:].count("commit") == 1)
+check("radio ready again", wait(lambda: status("A")["radio"]["ready"], 5), status("A")["radio"].get("checks"))
+h["A"]("/api/advanced", {"advanced": {"mqtt_address": "127.0.0.1"}})
+
+sec("airtime: daily limit")
+h["B"]("/api/hub", {"airtime": {"pct_hour": 0, "pct_day": 0.00001}})
+check("over the daily limit -> not on air", not arrives("A", "B", "LongFast", expect=False) and blocked("B", "A", "recv", "airtime") > 0)
+h["B"]("/api/hub", {"airtime": {"pct_hour": 10, "pct_day": 0}})
+check("limit removed -> on air", arrives("A", "B", "LongFast"))
+
+sec("duplicates, replays, tampering")
+topic, data, snd = packet("LongFast")
+for _ in range(2):
+    h["A"]("/api/test/inject", {"topic": topic, "data": base64.b64encode(data).decode()}); time.sleep(0.3)
+time.sleep(3)
+check("same packet heard twice -> on air once", sum(1 for d in h["B"]("/api/test/radio")["downlink"]
+      if (lambda e: (e.ParseFromString(base64.b64decode(d["data"])), getattr(e.packet, "from"))[1])(mqtt_pb2.ServiceEnvelope()) == snd) == 1)
+h["B"]("/api/advanced", {"advanced": {"replay_window_s": 60}})
+sr = send("A", "LongFast"); wait(lambda: sr in senders_on_air("B"), 5)
+on_air = lambda: len(h["B"]("/api/test/radio")["downlink"])
+n0, rec0 = on_air(), peer_counts("B", "A").get("received", 0)
+h["B"]("/api/test/replay", {"index": -1}); time.sleep(1)
+check("the same encrypted box replayed -> dropped", on_air() == n0 and peer_counts("B", "A").get("received", 0) == rec0)
+bb0 = blocked("B", "A", "recv", "bad_box")
+h["B"]("/api/test/replay", {"index": -1, "tamper": True}); time.sleep(1)
+check("a box altered on the way -> rejected", blocked("B", "A", "recv", "bad_box") == bb0 + 1 and on_air() == n0)
+
+sec("hub advanced settings: do they take effect")
+h["A"]("/api/advanced", {"advanced": {"node_max_age_days": 2, "nodes_check_s": 10}})
+check("node age 2 days -> the 3-day-old node leaves the server map", wait(lambda: "Three days" not in [x["name"] for x in pub("A")["nodes"]] and pub("A")["nodes"], 15),
+      [x["name"] for x in pub("A")["nodes"]])
+h["A"]("/api/advanced", {"advanced": {"node_max_age_days": 7}})
+check("node age 7 days -> it is back", wait(lambda: "Three days" in [x["name"] for x in pub("A")["nodes"]], 15))
+lat0 = pub("A")["hub"]["lat"]
+h["A"]("/api/advanced", {"advanced": {"location_follow_m": 50}})
+h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": lat0 + 0.00018, "lon": 19.6, "alt": 10}})
+time.sleep(4)
+check("radio moved ~20 m, follow distance 50 m -> hub position unchanged", abs(pub("A")["hub"]["lat"] - lat0) < 1e-6, pub("A")["hub"]["lat"])
+h["A"]("/api/advanced", {"advanced": {"location_follow_m": 10}})
+check("follow distance 10 m -> hub follows the radio", wait(lambda: abs(pub("A")["hub"]["lat"] - (lat0 + 0.00018)) < 1e-5, 6), pub("A")["hub"]["lat"])
+h["A"]("/api/advanced", {"advanced": {"clock_sync": False}})
+h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A2"}})
+wait(lambda: status("A")["radio"]["connected"] and status("A")["radio"]["address"] == "/dev/fake-A2", 15); time.sleep(6)
+check("clock sync off -> radio clock not set on connect", not any(c["call"] == "setTime" for c in h["A"]("/api/test/radio")["calls"]))
+h["A"]("/api/advanced", {"advanced": {"clock_sync": True}})
+h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
+check("clock sync on -> radio clock set on connect", wait(lambda: any(c["call"] == "setTime" for c in h["A"]("/api/test/radio")["calls"]), 15))
+h["B"]("/api/advanced", {"advanced": {"keepalive_s": 5}})
+ls0 = pub("B")["hub"]["last_seen"]; time.sleep(7)
+check("keepalive 5 s -> server sees the hub alive every 5 s", pub("B")["hub"]["last_seen"] > ls0, (ls0, pub("B")["hub"]["last_seen"]))
+h["A"]("/api/advanced", {"advanced": {"password_min": 12}})
+check("password minimum 12 -> 11 characters refused", h["A"]("/api/password", {"password": "Elevenchars"}).get("_status") == 400)
+h["A"]("/api/advanced", {"advanced": {"password_min": 8}})
+def set_cookie(base, pw):
+    req = urllib.request.Request(base + "/api/login", data=json.dumps({"password": pw}).encode(), headers={"Content-Type": "application/json"})
+    return urllib.request.urlopen(req, context=ctx, timeout=30).headers.get("Set-Cookie", "")
+h["A"]("/api/advanced", {"advanced": {"session_hours": 2}})
+check("session length 2 h -> login cookie lasts 7200 s", "Max-Age=7200" in set_cookie(f"https://127.0.0.1:{HUBS['A'][0]}", PW))
+check("tile source must be an https URL with {z}/{x}/{y}", h["A"]("/api/advanced", {"advanced": {"tile_source": "http://x/{z}"}}).get("_status") == 400)
+tile = lambda base: urllib.request.urlopen(urllib.request.Request(base + "/tiles/2/1/1.png"), context=ctx, timeout=30).read()
+try: t1 = tile(f"https://127.0.0.1:{HUBS['A'][0]}")
+except Exception as e: t1 = b""
+check("map tile through hub -> server -> map server", t1[:4] == b"\x89PNG", len(t1))
+
+sec("server advanced settings: do they take effect")
+S("/api/admin/advanced", {"advanced": {"node_max_age_days": 2}}); h["D"]("/api/advanced", {"advanced": {}})
+check("server node age 2 days -> D's 3-day node not shown", wait(lambda: pub("D")["nodes"] and "Three days" not in [x["name"] for x in pub("D")["nodes"]], 10),
+      [x["name"] for x in pub("D")["nodes"]])
+S("/api/admin/advanced", {"advanced": {"node_max_age_days": 7, "max_nodes_per_report": 10}}); h["D"]("/api/advanced", {"advanced": {}})
+check("max nodes per report 10 -> D (19 nodes) shows 10", wait(lambda: len(pub("D")["nodes"]) == 10, 10), len(pub("D")["nodes"]))
+S("/api/admin/advanced", {"advanced": {"max_nodes_per_report": 2000}})
+S("/api/admin/advanced", {"advanced": {"relay_rate_per_s": 1, "relay_burst": 1}})
+sent6 = [send("A", "LongFast") for _ in range(6)]; time.sleep(4)
+got = len(set(sent6) & senders_on_air("B"))
+check("flood limit 1/s -> most of 6 quick packets dropped by the server", 1 <= got <= 3, got)
+S("/api/admin/advanced", {"advanced": {"relay_rate_per_s": 30, "relay_burst": 200, "max_box_bytes": 300}})
+topic, data, big = packet("LongFast", size=400)
+h["A"]("/api/test/inject", {"topic": topic, "data": base64.b64encode(data).decode()}); time.sleep(3)
+check("max box size 300 -> a big packet is not relayed", big not in senders_on_air("B"))
+S("/api/admin/advanced", {"advanced": {"max_box_bytes": 3000}})
+check("max box size 3000 -> relayed", arrives("A", "B", "LongFast"))
+S("/api/admin/advanced", {"advanced": {"complaints_per_hour": 1}})
+check("complaints per hour 1 -> second complaint refused", S("/api/public/complaints", {"email": "y@example.org", "text": "another long enough complaint", "subject_type": "general"}).get("_status") == 429)
+S("/api/admin/advanced", {"advanced": {"complaints_per_hour": 50, "complaint_max_chars": 100}})
+cid = S("/api/public/complaints", {"email": "y@example.org", "text": "z" * 300, "subject_type": "general"}).get("id")
+check("complaint max 100 characters -> longer text cut", any(x["id"] == cid and len(x["text"]) == 100 for x in S("/api/public/complaints")))
+S("/api/admin/advanced", {"advanced": {"project_url": "https://example.org/p", "install_guide_url": "https://example.org/g"}})
+inf = S("/api/public/info")
+check("project + install guide links shown", inf.get("project_url") == "https://example.org/p" and inf.get("install_guide_url") == "https://example.org/g", inf)
+S("/api/admin/advanced", {"advanced": {"session_hours": 3}})
+check("server session 3 h -> admin cookie lasts 10800 s", "Max-Age=10800" in set_cookie(f"https://127.0.0.1:{SRV_WEB}", PW + "S"))
+try: t2 = tile(f"https://127.0.0.1:{SRV_WEB}")
+except Exception: t2 = b""
+check("server map tile", t2[:4] == b"\x89PNG", len(t2))
+
+sec("server restart, queue, statistics retention")
+srv_pid = lambda: subprocess.run(f"ss -ltnp 'sport = :{SRV_HUB_PORT}' | grep -oP 'pid=\\K[0-9]+' | head -1", shell=True, capture_output=True, text=True).stdout.strip()
+S("/api/admin/advanced", {"advanced": {"stats_retention_days": 7}})
+h["A"]("/api/advanced", {"advanced": {"queue_max": 50, "server_retry_s": 3}})
+os.kill(int(srv_pid()), signal.SIGTERM); time.sleep(2)
+db = sqlite3.connect(f"{T}/srv/ura.db"); db.execute("INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES('old','old','mt',?,5,500)", ((int(time.time()) // 3600 - 24 * 30) * 3600,)); db.commit(); db.close()
+check("hub notices the server is gone", wait(lambda: status("A")["link_state"] != "connected", 10), status("A")["link_state"])
+queued = [send("A", "LongFast") for _ in range(55)]
+subprocess.Popen(f"cd {REPO}/server && URA_DATA={T}/srv URA_PORT={SRV_HUB_PORT} URA_WEB_PORT={SRV_WEB} setsid nohup python3 -u ura_server.py >> {T}/server.log 2>&1 < /dev/null &", shell=True)
+t0 = time.time()
+check("hub reconnects within the retry time (3 s) + start-up", wait(lambda: status("A")["link_state"] == "connected", 15) and time.time() - t0 < 10, round(time.time() - t0, 1))
+S = client(f"https://127.0.0.1:{SRV_WEB}"); S("/api/login", {"password": PW + "S"})
+wait(lambda: status("B")["link_state"] == "connected", 15); time.sleep(6)
+got = len(set(queued) & senders_on_air("B"))
+check("packets heard while the server was down are delivered afterwards (queue)", got >= 40, f"{got} of 55")
+check("... but no more than the queue size (50)", got <= 50, f"{got} of 55")
+db = sqlite3.connect(f"{T}/srv/ura.db"); old = db.execute("SELECT COUNT(*) FROM stats WHERE src='old'").fetchone()[0]; db.close()
+check("statistics older than 7 days removed", old == 0, old)
+
+sec("waiting times: lockouts, replay window, watchdog, silent server")
+h["A"]("/api/advanced", {"advanced": {"lockout_attempts": 3, "lockout_minutes": 1}})
+S("/api/admin/advanced", {"advanced": {"lockout_attempts": 3, "lockout_minutes": 1}})
+h["D"]("/api/advanced", {"advanced": {"radio_watchdog_min": 1}})
+la_, ls_ = client(f"https://127.0.0.1:{HUBS['A'][0]}"), client(f"https://127.0.0.1:{SRV_WEB}")
+for _ in range(3): la_("/api/login", {"password": "wrong"}); ls_("/api/login", {"password": "wrong"})
+check("hub: 3 wrong passwords -> locked, even the right one", la_("/api/login", {"password": PW}).get("_status") == 429)
+check("server: 3 wrong passwords -> locked, even the right one", ls_("/api/login", {"password": PW + "S"}).get("_status") == 429)
+time.sleep(63)
+check("hub: unlocked after 1 minute", la_("/api/login", {"password": PW}).get("ok"))
+check("server: unlocked after 1 minute", ls_("/api/login", {"password": PW + "S"}).get("ok"))
+bb0 = blocked("B", "A", "recv", "bad_box")
+h["B"]("/api/test/replay", {"index": -1}); time.sleep(1)
+check("a box older than the replay window (60 s) -> rejected", blocked("B", "A", "recv", "bad_box") == bb0 + 1)
+ev = status("D")["radio"].get("watchdog_events") or []
+check("watchdog: silent radio -> diagnosis + fresh USB session after 1 minute", any("fresh USB session" in e["finding"] for e in ev), ev)
+h["A"]("/api/advanced", {"advanced": {"server_timeout_s": 30}})
+pid = int(srv_pid()); os.kill(pid, signal.SIGSTOP)
+check("server frozen (no answers) -> hub gives up after 30 s", wait(lambda: status("A")["link_state"] != "connected", 45), status("A")["link_state"])
+os.kill(pid, signal.SIGCONT)
+check("... and reconnects when the server answers again", wait(lambda: status("A")["link_state"] == "connected", 20))
 
 # ── report ─────────────────────────────────────────────────────────────────
 kill_ports()

@@ -431,9 +431,7 @@ class Radio:
             loop.call_soon_threadsafe(self._enqueue, (proxymessage.topic, bytes(proxymessage.data)))
 
     def _enqueue(self, item):
-        if self.queue.full():
-            self.queue.get_nowait()
-        self.queue.put_nowait(item)
+        enqueue(self.queue, item)
 
     def _on_packet(self, packet, interface):
         if not self._mine(interface):
@@ -759,6 +757,7 @@ class Radio:
             return {"answered": True, "seconds": 0, "result": "sent"}
         ev, out, sent = threading.Event(), {}, {}
         target = int(node.lstrip("!"), 16)
+        wants_data = kind in ("trace", "telemetry", "position")   # a plain "received" ack is not the answer
 
         def on_packet(packet, interface):
             # Answers carry request_id = our packet id. Accept: a reply/ack FROM THE TARGET, or a routing
@@ -769,6 +768,10 @@ class Radio:
             if d.get("requestId") != sent["id"]:
                 return
             reason = d.get("routing", {}).get("errorReason", "NONE") if d.get("portnum") == "ROUTING_APP" else None
+            if wants_data and reason == "NONE":
+                if packet.get("from") == target:
+                    out["acked"] = True           # the node got the request; keep waiting for its data
+                return
             if packet.get("from") == target or (reason not in (None, "NONE")):
                 out["packet"] = packet
                 ev.set()
@@ -794,6 +797,8 @@ class Radio:
         finally:
             pub.unsubscribe(on_packet, "meshtastic.receive")
         res = {"answered": answered, "seconds": round(time.time() - t0, 1)}
+        if not answered and out.get("acked"):
+            res["result"] = "no_data"             # received the request, but did not send the data back
         if answered:
             d = out["packet"].get("decoded", {})
             res["from"] = out["packet"].get("fromId")
@@ -1028,6 +1033,13 @@ class Radio:
         log.info("radio prepared for Ura (it restarts now)")
 
 
+def enqueue(q, item):
+    """Packets from the radio wait here while the server is unreachable; above "queue_max" the oldest go."""
+    while q.qsize() >= adv("queue_max"):
+        q.get_nowait()
+    q.put_nowait(item)
+
+
 radios = {}       # radio id -> Radio
 radio_queue: asyncio.Queue = None
 
@@ -1125,7 +1137,17 @@ class Link:
                          asyncio.create_task(self._nodes()), asyncio.create_task(self._location())]
                 try:
                     await self._push_info_soon()
-                    while line := await asyncio.wait_for(reader.readline(), adv("server_timeout_s")):
+                    last_rx = time.time()
+                    while True:                   # the server answers every ping; silent longer than
+                        try:                      # "server_timeout_s" (re-read every 5 s) = dead connection
+                            line = await asyncio.wait_for(reader.readline(), 5)
+                        except asyncio.TimeoutError:
+                            if time.time() - last_rx > adv("server_timeout_s"):
+                                raise ConnectionError(f"no answer from the server for {adv('server_timeout_s')} s")
+                            continue
+                        if not line:
+                            break
+                        last_rx = time.time()
                         await self._on_message(json.loads(line))
                 finally:
                     for tk in tasks:
@@ -1206,14 +1228,25 @@ class Link:
                 self.kick()                   # the server ignored nodes while the hub was pending
 
     async def _uplink(self):
+        # after a reconnect (e.g. the server restarted) give the linked hubs a moment to come back before
+        # sending what the radio heard meanwhile — the server cannot deliver to a hub that is not online yet
+        if not radio_queue.empty():
+            for _ in range(30):
+                online = {h["id"] for h in self.directory if h.get("online")}
+                if all(p in online for p in active_peers()):
+                    break
+                await asyncio.sleep(0.5)
         while True:
             topic, data = await radio_queue.get()
             await asyncio.to_thread(send_to_peers, topic, data)
 
     async def _keepalive(self):
-        while True:
-            await asyncio.sleep(adv("keepalive_s"))
-            await self.send({"t": "ping"})
+        last = time.time()
+        while True:                           # re-read the interval every second: a changed value applies at once
+            await asyncio.sleep(1)
+            if time.time() - last >= adv("keepalive_s"):
+                last = time.time()
+                await self.send({"t": "ping"})
 
     async def _nodes(self):
         """Report local nodes to the server: as soon as the radio is connected, then at least every "nodes_report_min" minutes.
@@ -1345,8 +1378,15 @@ def rule_reach(rule):
     return min(REACH_ANY, int(cfg.get()["transit"].get("max_hops", 2)) - 1) if rule.get("onward_to") else 0
 
 
+TEST_MODE = os.environ.get("URA_TEST_INJECT") == "1"
+test_boxes = []                    # tests only: last boxes received, so a test can replay or tamper with one
+
+
 def receive_box(peer, box):
     """Server -> hub: open the end-to-end box from a linked hub, drop replays/duplicates."""
+    if TEST_MODE:
+        test_boxes.append((peer, box))
+        del test_boxes[:-50]
     keys, state = identity.keys_for(peer)
     if keys is None:
         counters.peer_add(peer, "blocked_recv", "key_" + state)
@@ -1632,6 +1672,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     return self.reply({"error": "invalid", "fields": ["server_web_port"]}, 400)
                 cfg.update(lambda d: d["server"].update(web_port=port))
+            link.kick()                       # e.g. node age / follow distance changed: report with the new values
             return self.reply({"ok": True})
         if p == "/api/password":
             if len(b.get("password") or "") < adv("password_min"):
@@ -1789,8 +1830,14 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "no_radio"}, 400)
             r.prepare()
             return self.reply({"ok": True})
+        if p == "/api/test/replay" and TEST_MODE:     # tests only: feed a received box again, optionally altered
+            peer, box = test_boxes[int(b.get("index", -1))]
+            if b.get("tamper"):
+                box = box[:40] + bytes([box[40] ^ 1]) + box[41:]
+            receive_box(peer, box)
+            return self.reply({"ok": True, "peer": peer})
         if p == "/api/test/inject" and os.environ.get("URA_TEST_INJECT") == "1":
-            loop.call_soon_threadsafe(radio_queue.put_nowait, (str(b["topic"]), base64.b64decode(b["data"])))
+            loop.call_soon_threadsafe(enqueue, radio_queue, (str(b["topic"]), base64.b64decode(b["data"])))
             return self.reply({"ok": True})
         if p == "/api/diag":
             r = mt_radio()
@@ -1932,7 +1979,7 @@ async def main():
     identity = Identity()
     origins = Origins()
     loop = asyncio.get_running_loop()
-    radio_queue = asyncio.Queue(maxsize=adv("queue_max"))
+    radio_queue = asyncio.Queue()             # size limited by enqueue() with the current "queue_max"
     link = Link()
     apply_radios()
     threading.Thread(target=run_web, daemon=True).start()

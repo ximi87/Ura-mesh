@@ -6,7 +6,7 @@ radios), a few local nodes with positions, every config/module section, owner, f
 Everything the hub sends to the radio is recorded in `record` (read via GET /api/test/radio):
 downlinked MQTT proxy messages, packets sent, settings written.
 URA_TEST_NODE = this radio's node number in hex (default derived from the data folder)."""
-import base64, hashlib, os, threading, time, types
+import base64, hashlib, os, random, threading, time, types
 from meshtastic.protobuf import channel_pb2, config_pb2, localonly_pb2, mesh_pb2
 
 TEAM_PSK = hashlib.sha256(b"ura test team channel").digest()[:16]
@@ -81,7 +81,10 @@ class FakeInterface:
         self.nodesByNum = {me: node(me, "Test radio " + seed, 0, 0, now),
                            me + 1: node(me + 1, "Neighbour one", .01, .01, now - 60),
                            me + 2: node(me + 2, "Neighbour two", -.01, .02, now - 3600),
-                           me + 3: node(me + 3, "Old node", .05, .05, now - 30 * 86400)}
+                           me + 3: node(me + 3, "Three days", .03, -.02, now - 3 * 86400),
+                           me + 4: node(me + 4, "Old node", .05, .05, now - 30 * 86400)}
+        for i in range(int(os.environ.get("URA_TEST_EXTRA_NODES", "0"))):
+            self.nodesByNum[me + 100 + i] = node(me + 100 + i, f"Extra {i}", .001 * i, .001 * i, now - 120)
         self.nodes = {n["user"]["id"]: n for n in self.nodesByNum.values()}
         self.localNode = FakeNode(self)
         self.isConnected = threading.Event(); self.isConnected.set()
@@ -91,10 +94,50 @@ class FakeInterface:
 
     def sendMqttClientProxyMessage(self, topic, data):
         self.record["downlink"].append({"topic": topic, "data": base64.b64encode(data).decode(), "time": time.time()})
+        # like a real radio: a packet put on air from MQTT makes its sender a known (remote, via MQTT) node
+        from meshtastic.protobuf import mqtt_pb2
+        env = mqtt_pb2.ServiceEnvelope(); env.ParseFromString(data)
+        num = getattr(env.packet, "from")
+        n = self.nodesByNum.setdefault(num, {"num": num, "user": {"id": f"!{num:08x}", "longName": f"Remote {num:08x}"}})
+        n.update(viaMqtt=True, lastHeard=int(time.time()))
 
-    def sendData(self, data, destinationId="^all", portNum=0, wantResponse=False, **kw):
-        self.record["sent"].append({"kind": "data", "port": int(portNum), "want_response": wantResponse})
+    def sendData(self, data, destinationId="^all", portNum=0, wantResponse=False, wantAck=False, **kw):
+        pid = random.randint(1, 2**31)
+        self.record["sent"].append({"kind": "data", "port": int(portNum), "want_response": wantResponse, "to": destinationId, "id": pid})
+        target = int(str(destinationId).lstrip("!"), 16) if str(destinationId).startswith("!") else None
+        if target is not None:
+            threading.Thread(target=self._answer, args=(target, int(portNum), pid), daemon=True).start()
+        return types.SimpleNamespace(id=pid)
+
+    def _answer(self, target, port, pid):
+        """Diagnostics: our own radio's local ack first (the hub must ignore it), then the target's answer —
+        only known neighbours answer; anyone else stays silent."""
+        from pubsub import pub
+        me = self.myInfo.my_node_num
+        time.sleep(0.3)
+        pub.sendMessage("meshtastic.receive", interface=self, packet={"from": me, "fromId": f"!{me:08x}",
+                        "decoded": {"requestId": pid, "portnum": "ROUTING_APP", "routing": {"errorReason": "NONE"}}})
+        if target not in (me + 1, me + 2):
+            return
+        time.sleep(0.5)
+        if target == me + 2 and port == 67:       # like some real nodes: confirms the request, sends no telemetry
+            pub.sendMessage("meshtastic.receive", interface=self, packet={"from": target, "fromId": f"!{target:08x}",
+                            "decoded": {"requestId": pid, "portnum": "ROUTING_APP", "routing": {"errorReason": "NONE"}}})
+            return
+        names = {1: "TEXT_MESSAGE_APP", 70: "TRACEROUTE_APP", 67: "TELEMETRY_APP", 3: "POSITION_APP"}
+        d = {"requestId": pid, "portnum": names.get(port, "ROUTING_APP")}
+        if port == 1:
+            d.update(portnum="ROUTING_APP", routing={"errorReason": "NONE"})
+        elif port == 70:
+            d["traceroute"] = {"route": [me + 2], "routeBack": [me + 2]}
+        elif port == 67:
+            d["telemetry"] = {"deviceMetrics": {"batteryLevel": 88, "voltage": 4.1}, "time": int(time.time())}
+        elif port == 3:
+            p = self.nodesByNum[target]["position"]
+            d["position"] = {"latitude": p["latitude"], "longitude": p["longitude"], "altitude": 100}
+        pub.sendMessage("meshtastic.receive", interface=self, packet={"from": target, "fromId": f"!{target:08x}", "decoded": d})
     def sendTelemetry(self, *a, **kw): self.record["sent"].append({"kind": "telemetry"})
     def sendPosition(self, lat=0, lon=0, alt=0, *a, **kw): self.record["sent"].append({"kind": "position", "lat": lat, "lon": lon})
-    def sendText(self, text, destinationId="^all", *a, **kw): self.record["sent"].append({"kind": "text", "to": destinationId})
+    def sendText(self, text, destinationId="^all", *a, channelIndex=0, **kw):
+        self.record["sent"].append({"kind": "text", "to": destinationId, "channel": channelIndex, "text": text})
     def close(self): self.isConnected.clear()

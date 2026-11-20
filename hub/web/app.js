@@ -22,6 +22,8 @@ Ura.add({
   "st.overview": { en: "Overview", sq: "Përmbledhje" },
   "st.announce.hint": { en: "Announce sends this radio's name, telemetry and (if it has one) its position to the mesh and across the links. Ask neighbours makes nearby nodes answer with theirs.",
                         sq: "Njoftimi dërgon emrin, telemetrinë dhe (nëse ka) pozicionin e kësaj radioje në rrjet dhe përmes lidhjeve. Kërkesa fqinjëve bën që nyjet afër të përgjigjen me të tyret." },
+  "dg.no_data": { en: "The node received the request but sent nothing back (waited {s} s). Some nodes do not answer telemetry or position requests, or have nothing to report.",
+                  sq: "Nyja e mori kërkesën por nuk ktheu asgjë (pritëm {s} s). Disa nyje nuk u përgjigjen kërkesave për telemetri ose pozicion, ose nuk kanë çfarë të raportojnë." },
   "wd.log": { en: "What the watchdog found", sq: "Çfarë gjeti mbikëqyrësi" },
   "wd.short": { en: "restarted {n}× (7 days)", sq: "rindezur {n}× (7 ditë)" },
   "rx.deaf_short": { en: "hears nothing", sq: "nuk dëgjon asgjë" },
@@ -687,7 +689,8 @@ async function pageRadio() {
       try {
         const r2 = await api("POST", "/api/diag", { node, kind: b.dataset.dg, text: $("#dgtext").value, channel: $("#dgch") ? $("#dgch").value : 0 });
         let body = "";
-        if (!r2.answered) body = `<div class="msg bad">${t("dg.noanswer", { s: r2.seconds })}</div>`;
+        if (r2.result === "no_data") body = `<div class="msg warn">${t("dg.no_data", { s: r2.seconds })}</div>`;
+        else if (!r2.answered) body = `<div class="msg bad">${t("dg.noanswer", { s: r2.seconds })}</div>`;
         else if (r2.result === "sent") body = `<div class="msg ok">${t("dg.sent")}</div>`;
         else if (r2.result === "delivered") body = `<div class="msg ok">✅ ${t("dg.delivered", { s: r2.seconds })}</div>`;
         else if (r2.result === "route") body = `<div class="msg ok">${t("dg.route", { s: r2.seconds })}<br><b>→</b> ${esc([t("dg.me"), ...r2.route_to, node].join(" → "))}<br><b>←</b> ${esc([node, ...r2.route_back, t("dg.me")].join(" → "))}</div>`;

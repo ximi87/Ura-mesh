@@ -8,7 +8,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 T = os.environ.get("URA_TEST_DIR", "/tmp/ura-uc"); PW = "TestPass123"
 HUBPY = os.environ.get("URA_HUB_PYTHON", "python3")
 SH, SW = 8168, 8169
-HUBS = {"A": 8167, "B": 8166}
+HUBS = {"A": 8167, "B": 8166, "C": 8165}
+NODE = {"A": "a1", "B": "b2", "C": "c3"}
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
 results, errors = [], []
 
@@ -43,7 +44,7 @@ ports = [SH, SW] + list(HUBS.values())
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports) + f" sleep 1; rm -rf {T}; mkdir -p {T}", shell=True)
 subprocess.Popen(f"cd {REPO}/server && URA_DATA={T}/srv URA_PORT={SH} URA_WEB_PORT={SW} setsid nohup python3 -u ura_server.py > {T}/server.log 2>&1 < /dev/null &", shell=True)
 for n, port in HUBS.items():
-    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE={'a1' if n == 'A' else 'b2'}00000 "
+    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE={NODE[n]}00000 "
                      f"URA_DATA={T}/h{n} URA_WEB_PORT={port} setsid nohup {HUBPY} -u ura_hub.py > {T}/hub{n}.log 2>&1 < /dev/null &", shell=True)
 time.sleep(5)
 S = client(f"https://127.0.0.1:{SW}"); S("/api/setup", {"password": PW})
@@ -67,6 +68,7 @@ cfgA = lambda: h["A"]("/api/config")
 def page(pw, n):
     p = pw.new_context(ignore_https_errors=True, viewport={"width": 1300, "height": 1000}).new_page()
     p.on("pageerror", lambda e: errors.append(f"{n}: {e}"))
+    p.on("dialog", lambda d: d.accept())          # "really end this link?" etc. -> yes, like the operator
     p.goto(f"https://127.0.0.1:{HUBS[n]}/#/"); p.wait_for_selector("#pw"); p.fill("#pw", PW); p.click("#lbtn")
     p.wait_for_selector("details.secline")
     return p
@@ -85,6 +87,15 @@ def open_link(p):
     d = p.locator("details.linkbox[data-link]").first
     if not d.evaluate("e => e.open"): d.locator("xpath=./summary").click()
     return d
+
+
+def pki_packet(sender):
+    """A private-message ServiceEnvelope, encoded by hand (no protobuf library needed here)."""
+    import struct, random as rnd
+    f32 = lambda field, v: bytes([(field << 3) | 5]) + struct.pack("<I", v)
+    ln = lambda field, b: bytes([(field << 3) | 2, len(b)]) + b
+    pkt = f32(1, sender) + f32(2, 0x12345678) + ln(5, os.urandom(40)) + f32(6, rnd.randint(1, 2**31))
+    return ln(1, pkt) + ln(2, b"PKI") + ln(3, b"!a1000000")
 
 
 def peer_table_text(p):
@@ -174,6 +185,87 @@ with sync_playwright() as pw:
     inp.fill("77"); a.locator("button[data-save-sec='display']").click(); a.wait_for_timeout(800)
     check("Device/section field written to the radio", any(x["call"] == "writeConfig" and x["section"] == "display" and x["values"].get("screen_on_secs") == 77
                                                            for x in h["A"]("/api/test/radio")["calls"]))
+    # ── link requests by click: ask, decline, cancel, accept, end ──
+    import base64
+    c_ = page(br, "C")
+    linked = lambda x, y: [l for l in h[x]("/api/status")["links"] if l["peer"] == ids[y]]
+    go(b, "B", "links", "#hubdir button[data-ask]")
+    b.locator(f"#hubdir button[data-ask='{ids['C']}']").click()
+    check("Links/'Ask for a link' click -> C gets the request", wait(lambda: linked("C", "B"), 8))
+    go(c_, "C", "links", "button[data-acc]")
+    c_.locator(".reqrow button[data-rm]").click()
+    check("Links/'Decline' click -> request gone on both hubs", wait(lambda: not linked("C", "B") and not linked("B", "C"), 8))
+    go(b, "B", "links", "#hubdir button[data-ask]")
+    b.locator(f"#hubdir button[data-ask='{ids['C']}']").click(); wait(lambda: linked("C", "B"), 8)
+    go(b, "B", "links", ".reqrow button[data-rm]")
+    b.locator(".reqrow button[data-rm]").click()
+    check("Links/'Cancel request' click -> gone on both hubs", wait(lambda: not linked("C", "B") and not linked("B", "C"), 8))
+    go(b, "B", "links", "#hubdir button[data-ask]")
+    b.locator(f"#hubdir button[data-ask='{ids['C']}']").click(); wait(lambda: linked("C", "B"), 8)
+    go(c_, "C", "links", "button[data-acc]"); c_.click("button[data-acc]")
+    check("Links/'Accept' click -> link active on both hubs", wait(lambda: linked("B", "C") and linked("B", "C")[0]["state"] == "active" and linked("C", "B")[0]["state"] == "active", 8))
+
+    # ── onward tick boxes: B offers C to A ──
+    h["B"]("/api/hub", {"transit": {"enabled": True, "max_hops": 3}}); time.sleep(2)
+    go(a, "A", "links", "details.linkbox[data-link]"); box = open_link(a)
+    box.locator("select[data-reach]").select_option("1")
+    tick = box.locator(f"input[data-onward='{ids['C']}']")
+    if check("Links/how far: B's offer of C shown as a tick box", tick.count() == 1):
+        tick.check(); box.locator(f"button[data-save='{ids['B']}']").click(); a.wait_for_timeout(700)
+        r = cfgA()["rules"][ids["B"]]["send"]
+        check("Links/onward tick C + 1 hub further: saved", r["reach"] == 1 and r["onward_to"] == [ids["C"]], r)
+
+    # ── changed end-to-end key -> 'Trust new key' button ──
+    pc = HUBS["C"]
+    subprocess.run(f"pid=$(ss -ltnp 'sport = :{pc}' | grep -oP 'pid=\\K[0-9]+' | head -1); kill $pid; sleep 1; rm -f {T}/hC/identity.key", shell=True)
+    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE=c300000 "
+                     f"URA_DATA={T}/hC URA_WEB_PORT={pc} setsid nohup {HUBPY} -u ura_hub.py >> {T}/hubC.log 2>&1 < /dev/null &", shell=True)
+    check("B notices C's new key", wait(lambda: linked("B", "C") and linked("B", "C")[0]["e2e"]["state"] == "changed", 25))
+    go(b, "B", "links", f"details.linkbox[data-peer='{ids['C']}']")
+    d = b.locator(f"details.linkbox[data-peer='{ids['C']}']")
+    if not d.evaluate("e => e.open"): d.locator("xpath=./summary").click()
+    btn = d.locator(f"button[data-trust='{ids['C']}']")
+    if check("Links/'Trust new key' button shown", btn.count() == 1):
+        btn.click()
+        check("Links/'Trust new key' click -> key accepted", wait(lambda: linked("B", "C")[0]["e2e"]["state"] == "ok", 8))
+    go(b, "B", "links", f"details.linkbox[data-peer='{ids['C']}']")
+    d = b.locator(f"details.linkbox[data-peer='{ids['C']}']")
+    if not d.evaluate("e => e.open"): d.locator("xpath=./summary").click()
+    d.locator("button[data-rm]").click()
+    check("Links/'End link' click -> gone on both hubs, A-B kept", wait(lambda: not linked("B", "C") and linked("B", "A"), 8))
+
+    # ── Status page: older nodes, remote nodes grouped by hub ──
+    go(a, "A", "", "#localtable")
+    before = a.locator("#localtable").inner_text()
+    a.check("#showold"); a.wait_for_timeout(800)
+    check("Status/'show older nodes' tick -> the 30-day-old node appears", "Old node" not in before and "Old node" in a.locator("#localtable").inner_text())
+    h["A"]("/api/test/inject", {"topic": "msh/EU_868/2/e/PKI/!a1000000", "data": base64.b64encode(pki_packet(0x5eed1234)).decode()})
+    wait(lambda: any(x["id"] == "!5eed1234" for x in h["B"]("/api/nodes")), 8)
+    go(b, "B", "", "details.secline"); open_sec(b, "remote"); b.wait_for_timeout(400)
+    rtxt = b.locator("details.secline[data-sec='remote']").inner_text()
+    check("Status/remote nodes grouped under the hub they came from (XT-AAA)", "XT-AAA" in rtxt and "5eed1234" in rtxt, rtxt[:300])
+
+    # ── Radio page: diagnostics + prepare by click ──
+    go(a, "A", "radio", "details.secline"); open_sec(a, "diag")
+    a.fill("#dgnode", "!0a100001"); a.click("button[data-dg='dm']")
+    out = wait(lambda: (lambda t_: t_ if t_ and "…" not in t_ and "Waiting" not in t_ else None)(a.locator("#dgout").inner_text()), 20)
+    check("Radio/Diagnostics 'private message' click -> delivered", out and a.locator("#dgout .msg.ok").count() == 1, out)
+    a.fill("#dgnode", "!0a100001"); a.click("button[data-dg='trace']")
+    out = wait(lambda: (lambda t_: t_ if "→" in t_ else None)(a.locator("#dgout").inner_text()), 20)
+    check("Radio/Diagnostics 'traceroute' click -> route shown", out and "Neighbour two" in out, out)
+    h["A"]("/api/radio/section", {"kind": "module", "section": "mqtt", "values": {"enabled": False}})
+    go(a, "A", "radio", "details.secline"); open_sec(a, "state")
+    if check("Radio/'Prepare radio for Ura' button shown when not ready", a.locator("#prep").count() == 1):
+        a.click("#prep")
+        check("Radio/'Prepare' click -> radio ready again", wait(lambda: h["A"]("/api/status")["radio"]["ready"], 10))
+
+    # ── Device settings: channel edit + fixed position by click ──
+    go(a, "A", "device", "details.secline"); open_sec(a, "ch1")
+    a.fill("details[data-sec='ch1'] [data-c='name']", "Team2"); a.click("details[data-sec='ch1'] button[data-chsave]"); a.wait_for_timeout(800)
+    check("Device/channel name edited by click -> written to radio", any(x["call"] == "writeChannel" and x["index"] == 1 and x["name"] == "Team2" for x in h["A"]("/api/test/radio")["calls"]))
+    go(a, "A", "device", "details.secline"); open_sec(a, "fixed")
+    a.check("#fxon"); a.fill("#fxlat", "43.21"); a.fill("#fxlon", "12.34"); a.click("#fxsave"); a.wait_for_selector("#fxmsg .msg")
+    check("Device/fixed position by click -> written to radio", any(x["call"] == "setFixedPosition" and abs(x["lat"] - 43.21) < 1e-6 for x in h["A"]("/api/test/radio")["calls"]))
     br.close()
 
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports), shell=True)
