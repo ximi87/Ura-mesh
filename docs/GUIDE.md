@@ -63,6 +63,15 @@ hub, encryption kept, uplink/downlink on every channel, *Ignore MQTT* off). The 
 can be fully programmed under **Device settings** — name, position, channels and keys, LoRa
 region and preset, every module.
 
+**Channels and keys.** The hub radio can only pass on what it can read: it needs every channel it
+should pass on, **with the same name and the same key** as the nodes use. The public channel uses
+the default key `AQ==` — leave it so. If your mesh uses its own key, add that channel to the hub
+radio (*Device settings → Channels → Add channels from a Meshtastic link*, or type the key in). A
+group crosses between two hubs only when both hub radios have it with the same key and both
+operators tick it. Each channel shows its code (equal codes = the radios understand each other);
+the *Status* page warns when the radio hears a channel it cannot read, and the hub keeps a copy of
+the channels to write back to a new or reset radio. Details: [INSTALL-HUB.md](INSTALL-HUB.md#channels-and-keys--read-this-before-you-continue).
+
 ### Step 5 — Describe the hub (*Settings*)
 Hub name, the operator's e-mail (only the server admin sees it), country code + place code
 (`XX-YY`, one hub per place), and the location — automatically from the radio or typed in.

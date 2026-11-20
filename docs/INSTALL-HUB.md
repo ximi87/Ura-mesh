@@ -81,6 +81,33 @@ Keep the website to your local network (a firewall rule, or simply no port forwa
 The radio's own settings (name, position, channels, LoRa, everything) are under
 **Device settings**.
 
+### Channels and keys — read this before you continue
+
+A Meshtastic radio can only read packets on a channel it **also has, with the same name and the
+same key**. The hub radio is no exception: it can only pass on what it can read (private messages
+between two nodes are the only exception — they use the nodes' own keys and always pass).
+
+- **The public channel** (LongFast, MediumFast, … depending on your region's preset) uses the
+  public default key **`AQ==`**. Leave it like that on the hub radio *and* on the nodes, and their
+  public messages, positions and telemetry cross Ura.
+- **If your mesh uses its own key** — for the main channel or for a group — the hub radio needs that
+  channel too. Easiest: in the Meshtastic app open **Channels → share** (QR code / link), then on the
+  hub **Device settings → Channels → Add channels from a Meshtastic link** and paste the link.
+  You can also type a key in or let the radio generate one (**Device settings → Channels → channel →
+  Key**) and share it from there: each channel shows its key with a *Copy* button, and the page has
+  the share link for all channels.
+- **For a group to cross between two hubs**, *both* hub radios need that channel with the same name
+  and key, and both operators tick it under **Links & rules**. If the names match but the keys do
+  not, the receiving hub says so (*same channel name, other key*) instead of putting unreadable
+  packets on air.
+- Every channel shows its **code** (a number from 0 to 255 made from name and key). Radios read each
+  other only when the codes are equal. The public LongFast channel has code **8**.
+- **The hub warns you.** When its radio hears packets it cannot read, the *Status* page shows the
+  channel code and the nodes sending on it — typically a node whose key was changed.
+- **The hub keeps a copy of the radio's channels.** If you replace or reset the radio, or change its
+  channels with the phone app, *Device settings* tells you and offers **Write the saved channels to
+  the radio** (or *Keep the radio's channels*).
+
 ## 5. Hub details and location — *Settings*
 
 - **Hub details:** a name, your e-mail address (visible only to the server's

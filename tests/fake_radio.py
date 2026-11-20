@@ -89,6 +89,19 @@ class FakeInterface:
         self.localNode = FakeNode(self)
         self.isConnected = threading.Event(); self.isConnected.set()
 
+    # tests only (POST /api/test/fake): things that happen to a real radio outside the hub's control
+    def test_hear(self, code, sender):
+        """The radio hears a packet on a channel it cannot read (another key or name)."""
+        from pubsub import pub
+        num = int(sender.lstrip("!"), 16)
+        pub.sendMessage("meshtastic.receive", interface=self, packet={"from": num, "fromId": sender, "to": 0xFFFFFFFF,
+                        "toId": "^all", "channel": int(code), "encrypted": "AAAA", "id": random.randint(1, 2**31)})
+
+    def test_channel(self, index, name="", psk="", role=2):
+        """Someone changed a channel directly on the radio (e.g. with the phone app)."""
+        ch = self.localNode.channels[int(index)]
+        ch.role, ch.settings.name, ch.settings.psk = int(role), name, base64.b64decode(psk) if psk else b""
+
     def getMyNodeInfo(self): return self.nodesByNum[self.myInfo.my_node_num]
     def getMyUser(self): return dict(self.nodesByNum[self.myInfo.my_node_num]["user"])
 

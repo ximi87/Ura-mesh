@@ -7,8 +7,8 @@ sent, and the test checks that the other hub's radio did — or did not — put 
 
 | Test | What it does | Checks |
 |---|---|---|
-| `tests/functions_test.py` | Test server + hubs A, B, C, D with simulated radios (`tests/fake_radio.py`), from scratch: registration, links, every rule, defaults, multi-hop and max hops (chain of 4), hourly and daily airtime, duplicates, replayed and altered packets, diagnostics, prepare radio, key change, removal, leaving, registering again, every hub and server advanced setting by its effect, server restart with queued packets, frozen server, lockouts, watchdog | 192 |
-| `tests/ui_controls_test.py` | Clicks every control on the hub pages in a real browser (rules, reach and onward ticks, link ask/decline/cancel/accept/end, trust new key, settings, older nodes, remote nodes by hub, diagnostics, prepare, channel, fixed position), saves, checks the setting changed **and that the partner's page shows it** | 58 |
+| `tests/functions_test.py` | Test server + hubs A, B, C, D with simulated radios (`tests/fake_radio.py`), from scratch: registration, links, every rule, defaults, multi-hop and max hops (chain of 4), hourly and daily airtime, duplicates, replayed and altered packets, diagnostics, prepare radio, key change, removal, leaving, registering again, every hub and server advanced setting by its effect, server restart with queued packets, frozen server, lockouts, watchdog, channels and keys (unreadable channel warning, saved copy + restore, add from a link, same name with another key) | 209 |
+| `tests/ui_controls_test.py` | Clicks every control on the hub pages in a real browser (rules, reach and onward ticks, link ask/decline/cancel/accept/end, trust new key, settings, older nodes, remote nodes by hub, diagnostics, prepare, channel, fixed position, channel warning, restore channels, add channels from a link, copy key), saves, checks the setting changed **and that the partner's page shows it** | 62 |
 | `tests/ui_test.py` | Browser walk through all server and hub pages (start with `tests/run_test.sh`) | 64 |
 | `tests/multihop_test.py`, `tests/links_test.py` | Multi-hop chains/triangles; link and registration consistency | 12 + 12 |
 
@@ -35,6 +35,7 @@ readable at `GET /api/test/radio` — only when the hub runs with `URA_TEST_INJE
 | Packets heard while the server was unreachable were sent the moment the hub reconnected — before its partners were back — and the server dropped them; the queue size only changed after a restart | "Packets kept while the server is unreachable" did not work | After a reconnect the hub waits (up to 15 s) until its linked hubs are online; the size limit applies at once |
 | Old statistics were only removed when traffic flowed | Retention did nothing on a quiet server | Clean-up at start and every hour |
 | Keepalive and server timeout were read only at the start of each wait (up to 2 min) | A frozen server went unnoticed; changed values applied late | Both re-read continuously |
+| A node's channel key differed from the hub radio's (the radio heard the messages but could not read them) | Public messages silently did not cross Ura; nothing on the hub said why | Status warns with the channel code and the nodes; channels show their code and key; add channels from a Meshtastic link; the hub keeps a copy of the channels to restore; same name + other key at the partner is reported as *other key* |
 | Diagnostics took a node's plain "received" confirmation as the answer to a telemetry/position/traceroute request | Showed "delivered" although no data came back (seen live with a Tag) | Waits for the data; otherwise "received, but no data" |
 
 After the fixes both live hubs left the server, registered again from scratch, were approved and linked;

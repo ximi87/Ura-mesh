@@ -632,6 +632,49 @@ check("server frozen (no answers) -> hub gives up after 30 s", wait(lambda: stat
 os.kill(pid, signal.SIGCONT)
 check("... and reconnects when the server answers again", wait(lambda: status("A")["link_state"] == "connected", 20))
 
+sec("channels and keys")
+from meshtastic.protobuf import apponly_pb2
+def code_of(name, key):
+    x = 0
+    for b in name.encode() + key: x ^= b
+    return x
+ra = lambda: status("A")["radio"]
+check("channel codes shown; public LongFast = 8", next(c for c in ra()["channels"] if c["name"] == "LongFast")["code"] == 8, ra()["channels"])
+h["A"]("/api/test/fake", {"call": "hear", "args": {"code": 44, "sender": "!0abc1234"}}); time.sleep(1)
+u = ra()["unknown_channels"]
+check("radio hears a channel it cannot read -> shown with code + sender", u and u[0]["code"] == 44 and u[0]["senders"][0]["id"] == "!0abc1234", u)
+h["A"]("/api/test/fake", {"call": "hear", "args": {"code": 8, "sender": "!0abc1235"}}); time.sleep(1)
+check("a channel the radio knows is not listed", all(x["code"] != 8 for x in ra()["unknown_channels"]))
+check("the hub keeps a saved copy of the radio's channels", any(c["name"] == "Team" for c in h["A"]("/api/radio/settings")["channels_saved"]))
+check("saved copy = radio", ra()["channels_match"] is True)
+h["A"]("/api/test/fake", {"call": "channel", "args": {"index": 1, "name": "Changed", "psk": base64.b64encode(b"k" * 16).decode()}})
+check("channel changed outside the hub (phone app) -> 'differs' shown", ra()["channels_match"] is False)
+h["A"]("/api/radio/channels_restore", {})
+c1 = next((c for c in ra()["channels"] if c["index"] == 1), {})
+check("'write the saved channels' -> radio has Team with its key again", c1.get("name") == "Team" and c1.get("code") == code_of("Team", TEAM_PSK) and ra()["channels_match"], c1)
+h["A"]("/api/test/fake", {"call": "channel", "args": {"index": 1, "name": "Changed", "psk": base64.b64encode(b"k" * 16).decode()}})
+h["A"]("/api/radio/channels_keep", {})
+check("'keep the radio's channels' -> saved copy updated", ra()["channels_match"] and any(c["name"] == "Changed" for c in h["A"]("/api/radio/settings")["channels_saved"]))
+h["A"]("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "Team", "psk": base64.b64encode(TEAM_PSK).decode(), "uplink": True, "downlink": True, "position_precision": 0, "muted": False}})
+check("channel set from the hub -> saved copy follows", ra()["channels_match"] and any(c["name"] == "Team" for c in h["A"]("/api/radio/settings")["channels_saved"]))
+cs = apponly_pb2.ChannelSet(); st = cs.settings.add(); st.name = "Club"; club_key = os.urandom(32); st.psk = club_key
+cs.lora_config.modem_preset = 4; cs.lora_config.region = 3
+url = "https://meshtastic.org/e/#" + base64.urlsafe_b64encode(cs.SerializeToString()).decode().rstrip("=")
+r = h["A"]("/api/radio/channels_import", {"url": url})
+check("channel link: channel added with its key", r.get("added") == ["Club"] and any(c["name"] == "Club" and c["code"] == code_of("Club", club_key) for c in ra()["channels"]), r)
+check("... warns that the link uses another LoRa preset", r.get("warning") == "lora_differs", r)
+check("... uplink + downlink on (needed by Ura)", (lambda c: c and c["uplink"] and c["downlink"])(next((c for c in ra()["channels"] if c["name"] == "Club"), None)))
+check("... saved copy includes it", any(c["name"] == "Club" for c in h["A"]("/api/radio/settings")["channels_saved"]))
+check("same link again -> 'already there'", h["A"]("/api/radio/channels_import", {"url": url}).get("skipped") == ["Club"])
+check("not a channel link -> clear error", h["A"]("/api/radio/channels_import", {"url": "https://example.org/x"}).get("error") == "channel_link")
+h["B"]("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "Team", "psk": base64.b64encode(b"o" * 32).decode(), "uplink": True, "downlink": True, "position_precision": 0, "muted": False}})
+time.sleep(1)
+check("both hubs have 'Team' with different keys -> not put on air, reason 'other key'",
+      not arrives("A", "B", "Team", expect=False) and blocked("B", "A", "recv", "key_differs") > 0, peer_counts("B", "A"))
+h["B"]("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "Team", "psk": base64.b64encode(TEAM_PSK).decode(), "uplink": True, "downlink": True, "position_precision": 0, "muted": False}})
+time.sleep(1)
+check("same key again -> Team passes", arrives("A", "B", "Team"))
+
 # ── report ─────────────────────────────────────────────────────────────────
 kill_ports()
 bad = [r for r in results if not r[2]]

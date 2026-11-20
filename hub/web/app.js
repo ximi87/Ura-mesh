@@ -24,6 +24,34 @@ Ura.add({
                         sq: "Njoftimi dërgon emrin, telemetrinë dhe (nëse ka) pozicionin e kësaj radioje në rrjet dhe përmes lidhjeve. Kërkesa fqinjëve bën që nyjet afër të përgjigjen me të tyret." },
   "dg.no_data": { en: "The node received the request but sent nothing back (waited {s} s). Some nodes do not answer telemetry or position requests, or have nothing to report.",
                   sq: "Nyja e mori kërkesën por nuk ktheu asgjë (pritëm {s} s). Disa nyje nuk u përgjigjen kërkesave për telemetri ose pozicion, ose nuk kanë çfarë të raportojnë." },
+  "uc.title": { en: "This radio hears packets it cannot read", sq: "Kjo radio dëgjon paketa që nuk mund t'i lexojë" },
+  "uc.line": { en: "Channel code {code}: {n} packets, last {x}, from", sq: "Kodi i kanalit {code}: {n} paketa, e fundit {x}, nga" },
+  "uc.fix": { en: "These packets cannot cross Ura: their channel has another key or name than any channel of this radio ({codes}). Fix it on that node (for the public channel: the default key AQ==), or add the same channel (same name, same key) to this radio:",
+              sq: "Këto paketa nuk mund të kalojnë Ura: kanali i tyre ka çelës ose emër tjetër nga çdo kanal i kësaj radioje ({codes}). Rregullojeni te ajo nyje (për kanalin publik: çelësi i parazgjedhur AQ==), ose shtoni të njëjtin kanal (i njëjti emër, i njëjti çelës) në këtë radio:" },
+  "uc.short": { en: "hears unreadable channel", sq: "dëgjon kanal të palexueshëm" },
+  "cs.differs": { en: "The radio's channels differ from the copy saved in this hub (the radio was replaced, reset, or changed with the phone app).",
+                  sq: "Kanalet e radios ndryshojnë nga kopja e ruajtur në këtë hub (radio u zëvendësua, u rivendos ose u ndryshua me aplikacionin)." },
+  "cs.saved": { en: "Saved in the hub", sq: "Të ruajtura në hub" },
+  "cs.restore": { en: "Write the saved channels to the radio", sq: "Shkruaj kanalet e ruajtura në radio" },
+  "cs.restore_q": { en: "Write the channels saved in the hub to the radio? Channels the hub does not know are removed from the radio.",
+                    sq: "Të shkruhen kanalet e ruajtura në hub në radio? Kanalet që hub-i nuk i njeh hiqen nga radio." },
+  "cs.keep": { en: "Keep the radio's channels (save them in the hub)", sq: "Mbaj kanalet e radios (ruaji në hub)" },
+  "ci.title": { en: "Add channels from a Meshtastic link", sq: "Shto kanale nga një lidhje Meshtastic" },
+  "ci.short": { en: "paste the link a phone app shares", sq: "ngjitni lidhjen që ndan aplikacioni" },
+  "ci.hint": { en: "In the Meshtastic app: Channels → share (QR code / link). Paste the link here: its channels — with their keys — are added to this radio. Ura needs the same channels (same name, same key) as the nodes whose packets it should pass on.",
+               sq: "Në aplikacionin Meshtastic: Kanalet → ndaj (kod QR / lidhje). Ngjiteni lidhjen këtu: kanalet e saj — me çelësat — shtohen në këtë radio. Ura ka nevojë për të njëjtat kanale (i njëjti emër, i njëjti çelës) si nyjet paketat e të cilave duhet t'i kalojë." },
+  "ci.link": { en: "Channel link", sq: "Lidhja e kanalit" },
+  "ci.primary": { en: "Use its first channel as this radio's main channel (#0)", sq: "Përdor kanalin e parë si kanalin kryesor të kësaj radioje (#0)" },
+  "ci.add": { en: "Add to the radio", sq: "Shto në radio" },
+  "ci.done": { en: "Added: {a}. Already there: {s}.", sq: "U shtuan: {a}. Ishin tashmë: {s}." },
+  "ci.lora": { en: "Note: the link was made with another LoRa preset or region; this radio keeps its own.", sq: "Shënim: lidhja u bë me një paracaktim LoRa ose rajon tjetër; kjo radio mban të sajin." },
+  "ch.code": { en: "Code", sq: "Kodi" }, "ch.copy": { en: "Copy", sq: "Kopjo" },
+  "ch.key_now": { en: "Current key (base64)", sq: "Çelësi aktual (base64)" },
+  "ch.code_hint": { en: "Channel code {code}: radios read each other only on the same name and key — i.e. the same code. The public LongFast channel has code 8.",
+                    sq: "Kodi i kanalit {code}: radiot lexojnë njëra-tjetrën vetëm me të njëjtin emër dhe çelës — pra të njëjtin kod. Kanali publik LongFast ka kodin 8." },
+  "why.key_differs": { en: "same channel name, other key", sq: "i njëjti emër kanali, çelës tjetër" },
+  "err.channel_link": { en: "This is not a Meshtastic channel link.", sq: "Kjo nuk është lidhje kanali Meshtastic." },
+  "err.nothing_saved": { en: "No channels are saved in the hub yet.", sq: "Ende nuk ka kanale të ruajtura në hub." },
   "wd.log": { en: "What the watchdog found", sq: "Çfarë gjeti mbikëqyrësi" },
   "wd.short": { en: "restarted {n}× (7 days)", sq: "rindezur {n}× (7 ditë)" },
   "rx.deaf_short": { en: "hears nothing", sq: "nuk dëgjon asgjë" },
@@ -393,6 +421,7 @@ async function pageStatus() {
   const pendingNote = s.server.status === "pending" ? `<div class="msg warn"><b>${t("pend.title")}</b><br>${t("pend.text", { x: esc(s.server.address) })}</div>`
                     : s.server.status === "removed" ? `<div class="msg bad">${t("pend.removed")}</div>`
                     : !s.server.hub_id ? `<div class="msg info">${t("pend.none")} <a href="#/settings">${t("nav.settings")} →</a></div>` : "";
+  const unk = (r && r.unknown_channels) || [];
   const remote = nodes.filter(n => n.remote);
   secs("status", [!r || !r.connected || !r.ready ? "radio" : null, s.link_state !== "connected" ? "server" : null, "local"]);
   const lim = (used, win, l) => `<b>${pct(used, win)}</b> <span class="muted small">${l ? "/ " + l + " %" : ""}</span>`;
@@ -422,6 +451,7 @@ async function pageStatus() {
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", t("r.not_connected"))], [t("name"), esc(r.name || "–")],
         [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
         [t("wd.last"), r.connected ? ago(now - r.silent_s) : "–"],
+        ...(unk.length ? [["", B("warn", t("uc.short"))]] : []),
         ...((r.watchdog || []).length ? [["", B("warn", t("wd.short", { n: r.watchdog.length }))]] : [])] : [["", B("bad", t("err.no_radio"))]], radioBody),
     secBox("status", "airtime", `<b>${t("st.airtime")}</b>`,
       [[t("st.hour"), lim(a.used_hour, 3600, a.limits.pct_hour)], [t("st.day"), lim(a.used_day, 86400, a.limits.pct_day)],
@@ -448,7 +478,13 @@ async function pageStatus() {
       `<p class="muted small">${t("nl.remote.hint")}</p>
         ${gkeys.length ? gkeys.map((k, i) => `<details class="grp" data-g="${esc(k)}" ${i === 0 && k !== "?" ? "open" : ""}><summary><span class="dot" style="background:${color[k]}"></span><b>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</b> (${groups[k].length})</summary><div class="grptable"></div></details>`).join("")
           : `<p class="muted">${t("none")}</p>`}`)];
-  app().innerHTML = `${pendingNote}
+  const chNote = (unk.length ? `<div class="msg warn"><b>${t("uc.title")}</b>
+      ${unk.map(u => `<div style="margin-top:.3rem">${t("uc.line", { code: u.code, n: u.count, x: ago(u.last) })}
+        ${u.senders.map(x => `<span class="mono small">${esc(x.id)}</span>${x.name ? ` <span class="small">(${esc(x.name)})</span>` : ""}`).join(", ")}</div>`).join("")}
+      <div class="small" style="margin-top:.4rem">${t("uc.fix", { codes: (r.channels || []).map(c => `${esc(c.name)} = ${c.code != null ? c.code : "?"}`).join(", ") })}
+        <a href="#/device">${t("nav.device")} →</a></div></div>` : "")
+    + (r && r.connected && r.channels_match === false ? `<div class="msg warn">${t("cs.differs")} <a href="#/device">${t("nav.device")} →</a></div>` : "");
+  app().innerHTML = `${pendingNote}${chNote}
     <div class="grid g4">
       <div class="stat"><div class="v">${g.heard}</div><div class="l">${t("st.heard")}</div></div>
       <div class="stat"><div class="v">${g.sent}</div><div class="l">${t("st.sent")}</div></div>
@@ -738,6 +774,15 @@ async function pageDevice() {
   secs("device", []);
   const keyBadge = c => B(c.psk === "default" ? "warn" : "ok", c.psk === "default" ? t("r.public") : c.psk === "none" ? t("dev.nokey") : t("r.private_ch"));
   const secTitle = sc => SEC_NAMES[sc.name] ? t(SEC_NAMES[sc.name]) : esc(human(sc.name));
+  const savedNote = d.channels_match === false ? `<div class="msg warn"><b>${t("cs.differs")}</b>
+      <div class="small">${t("cs.saved")}: ${(d.channels_saved || []).map(c => `#${c.index} ${esc(c.name || t("dev.preset_name"))}`).join(", ")}</div>
+      <div class="row" style="margin-top:.5rem"><button class="primary small" id="chrestore">${t("cs.restore")}</button>
+        <button class="small" id="chkeep">${t("cs.keep")}</button></div><div id="csmsg"></div></div>` : "";
+  const importBox = secBox("device", "chimport", `➕ ${t("ci.title")}`, [["", `<span class="muted small">${t("ci.short")}</span>`]],
+    `<p class="muted small">${t("ci.hint")}</p>
+     <label>${t("ci.link")}</label><input type="text" id="chlink" placeholder="https://meshtastic.org/e/#…">
+     <label class="check"><input type="checkbox" id="chprim"> ${t("ci.primary")}</label>
+     <div class="row" style="margin-top:.5rem"><button class="primary" id="chimp">${t("ci.add")}</button></div><div id="chimpmsg"></div>`);
   app().innerHTML = `
     <div class="msg warn">${t("dev.warn")}</div>
     ${secCard(t("dev.identity"), `<p class="muted small">${t("sec.hint")}</p>` +
@@ -752,14 +797,19 @@ async function pageDevice() {
           <div><label>${t("s.lon")}</label><input type="number" step="any" id="fxlon" value="${esc(d.fixed.lon ?? "")}"></div>
           <div><label>${t("dev.alt")}</label><input type="number" id="fxalt" value="${esc(d.fixed.alt ?? 0)}"></div></div>
         <div id="fxmsg"></div><button class="primary" id="fxsave">${t("save")}</button>`))}
-    ${secCard(`${t("dev.channels")} (${ch.length})`, `<p class="muted small">${t("dev.channels.hint")}</p>
+    ${secCard(`${t("dev.channels")} (${ch.length})`, `${savedNote}<p class="muted small">${t("dev.channels.hint")}</p>
       ${ch.map(c => secBox("device", "ch" + c.index, `<b>#${c.index}</b> ${esc(c.name || t("dev.preset_name"))}`,
           [[t("dev.role"), B(c.role === "PRIMARY" ? "info" : "", c.role === "PRIMARY" ? t("dev.primary") : t("dev.secondary"))], [t("dev.key"), keyBadge(c)],
+           [t("ch.code"), `<b>${c.code != null ? c.code : "–"}</b>`],
            [t("dev.updown"), `${c.uplink ? "↑" : "–"} ${c.downlink ? "↓" : "–"}`], ...(c.muted ? [["", B("", t("dev.muted"))]] : [])],
-          chForm(c), { cls: "chbox", attrs: `data-ch="${c.index}"` })).join("")}
+          `<div class="copyrow"><div class="lr-k">${t("ch.key_now")}</div><div class="copybox"><code id="key${c.index}">${esc(c.key_b64)}</code>
+             <button class="small" data-copy="key${c.index}">${t("ch.copy")}</button></div>
+           <div class="small muted">${t("ch.code_hint", { code: c.code })}</div></div>` + chForm(c), { cls: "chbox", attrs: `data-ch="${c.index}"` })).join("")}
+      ${importBox}
       ${free ? secBox("device", "chnew", `➕ ${t("dev.addch")}`, [], chForm({ index: free.index, role: "SECONDARY", name: "", psk: "random", uplink: true, downlink: true, position_precision: 0, muted: false }),
           { cls: "chbox", attrs: `data-ch="${free.index}" data-new="1"` }) : ""}
-      ${d.url ? `<p class="small">${t("dev.url")}: <a href="${esc(d.url)}" target="_blank" rel="noopener" class="mono">${esc(d.url)}</a></p>` : ""}
+      ${d.url ? `<div class="copyrow"><div class="lr-k">${t("dev.url")}</div><div class="copybox"><code id="churl">${esc(d.url)}</code>
+        <button class="small" data-copy="churl">${t("ch.copy")}</button></div></div>` : ""}
       <div id="chmsg"></div>`)}
     ${secCard(`${t("dev.all")} (${d.sections.length})`, `<p class="muted small">${t("dev.all.hint")}</p>
       ${d.sections.map(sc => secBox("device", sc.name, `<b>${secTitle(sc)}</b>`,
@@ -770,6 +820,28 @@ async function pageDevice() {
           { attrs: `data-kind="${sc.kind}"` })).join("")}`)}`;
   bindSecs();
   const orig = {}; d.sections.forEach(s => orig[s.name] = s.values);
+  $$("button[data-copy]").forEach(b => b.onclick = async ev => {
+    ev.preventDefault();
+    const txt = $("#" + b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(txt); }
+    catch (e) { const rg = document.createRange(); rg.selectNodeContents($("#" + b.dataset.copy)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); document.execCommand("copy"); }
+    b.textContent = "✓"; setTimeout(() => b.textContent = t("ch.copy"), 1500);
+  });
+  $("#chimp").onclick = async () => {
+    $("#chimp").disabled = true;
+    try {
+      const r = await api("POST", "/api/radio/channels_import", { url: $("#chlink").value, primary: $("#chprim").checked });
+      $("#chimpmsg").innerHTML = `<div class="msg ok">${t("ci.done", { a: esc(r.added.join(", ") || "–"), s: esc(r.skipped.join(", ") || "–") })}
+        ${r.warning ? `<br>${t("ci.lora")}` : ""} ${t("dev.ch_restart")}</div>`;
+      setTimeout(pageDevice, 5000);
+    } catch (e) { $("#chimpmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#chimp").disabled = false; }
+  };
+  if ($("#chrestore")) $("#chrestore").onclick = async () => {
+    if (!confirm(t("cs.restore_q"))) return;
+    try { await api("POST", "/api/radio/channels_restore", {}); $("#csmsg").innerHTML = `<div class="msg ok">${t("saved")} ${t("dev.ch_restart")}</div>`; setTimeout(pageDevice, 5000); }
+    catch (e) { $("#csmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
+  if ($("#chkeep")) $("#chkeep").onclick = async () => { await api("POST", "/api/radio/channels_keep", {}); pageDevice(); };
   $("#osave").onclick = async () => { try { await api("POST", "/api/radio/owner", { long_name: $("#olong").value, short_name: $("#oshort").value }); $("#omsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#omsg").innerHTML = `<div class="msg bad">${t("dev.owner.bad")}</div>`; } };
   $("#fxsave").onclick = async () => { try { await api("POST", "/api/radio/fixed", { fixed: { enabled: $("#fxon").checked, lat: $("#fxlat").value, lon: $("#fxlon").value, alt: $("#fxalt").value } }); $("#fxmsg").innerHTML = `<div class="msg ok">${t("saved")} ${t("dev.restarts")}</div>`; } catch (e) { $("#fxmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; } };
   $$("button[data-save-sec]").forEach(b => b.onclick = async () => {

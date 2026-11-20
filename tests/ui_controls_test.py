@@ -266,6 +266,22 @@ with sync_playwright() as pw:
     go(a, "A", "device", "details.secline"); open_sec(a, "fixed")
     a.check("#fxon"); a.fill("#fxlat", "43.21"); a.fill("#fxlon", "12.34"); a.click("#fxsave"); a.wait_for_selector("#fxmsg .msg")
     check("Device/fixed position by click -> written to radio", any(x["call"] == "setFixedPosition" and abs(x["lat"] - 43.21) < 1e-6 for x in h["A"]("/api/test/radio")["calls"]))
+    # ── channels and keys ──
+    h["A"]("/api/test/fake", {"call": "hear", "args": {"code": 44, "sender": "!0abc1234"}})
+    go(a, "A", "", "details.secline")
+    st_txt = a.locator("#app").inner_text()
+    check("Status: 'hears packets it cannot read' warning with code 44 and the node", "cannot read" in st_txt and "44" in st_txt and "!0abc1234" in st_txt)
+    h["A"]("/api/test/fake", {"call": "channel", "args": {"index": 1, "name": "Phone", "psk": base64.b64encode(b"p" * 16).decode()}})
+    go(a, "A", "device", "details.secline")
+    if check("Device: 'channels differ from the saved copy' with a restore button", a.locator("#chrestore").count() == 1):
+        a.click("#chrestore"); a.wait_for_selector("#csmsg .msg")
+        check("Device: restore click -> radio back on the saved channel", wait(lambda: h["A"]("/api/status")["radio"]["channels_match"], 8))
+    go(a, "A", "device", "details.secline")
+    check("Device: each channel shows its key with a copy button", a.locator("button[data-copy^='key']").count() >= 2)
+    def ln_(field, b): return bytes([(field << 3) | 2, len(b)]) + b
+    url = "https://meshtastic.org/e/#" + base64.urlsafe_b64encode(ln_(1, ln_(2, b"c" * 32) + ln_(3, b"Club"))).decode().rstrip("=")
+    open_sec(a, "chimport"); a.fill("#chlink", url); a.click("#chimp"); a.wait_for_selector("#chimpmsg .msg")
+    check("Device: 'Add channels from a link' click -> channel added", any(c["name"] == "Club" for c in h["A"]("/api/status")["radio"]["channels"]), a.locator("#chimpmsg").inner_text())
     br.close()
 
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports), shell=True)

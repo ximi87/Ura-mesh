@@ -138,6 +138,12 @@ Wi-Fi/IP, and the address of a Ura server.
 > While the hub runs, **nothing else may be connected to the hub radio** (no app over
 > Bluetooth or Wi-Fi). Use a second radio for your phone.
 
+> **Channels and keys:** the hub radio passes on only what it can read — it needs each channel
+> **with the same name and key** as your nodes. Keep the public channel on the default key `AQ==`;
+> for your own keys or groups, add the channel on the hub (*Device settings → Channels → Add channels
+> from a Meshtastic link*). The hub warns when its radio hears a channel it cannot read.
+> [More](docs/INSTALL-HUB.md#channels-and-keys--read-this-before-you-continue)
+
 Full guide: [docs/INSTALL-HUB.md](docs/INSTALL-HUB.md)
 
 ### Run a server (to create a network of hubs)
@@ -190,6 +196,11 @@ end-to-end encrypted between hubs, every hub enforces its own rules and airtime 
 packets go on air as normal LoRa packets (so nodes with *Ignore MQTT* see them too).
 
 **Does every user need special firmware?** No — only the one radio connected to each hub.
+
+**Do all nodes need the default key?** No. A key only has to match within one channel: the public
+channel uses the default key `AQ==`; a group with its own key works as soon as the hub radio has
+that channel too (same name, same key) — and, to cross between two hubs, both hub radios. Private
+messages between two nodes always work; they use the nodes' own keys.
 
 **What does the server see?** Who is linked with whom and how many packets pass — never content.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#what-the-server-knows).

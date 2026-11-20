@@ -336,6 +336,33 @@ KIND = {portnums_pb2.PortNum.TEXT_MESSAGE_APP: "text", portnums_pb2.PortNum.POSI
         portnums_pb2.PortNum.TRACEROUTE_APP: "traceroute"}
 
 
+def channel_code(name, psk):
+    """The one-byte channel code ("hash") radios put in every packet: XOR of the name and of the key.
+    Two radios read each other's channel only when name AND key are the same — i.e. the same code."""
+    h = 0
+    for b in name.encode():
+        h ^= b
+    for b in expand_psk(bytes(psk)) or b"":
+        h ^= b
+    return h
+
+
+def parse_channel_link(url):
+    """Meshtastic share link / QR text (https://meshtastic.org/e/#...) -> ChannelSet."""
+    from meshtastic.protobuf import apponly_pb2
+    frag = str(url or "").strip().split("#", 1)[-1].strip()
+    if not frag:
+        raise ValueError("channel_link")
+    cs = apponly_pb2.ChannelSet()
+    try:
+        cs.ParseFromString(base64.urlsafe_b64decode(frag + "=" * (-len(frag) % 4)))
+    except Exception:
+        raise ValueError("channel_link")
+    if not cs.settings:
+        raise ValueError("channel_link")
+    return cs
+
+
 def classify(data, channels):
     """Return {channel, public, private, kind, size} for a ServiceEnvelope, or None if invalid.
     channels: {channel_id: {"key": bytes|None, "public": bool}} from the radio."""
@@ -358,7 +385,10 @@ def classify(data, channels):
             d = mesh_pb2.Data()
             d.ParseFromString(decrypt_packet(ch["key"], pkt.id, getattr(pkt, "from"), pkt.encrypted))
             port = d.portnum
+            if not port:
+                raise ValueError("no port")
         except Exception:
+            out["unreadable"] = True              # same channel name, but this radio's key does not open it
             return out
     else:
         return out
@@ -413,6 +443,7 @@ class Radio:
         self.wd_events = []               # what it found and did: [{time, stage, finding}]
         self.wd_stage, self.wd_at = 0, 0  # 0 normal, 1 fresh USB session tried, 2 radio restarted
         self.last_pkt = time.time()       # last live packet/proxy message (not the config dump at connect)
+        self.unknown_ch = {}              # channel code -> {"count", "last", "senders"}: heard but cannot read
         self.hour_pk = self.hour_px = 0   # counts for the hourly log line
         self.hour_start = time.time()
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
@@ -443,6 +474,12 @@ class Radio:
         if packet.get("from") != interface.myInfo.my_node_num:
             if not packet.get("viaMqtt"):
                 counters.add("heard")
+                code = packet.get("channel")
+                if "decoded" not in packet and code and code not in self.known_codes():
+                    u = self.unknown_ch.setdefault(code, {"count": 0, "last": 0, "senders": {}})
+                    u["count"] += 1
+                    u["last"] = int(time.time())
+                    u["senders"][packet.get("fromId") or f"!{packet.get('from', 0):08x}"] = int(time.time())
             return
         pos = packet.get("decoded", {}).get("position")
         if pos and pos.get("precisionBits") in (None, 0, 32):
@@ -497,6 +534,8 @@ class Radio:
                     p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
                     self._set_fix(p)
                     log.info("radio connected: %s (%s)", self.info().get("name"), self.conf.get("address"))
+                    if not cfg.get().get("channels_saved"):
+                        self.save_channels()          # first radio: its channels become the hub's saved copy
                 except Exception as e:
                     self.error = str(e)
             # Radios without GPS/internet drift or keep an old clock; their "last heard" times and message
@@ -619,7 +658,7 @@ class Radio:
                 name = ch.settings.name or self._preset_name(lc)
                 chans.append({"index": ch.index, "name": name, "public": self._is_public(ch.settings.psk),
                               "uplink": ch.settings.uplink_enabled, "downlink": ch.settings.downlink_enabled,
-                              "primary": ch.role == 1})
+                              "primary": ch.role == 1, "code": channel_code(name, ch.settings.psk)})
             checks = {
                 "mqtt_enabled": mc.mqtt.enabled, "proxy_to_client": mc.mqtt.proxy_to_client_enabled,
                 "private_address": mc.mqtt.address == adv("mqtt_address") or bool(re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.", mc.mqtt.address or "")),
@@ -632,6 +671,7 @@ class Radio:
                          "role": config_pb2.Config.DeviceConfig.Role.Name(lc.device.role),
                          "preset": self._preset_name(lc), "region": config_pb2.Config.LoRaConfig.RegionCode.Name(lc.lora.region),
                          "channels": chans, "checks": checks, "ready": all(checks.values()),
+                         "unknown_channels": self.unknown_channels(), "channels_match": self.channels_match(),
                          "nodes": len(iface.nodes or {})})
         except Exception as e:
             base["error"] = f"reading radio: {e}"
@@ -645,6 +685,106 @@ class Radio:
     @staticmethod
     def _is_public(psk):
         return len(psk) == 1 and psk[0] == 1
+
+    def channel_list(self):
+        """The radio's channels as [{index, role, name, psk (base64), uplink, downlink, code}] (disabled left out)."""
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            return None
+        lc, out = iface.localNode.localConfig, []
+        for ch in iface.localNode.channels or []:
+            if ch.role == 0:
+                continue
+            psk = bytes(ch.settings.psk)
+            out.append({"index": ch.index, "role": "PRIMARY" if ch.role == 1 else "SECONDARY", "name": ch.settings.name,
+                        "psk": base64.b64encode(psk).decode(), "uplink": ch.settings.uplink_enabled,
+                        "downlink": ch.settings.downlink_enabled,
+                        "code": channel_code(ch.settings.name or self._preset_name(lc), psk)})
+        return out
+
+    def known_codes(self):
+        return {c["code"] for c in (self.channel_list() or [])}
+
+    def unknown_channels(self):
+        """Channels this radio heard packets on in the last 24 h but cannot read (different key or name)."""
+        t = time.time()
+        out = []
+        for code, u in list(self.unknown_ch.items()):
+            if t - u["last"] > 86400:
+                self.unknown_ch.pop(code, None)
+                continue
+            nodes = (self.iface.nodes or {}) if self.iface is not None else {}
+            out.append({"code": code, "count": u["count"], "last": u["last"],
+                        "senders": [{"id": i, "name": (nodes.get(i) or {}).get("user", {}).get("longName")}
+                                    for i in sorted(u["senders"], key=u["senders"].get, reverse=True)[:5]]})
+        return sorted(out, key=lambda x: -x["last"])
+
+    def save_channels(self):
+        """Keep a copy of the radio's channels in the hub (to restore them on a new or reset radio)."""
+        cl = self.channel_list()
+        if cl:
+            cfg.update(lambda d: d.__setitem__("channels_saved", [{k: c[k] for k in ("index", "role", "name", "psk", "uplink", "downlink")} for c in cl]))
+
+    def channels_match(self):
+        saved, cl = cfg.get().get("channels_saved") or [], self.channel_list()
+        if not saved or cl is None:
+            return True
+        key = lambda c: (c["index"], c["role"], c["name"], c["psk"])
+        return sorted(map(key, saved)) == sorted(map(key, cl))
+
+    def restore_channels(self):
+        saved = cfg.get().get("channels_saved") or []
+        if not saved:
+            raise ValueError("nothing_saved")
+        ln = self.iface.localNode
+        want = {c["index"]: c for c in saved}
+        ln.beginSettingsTransaction()
+        for ch in ln.channels:
+            c = want.get(ch.index)
+            if c:
+                ch.role = 1 if c["role"] == "PRIMARY" else 2
+                ch.settings.name, ch.settings.psk = c["name"], base64.b64decode(c["psk"])
+                ch.settings.uplink_enabled, ch.settings.downlink_enabled = c["uplink"], c["downlink"]
+                ln.writeChannel(ch.index)
+            elif ch.role != 0 and ch.index != 0:
+                ch.role = 0
+                ln.writeChannel(ch.index)
+        ln.commitSettingsTransaction()
+        log.info("saved channels written back to the radio (%d)", len(saved))
+
+    def import_channels(self, url, primary=False):
+        """Add the channels of a Meshtastic share link. `primary`: its first channel becomes channel 0."""
+        cs = parse_channel_link(url)
+        ln = self.iface.localNode
+        have = {(c["name"], c["psk"]) for c in self.channel_list()}
+        added, skipped = [], []
+        ln.beginSettingsTransaction()
+        for i, st in enumerate(cs.settings):
+            name, psk = st.name, bytes(st.psk)
+            if (name, base64.b64encode(psk).decode()) in have and not (primary and i == 0):
+                skipped.append(name or "(preset name)")
+                continue
+            if primary and i == 0:
+                ch = ln.channels[0]
+                ch.role = 1
+            else:
+                ch = next((c for c in ln.channels if c.role == 0 and c.index > 0), None)
+                if ch is None:
+                    skipped.append(name or "(preset name)")
+                    continue
+                ch.role = 2
+            ch.settings.name, ch.settings.psk = name, psk
+            ch.settings.uplink_enabled = ch.settings.downlink_enabled = True   # Ura needs both
+            ln.writeChannel(ch.index)
+            added.append(name or "(preset name)")
+        ln.commitSettingsTransaction()
+        warn = ""
+        lo = ln.localConfig.lora
+        if cs.HasField("lora_config") and (cs.lora_config.modem_preset != lo.modem_preset or cs.lora_config.region != lo.region):
+            warn = "lora_differs"
+        log.info("channels added from a link: %s (skipped: %s)", added, skipped)
+        return {"added": added, "skipped": skipped, "warning": warn}
 
     def channel_keys(self):
         """{channel_id: {"key", "public"}} as the radio names channels in MQTT topics."""
@@ -907,8 +1047,12 @@ class Radio:
                           "name": ch.settings.name, "psk": "default" if psk == b"\x01" else "none" if not psk else base64.b64encode(psk).decode(),
                           "uplink": ch.settings.uplink_enabled, "downlink": ch.settings.downlink_enabled,
                           "position_precision": ch.settings.module_settings.position_precision,
-                          "muted": ch.settings.module_settings.is_muted})
+                          "muted": ch.settings.module_settings.is_muted,
+                          "key_b64": base64.b64encode(psk).decode(),
+                          "code": channel_code(ch.settings.name or self._preset_name(ln.localConfig), psk) if ch.role else None})
         out["channels"] = chans
+        out["channels_saved"] = cfg.get().get("channels_saved") or []
+        out["channels_match"] = self.channels_match()
         out["fixed"] = {"enabled": ln.localConfig.position.fixed_position, **(self.own_fix or {})}
         try:
             out["url"] = ln.getURL(includeAll=True)
@@ -967,6 +1111,7 @@ class Radio:
                 raise ValueError("primary_needed")
             ln.deleteChannel(idx)
             log.info("radio channel %d deleted", idx)
+            self.save_channels()
             return
         if (idx == 0) != (role == "PRIMARY"):
             raise ValueError("channel_role")
@@ -996,6 +1141,7 @@ class Radio:
         ch.settings.module_settings.is_muted = bool(data.get("muted", False))
         ln.writeChannel(idx)
         log.info("radio channel %d written: %s", idx, name or "(preset name)")
+        self.save_channels()
 
     def set_fixed(self, data):
         ln = self.iface.localNode
@@ -1447,6 +1593,8 @@ def receive_from_peer(peer, topic, data, origin=None):
     frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
     via = "" if not origin or origin == peer else f" (from {next((h.get('code') for h in link.directory if h['id'] == origin), origin)})"
     ok, why = allowed(cfg.rules_for(peer)["receive"], c)
+    if ok and c.get("unreadable") and not c["private"]:
+        ok, why = False, "key_differs"             # this radio has a channel of that name, with another key
     if not ok:
         counters.peer_add(peer, "blocked_recv", why)
         log.info("from %s%s %s: not put on air (%s)", frm, via, pkt_desc(c), why)
@@ -1842,11 +1990,32 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "invalid", "fields": [str(e).split(":", 1)[-1]]}, 400)
             link.kick()                       # new radio name / position: map and server follow at once
             return self.reply({"ok": True, "reboot": reboot})
+        if p in ("/api/radio/channels_import", "/api/radio/channels_restore", "/api/radio/channels_keep"):
+            r = mt_radio()
+            if not r or r.iface is None:
+                return self.reply({"error": "no_radio"}, 400)
+            try:
+                if p.endswith("import"):
+                    res = r.import_channels(b.get("url"), bool(b.get("primary")))
+                    r.save_channels()
+                    return self.reply({"ok": True, **res})
+                if p.endswith("restore"):
+                    r.restore_channels()
+                else:
+                    r.save_channels()
+            except ValueError as e:
+                return self.reply({"error": str(e)}, 400)
+            return self.reply({"ok": True})
         if p == "/api/radio/prepare":
             r = mt_radio()
             if not r:
                 return self.reply({"error": "no_radio"}, 400)
             r.prepare()
+            r.save_channels()
+            return self.reply({"ok": True})
+        if p == "/api/test/fake" and TEST_MODE:        # tests only: make the simulated radio do something
+            r = mt_radio()
+            getattr(r.iface, "test_" + str(b.get("call")))(**(b.get("args") or {}))
             return self.reply({"ok": True})
         if p == "/api/test/replay" and TEST_MODE:     # tests only: feed a received box again, optionally altered
             peer, box = test_boxes[int(b.get("index", -1))]
