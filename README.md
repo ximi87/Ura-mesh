@@ -179,7 +179,7 @@ Startup options are only the data folder and the ports (`URA_DATA`, `URA_WEB_POR
 | [docs/FIRMWARE.md](docs/FIRMWARE.md) | the hub-radio firmware patch: why, build, flash, go back |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | how a message travels, rules, multi-hop, what the server knows, security model |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | hub ↔ server messages, sealed-box format, public API |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | counters, troubleshooting, airtime, updates, backups, tests |
+| [docs/OPERATIONS.md) · [Testing](docs/TESTING.md](docs/OPERATIONS.md) | counters, troubleshooting, airtime, updates, backups, tests |
 | [SECURITY.md](SECURITY.md) | reporting security problems |
 
 ## FAQ

@@ -273,6 +273,13 @@ Ura.add({
   "ls.hint": { en: "One line per link: what you send and receive, how far your packets may go, packets sent ↑ / received ↓ (orange = stopped by a rule). Click a line for its rules.",
                sq: "Një rresht për çdo lidhje: çfarë dërgoni dhe merrni, sa larg mund të shkojnë paketat tuaja, paketa të dërguara ↑ / të marra ↓ (portokalli = ndalur nga një rregull). Klikoni një rresht për rregullat e saj." },
   "reach.title": { en: "How far may my packets go through {x}?", sq: "Sa larg mund të shkojnë paketat e mia përmes {x}?" },
+  "pr.sends": { en: "It sends to us", sq: "Na dërgon ne" }, "pr.accepts": { en: "It accepts from us", sq: "Pranon nga ne" },
+  "pr.multihop": { en: "Multi-hop", sq: "Shumë-hop" },
+  "pr.own_reach": { en: "How far {x}'s own packets may go beyond us", sq: "Sa larg mund të shkojnë paketat e vetë {x} përtej nesh" },
+  "pr.hub_transit": { en: "{x} passes traffic between its linked hubs", sq: "{x} kalon trafikun ndërmjet hub-eve të saj të lidhura" },
+  "pr.to_us": { en: "{x} passes other hubs' packets on to {me}", sq: "{x} ua kalon paketat e hub-eve të tjerë {me}" },
+  "pr.offers": { en: "{x} can pass our packets on to", sq: "{x} mund t'i kalojë paketat tona te" },
+  "pr.from_beyond": { en: "{x} accepts packets that {me} passes on from other hubs", sq: "{x} pranon paketa që {me} i kalon nga hub-e të tjerë" },
   "reach.short": { en: "How far its packets may go", sq: "Sa larg mund të shkojnë paketat e tij" },
   "reach.0": { en: "Only to {x} — no further", sq: "Vetëm te {x} — jo më tej" },
   "reach.1": { en: "1 hub further", sq: "1 hub më tej" },
@@ -525,18 +532,30 @@ async function pageLinks() {
     const ticked = $$("input[data-onward]", box).some(i => i.checked);
     $("[data-reach-none]", box).hidden = !(r > 0 && !any && !ticked && $$("input[data-onward]", box).length);
   };
-  const peerRules = l => { const h = s.directory.find(x => x.id === l.peer); const pr = h && h.rules && h.rules.links && h.rules.links[s.hub.country + "-" + s.hub.city]; return pr; };
+  // the partner's published rules: for this link, plus its hub-wide multi-hop setting and what it offers onward
+  const peerRules = l => { const h = s.directory.find(x => x.id === l.peer); const hr = h && h.rules;
+    const pr = hr && hr.links && hr.links[s.hub.country + "-" + s.hub.city]; return pr ? { link: pr, hub: hr } : null; };
   const countsHtml = peer => { const p = peerCounts[peer]; if (!p) return `<p class="muted small">–</p>`;
     const bl = o => Object.entries(o).map(([k, v]) => `${t("why." + k)}: ${v}`).join(", ");
     return `<p class="small">${p.transit ? `${t("st.transit")}: <b>${p.transit}</b><br>` : ""}${t("rule.send")}: <b>${p.sent}</b>${Object.keys(p.blocked_send).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_send)}` : ""}<br>
       ${t("rule.receive")}: <b>${p.received}</b>${Object.keys(p.blocked_recv).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_recv)}` : ""}</p>`; };
   const yn = v => v ? `<span class="badge ok">${t("rule.on")}</span>` : `<span class="badge bad">${t("rule.off")}</span>`;
-  const prHtml = pr => !pr ? `<p class="muted small">${t("l.peer_rules.none")}</p>` :
-    `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
+  const prHtml = (both, pc) => {
+    if (!both) return `<p class="muted small">${t("l.peer_rules.none")}</p>`;
+    const pr = both.link, hr = both.hub, me = esc(s.hub.country + "-" + s.hub.city);
+    const tr = hr.transit || {}, hubOn = !!tr.enabled;
+    const offered = (hr.transit_to || []).filter(id => id !== s.server.hub_id).map(id => { const o = s.directory.find(x => x.id === id); return esc(o ? o.code : id); });
+    return `<table class="small"><tr><th></th><th>${t("pr.sends")}</th><th>${t("pr.accepts")}</th></tr>
      ${["on", "public", "private", "positions"].map(k => `<tr><td>${t(k === "on" ? "link" : "rule." + k)}</td><td>${yn(pr.send[k])}</td><td>${yn(pr.receive[k])}</td></tr>`).join("")}
-     <tr><td>${t("reach.short")}</td><td>${reachText(reachOf(pr.send), esc(s.hub.country + "-" + s.hub.city))}</td><td></td></tr><tr><td>${t("rule.transit")}</td><td>${yn(pr.send.transit !== false)}</td><td></td></tr>
-     <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(pr.receive.from_beyond !== false)}</td></tr>
-     <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>`;
+     <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>
+     <h4 style="margin:.7rem 0 .3rem">${t("pr.multihop")}</h4>
+     <table class="small">
+     <tr><td>${t("pr.own_reach", { x: pc })}</td><td>${reachText(reachOf(pr.send), me)}</td></tr>
+     <tr><td>${t("pr.hub_transit", { x: pc })}</td><td>${hubOn ? `${yn(true)} <span class="muted">${t("tr.max_n", { n: tr.max_hops || 2 })}</span>` : yn(false)}</td></tr>
+     <tr><td>${t("pr.to_us", { x: pc, me })}</td><td>${yn(hubOn && pr.send.on && pr.send.transit !== false)}</td></tr>
+     <tr><td>${t("pr.offers", { x: pc })}</td><td>${hubOn && offered.length ? offered.join(", ") : `<span class="muted">${t("none")}</span>`}</td></tr>
+     <tr><td>${t("pr.from_beyond", { x: pc, me })}</td><td>${yn(pr.receive.on && pr.receive.from_beyond !== false)}</td></tr></table>`;
+  };
   const why = s.server.status === "pending" ? t("pend.links") : !s.server.hub_id ? t("pend.none") : t("l.not_connected");
   // several links: one compact line per link, its rules open on click (state kept across refreshes)
   const active = s.links.filter(l => l.state === "active");
@@ -568,7 +587,7 @@ async function pageLinks() {
         <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
           <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
-        <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l))}</div>
+        <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l), esc(l.peer_code))}</div>
         <div><h3>${t("l.counts")}</h3>${countsHtml(l.peer)}</div></div>`;
   const reqRow = (l, mine) => `<div class="spread reqrow"><div><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}
       <div class="muted small">${mine ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })}</div></div>

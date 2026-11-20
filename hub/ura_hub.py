@@ -468,6 +468,12 @@ class Radio:
 
     def _open(self):
         c = self.conf
+        if os.environ.get("URA_TEST_RADIO"):           # tests only: a simulated radio (tests/fake_radio.py)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("fake_radio", os.environ["URA_TEST_RADIO"])
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod.FakeInterface(c)
         if c.get("transport") == "tcp":
             host, _, port = c["address"].partition(":")
             return meshtastic.tcp_interface.TCPInterface(host, portNumber=int(port or 4403))
@@ -1051,6 +1057,8 @@ class Link:
         self.writer = None
         self.directory, self.links = [], []
         self.reconnect = asyncio.Event()
+        self.kick_nodes = asyncio.Event()     # report nodes now (approved, reconnected, settings changed)
+        self.kick_location = asyncio.Event()  # send the location now (settings changed, reconnected)
 
     def public_rules(self):
         c = cfg.get()
@@ -1107,10 +1115,12 @@ class Link:
                     continue
                 self.writer = writer
                 self.state = "connected"
-                self.directory, self.links = first.get("hubs", []), first.get("links", [])
+                self.directory = first.get("hubs", [])
+                self.set_links(first.get("links", []))
                 identity.pin_new()
                 cfg.update(lambda d: d["server"].update(status=first.get("status")))
                 log.info("connected to server %s as %s (%s)", c["address"], c["hub_id"], first.get("status"))
+                self.kick()                   # a (re)connected server gets the current nodes and location at once
                 tasks = [asyncio.create_task(self._uplink()), asyncio.create_task(self._keepalive()),
                          asyncio.create_task(self._nodes()), asyncio.create_task(self._location())]
                 try:
@@ -1133,6 +1143,37 @@ class Link:
             self.writer = None
             await self._wait(adv("server_retry_s"))
 
+    def set_links(self, links):
+        """The server's full list of this hub's links (on connect and on every change). Keep the per-link
+        rules in step with it: a new link gets its OWN copy of the defaults (changing the defaults later must
+        not change existing links); rules of a link that ended — or of an old registration — are forgotten,
+        so a new link with that hub starts from the defaults."""
+        self.links = links
+        now_peers = {l["peer"] for l in links}
+        def upd(d):
+            for peer in now_peers:
+                if peer not in d["rules"]:
+                    d["rules"][peer] = copy.deepcopy(d["defaults"])
+            for peer in list(d["rules"]):
+                if peer not in now_peers:
+                    d["rules"].pop(peer, None)
+        cfg.update(upd)
+
+    def kick(self):
+        """Report nodes and location now (from any thread)."""
+        for ev in (self.kick_nodes, self.kick_location):
+            loop.call_soon_threadsafe(ev.set)
+
+    @staticmethod
+    async def _sleep_or(ev, seconds):
+        try:
+            await asyncio.wait_for(ev.wait(), seconds)
+        except asyncio.TimeoutError:
+            pass
+        kicked = ev.is_set()
+        ev.clear()
+        return kicked
+
     async def _wait(self, seconds):
         self.reconnect.clear()
         try:
@@ -1152,7 +1193,7 @@ class Link:
             self.directory = m.get("hubs", [])
             identity.pin_new()
         elif t == "links":
-            self.links = m.get("links", [])
+            self.set_links(m.get("links", []))
             identity.pin_new()
             await self.push_info()
         elif t == "peer_nodes" and m.get("hub") in active_peers():
@@ -1162,6 +1203,7 @@ class Link:
             cfg.update(lambda d: d["server"].update(status=m.get("status")))
             if m.get("status") == "approved":
                 await self.push_info()
+                self.kick()                   # the server ignored nodes while the hub was pending
 
     async def _uplink(self):
         while True:
@@ -1181,13 +1223,16 @@ class Link:
             r = mt_radio()
             if r and r.iface is not None and time.time() - checked >= adv("nodes_check_s"):
                 checked = time.time()
+                if cfg.get()["server"].get("status") != "approved":
+                    last_sig = None           # the server ignores nodes of a pending hub: report again once approved
                 nodes = await asyncio.to_thread(r.nodes, cfg.get()["share_positions_on_map"])
                 sig = hashlib.sha256(json.dumps(sorted((n["id"], n["name"], n["lat"], n["lon"]) for n in nodes),
                                                 default=str).encode()).digest()
                 if nodes and (sig != last_sig or time.time() - last >= adv("nodes_report_min") * 60):
                     await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
                     last, last_sig = time.time(), sig
-            await asyncio.sleep(10)
+            if await self._sleep_or(self.kick_nodes, 10):
+                checked, last_sig = 0, None
 
     async def _location(self):
         """Keep the hub's map position in step: follow the radio (automatic) or the typed-in one."""
@@ -1205,7 +1250,8 @@ class Link:
             if cur != sent and None not in cur:
                 if await self.send({"t": "location", "lat": cur[0], "lon": cur[1]}):
                     sent = cur
-            await asyncio.sleep(adv("location_check_s"))
+            if await self._sleep_or(self.kick_location, adv("location_check_s")):
+                sent = None                   # settings changed or reconnected: send it again
 
 
 def distance_m(lat1, lon1, lat2, lon2):
@@ -1514,6 +1560,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "login"}, 401)
             if p == "/api/status":
                 return self.reply(status_payload())
+            if p == "/api/test/radio" and os.environ.get("URA_TEST_INJECT") == "1":
+                r = mt_radio()
+                return self.reply(r.iface.record if r and r.iface is not None and hasattr(r.iface, "record") else {})
             if p == "/api/nodes":
                 r = mt_radio()
                 return self.reply(r.all_nodes() if r else [])
@@ -1619,6 +1668,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                     d["transit"] = {"enabled": bool(b["transit"].get("enabled")), "max_hops": hops}
             cfg.update(upd)
             run_coro(link.push_info())
+            link.kick()                       # new location / positions setting: tell the server now
             return self.reply({"ok": True})
         if p == "/api/server/check":
             addr = normalize_addr(b.get("address"))
@@ -1670,7 +1720,10 @@ class Web(http.server.BaseHTTPRequestHandler):
                 log.warning("could not tell the server that this hub leaves: %s", e)
             if not told and not b.get("force"):
                 return self.reply({"error": "leave_not_confirmed"}, 400)
-            cfg.update(lambda d: d["server"].update(hub_id="", key="", status=""))
+            def clear(d):                      # a fresh start: no registration, no links -> no link rules, no partner keys
+                d["server"].update(hub_id="", key="", status="")
+                d["rules"], d["peer_keys"] = {}, {}
+            cfg.update(clear)
             loop.call_soon_threadsafe(link.reconnect.set)
             if link.writer:
                 loop.call_soon_threadsafe(link.writer.close)
@@ -1728,6 +1781,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                     r.set_fixed(b.get("fixed") or {})
             except ValueError as e:
                 return self.reply({"error": "invalid", "fields": [str(e).split(":", 1)[-1]]}, 400)
+            link.kick()                       # new radio name / position: map and server follow at once
             return self.reply({"ok": True, "reboot": reboot})
         if p == "/api/radio/prepare":
             r = mt_radio()
