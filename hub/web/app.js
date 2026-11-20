@@ -22,6 +22,7 @@ Ura.add({
   "st.overview": { en: "Overview", sq: "Përmbledhje" },
   "st.announce.hint": { en: "Announce sends this radio's name, telemetry and (if it has one) its position to the mesh and across the links. Ask neighbours makes nearby nodes answer with theirs.",
                         sq: "Njoftimi dërgon emrin, telemetrinë dhe (nëse ka) pozicionin e kësaj radioje në rrjet dhe përmes lidhjeve. Kërkesa fqinjëve bën që nyjet afër të përgjigjen me të tyret." },
+  "wd.log": { en: "What the watchdog found", sq: "Çfarë gjeti mbikëqyrësi" },
   "wd.short": { en: "restarted {n}× (7 days)", sq: "rindezur {n}× (7 ditë)" },
   "rx.deaf_short": { en: "hears nothing", sq: "nuk dëgjon asgjë" },
   "nl.older": { en: "older", sq: "më të vjetra" },
@@ -393,7 +394,8 @@ async function pageStatus() {
         <dt>${t("r.firmware")}</dt><dd>${esc(r.firmware || "–")}</dd>
         <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? B("ok", t("yes")) : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd>
         <dt>${t("wd.last")}</dt><dd>${r.connected ? ago(now - r.silent_s) : "–"}</dd></dl>
-        ${(r.watchdog || []).length ? `<div class="msg warn small">${t("wd.events", { n: r.watchdog.length, x: ago(r.watchdog[r.watchdog.length - 1]) })}</div>` : ""}`
+        ${(r.watchdog || []).length ? `<div class="msg warn small">${t("wd.events", { n: r.watchdog.length, x: ago(r.watchdog[r.watchdog.length - 1]) })}</div>` : ""}
+        ${(r.watchdog_events || []).length ? `<h3>${t("wd.log")}</h3><div class="small">${r.watchdog_events.slice().reverse().map(e => `<div>${ago(e.time)} — ${esc(e.finding)}</div>`).join("")}</div>` : ""}`
       : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`;
   const lines = [
     secBox("status", "hub", `<b>${t("st.hub")}</b>`,

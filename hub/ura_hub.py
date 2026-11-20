@@ -407,7 +407,12 @@ class Radio:
         self.stats = {}                   # what the radio reports about its own reception
         self.own_fix = None               # the radio's own position at full precision
         self.last_rx = time.time()        # last time the radio sent the hub anything at all
-        self.watchdog = []                # times the watchdog had to restart the radio
+        self.watchdog = []                # times the watchdog had to act (7 days)
+        self.wd_events = []               # what it found and did: [{time, stage, finding}]
+        self.wd_stage, self.wd_at = 0, 0  # 0 normal, 1 fresh USB session tried, 2 radio restarted
+        self.last_pkt = time.time()       # last live packet/proxy message (not the config dump at connect)
+        self.hour_pk = self.hour_px = 0   # counts for the hourly log line
+        self.hour_start = time.time()
         pub.subscribe(self._on_proxy, "meshtastic.mqttclientproxymessage")
         pub.subscribe(self._on_lost, "meshtastic.connection.lost")
         pub.subscribe(self._on_packet, "meshtastic.receive")
@@ -419,7 +424,8 @@ class Radio:
 
     def _on_proxy(self, proxymessage, interface):
         if self._mine(interface):
-            self.last_rx = time.time()
+            self.last_rx = self.last_pkt = time.time()
+            self.hour_px += 1
         if self._mine(interface) and proxymessage.data:
             counters.add("uplinked")
             loop.call_soon_threadsafe(self._enqueue, (proxymessage.topic, bytes(proxymessage.data)))
@@ -432,7 +438,8 @@ class Radio:
     def _on_packet(self, packet, interface):
         if not self._mine(interface):
             return
-        self.last_rx = time.time()
+        self.last_rx = self.last_pkt = time.time()
+        self.hour_pk += 1
         if packet.get("from") != interface.myInfo.my_node_num:
             if not packet.get("viaMqtt"):
                 counters.add("heard")
@@ -478,6 +485,8 @@ class Radio:
                     with self.lock:
                         self.iface, self.error, self.connected_at = iface, "", time.time()
                     self.last_rx = time.time()
+                    if not self.wd_stage:
+                        self.last_pkt = time.time()
                     time_set = 0
                     p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
                     self._set_fix(p)
@@ -498,30 +507,79 @@ class Radio:
             self._watchdog()
             time.sleep(5)
 
-    def _watchdog(self):
-        """A connected radio reports to its hub at least every minute (its own device metrics). If it stays
-        silent, it is stuck — or another program connected to it (app over Wi-Fi/Bluetooth, a script) is
-        taking the messages meant for the hub. Restarting the radio fixes both: every connection is dropped
-        and the hub reconnects first."""
-        limit = adv("radio_watchdog_min") * 60
-        iface = self.iface
-        if not limit or iface is None or time.time() - self.last_rx < limit:
-            return
-        silent = int(time.time() - self.last_rx)
-        log.warning("radio silent for %d s — restarting it (watchdog)", silent)
-        self.watchdog = [t for t in self.watchdog if time.time() - t < 7 * 86400] + [time.time()]
-        self.last_rx = time.time()
+    def _wd_note(self, stage, finding, level=logging.WARNING):
+        log.log(level, "radio watchdog: %s", finding)
+        self.wd_events = [e for e in self.wd_events if time.time() - e["time"] < 7 * 86400][-49:] + \
+                         [{"time": int(time.time()), "stage": stage, "finding": finding}]
+
+    def _wd_probe(self, iface):
+        """Where did the packets stop? Checked before touching anything."""
+        out = []
+        rx = getattr(iface, "_rxThread", None)
+        out.append("hub reader thread " + ("alive" if rx is not None and rx.is_alive() else "DEAD"))
         try:
-            iface.localNode.reboot(3)
-        except Exception as e:
-            log.warning("watchdog: radio restart command failed: %s", e)
+            out.append(f"{iface.stream.in_waiting} unread bytes from the radio")
+        except Exception:
+            pass
+        try:
+            from meshtastic import publishingThread as pt
+            out.append(f"event thread {'alive' if pt.thread.is_alive() else 'DEAD'}, {pt.queue.qsize()} events waiting")
+        except Exception:
+            pass
+        out.append(f"last packet {int(time.time() - self.last_pkt)} s ago")
+        return "; ".join(out)
+
+    def _hourly(self):
+        if time.time() - self.hour_start >= 3600:
+            log.info("radio last hour: %d packets, %d handed to Ura (MQTT proxy)", self.hour_pk, self.hour_px)
+            self.hour_pk = self.hour_px = 0
+            self.hour_start = time.time()
+
+    def _drop(self, iface, why, reboot):
+        if reboot:
+            try:
+                iface.localNode.reboot(3)
+            except Exception as e:
+                log.warning("watchdog: radio restart command failed: %s", e)
         with self.lock:
             if self.iface is iface:
-                self.iface, self.error = None, f"restarted by the watchdog after {silent} s of silence"
+                self.iface, self.error = None, why
         try:
             iface.close()
         except Exception:
             pass
+
+    def _watchdog(self):
+        """A connected radio sends its hub something at least every minute or two. If it stays silent, find out
+        where it stopped and fix it with the gentlest step that works:
+          1. log where the packets stop (hub's reader/event threads, unread bytes) — hub side or radio side;
+          2. open a fresh USB session (no restart): fixes a radio that dropped its session with the hub;
+          3. still nothing a few minutes later -> restart the radio: the radio itself had stalled.
+        Every finding goes to the log and to the Status page."""
+        self._hourly()
+        limit = adv("radio_watchdog_min") * 60
+        iface = self.iface
+        if not limit or iface is None:
+            return
+        now = time.time()
+        if self.wd_stage and self.last_pkt > self.wd_at:
+            what = "a fresh USB session" if self.wd_stage == 1 else "restarting the radio"
+            self._wd_note(0, f"packets flow again after {what} (silence ended {int(now - self.wd_at)} s after the step)", logging.INFO)
+            self.wd_stage = 0
+            return
+        if self.wd_stage == 1 and now - self.wd_at > max(300, limit / 2):
+            self._wd_note(2, "still silent with a fresh USB session — the radio itself stalled; restarting it. " + self._wd_probe(iface))
+            self.wd_stage, self.wd_at = 2, now
+            self.watchdog = [t for t in self.watchdog if now - t < 7 * 86400] + [now]
+            return self._drop(iface, "restarted by the watchdog (radio stalled)", True)
+        if self.wd_stage == 2 and now - self.wd_at > limit:
+            self.wd_stage = 0                 # give up this round; start again from step 1 next time
+        if self.wd_stage or now - self.last_pkt < limit:
+            return
+        self._wd_note(1, f"no packets for {int(now - self.last_pkt)} s — " + self._wd_probe(iface) + "; opening a fresh USB session")
+        self.wd_stage, self.wd_at = 1, now
+        self.watchdog = [t for t in self.watchdog if now - t < 7 * 86400] + [now]
+        self._drop(iface, "fresh USB session opened by the watchdog", False)
 
     def close(self):
         self.stop = True
@@ -539,7 +597,8 @@ class Radio:
             iface = self.iface
         base = {"id": self.conf.get("id"), "net": "mt", "transport": self.conf.get("transport"),
                 "address": self.conf.get("address"), "connected": iface is not None, "error": self.error,
-                "silent_s": int(time.time() - self.last_rx), "watchdog": [int(t) for t in self.watchdog]}
+                "silent_s": int(time.time() - self.last_pkt), "watchdog": [int(t) for t in self.watchdog],
+                "watchdog_events": self.wd_events[-10:]}
         if iface is None:
             return base
         try:
