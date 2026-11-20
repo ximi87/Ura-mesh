@@ -237,3 +237,9 @@ a.stat.tile.warn .v { color: var(--warn); }
 .copybox code { flex: 1; word-break: break-all; font-size: .9rem; }
 .linkrow.lstep { grid-template-columns: 1.1rem 2rem 1fr; }
 .stepno { width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent-2); display: flex; align-items: center; justify-content: center; font-weight: 700; }
+
+/* hub pages: one line per section */
+.linkrow.lsec { grid-template-columns: 1.1rem minmax(10rem, 15rem) 1fr; }
+.lr-cells { display: flex; flex-wrap: wrap; gap: .3rem 1.6rem; align-items: center; }
+.lr-cell { min-width: 6rem; }
+@media (max-width: 900px) { .linkrow.lsec { grid-template-columns: 1.1rem 1fr; } .linkrow.lsec .lr-cells { grid-column: 2; } .lr-cells { gap: .2rem 1rem; } }

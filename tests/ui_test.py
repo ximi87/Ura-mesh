@@ -15,6 +15,13 @@ def check(name, cond):
 def nav(p, url):
     p.goto(url); p.reload()
 
+def open_sec(p, key):
+    """hub pages show one line per section; click the line to open it (like a user)"""
+    d = p.locator(f"details.secline[data-sec='{key}']")
+    d.wait_for(state="attached")
+    if not d.evaluate("e => e.open"):
+        d.locator("summary").click()
+
 def new_page(ctx, label):
     p = ctx.new_page()
     p.on("pageerror", lambda e: errors.append(f"{label} pageerror: {e}"))
@@ -34,7 +41,7 @@ def hub_register(p, base, name, country, city, lat, lon):
     p.fill("#hcountry", country); p.fill("#hcity", city)
     p.click("#hsave"); p.wait_for_selector("#hmsg .msg.ok")
     # location card: no radio in the test -> manual position
-    p.check("input[name=lmode][value=manual]"); p.fill("#hlat", str(lat)); p.fill("#hlon", str(lon))
+    open_sec(p, "loc"); p.check("input[name=lmode][value=manual]"); p.fill("#hlat", str(lat)); p.fill("#hlon", str(lon))
     p.click("#locsave"); p.wait_for_selector("#locmsg .msg.ok"); time.sleep(1.8); p.wait_for_selector("#hname")
     check(f"{name}: manual location saved", p.input_value("#hlat").startswith(str(lat)[:5]))
     p.fill("#saddr", "127.0.0.1:8198"); p.click("#scheck")
@@ -139,7 +146,7 @@ with sync_playwright() as pw:
     check("server hub page shows E2E", "End-to-end encryption" in s.inner_text("#app") and "yes" in s.inner_text("#app"))
 
     # location change after registration reaches the server
-    nav(a, A + "/#/settings"); a.wait_for_selector("#hlat"); a.fill("#hlat", "10.6123"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
+    nav(a, A + "/#/settings"); open_sec(a, "loc"); a.wait_for_selector("#hlat"); a.fill("#hlat", "10.6123"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg.ok")
     time.sleep(35)
     nav(s, S + "/#/hubs"); s.click("table td:first-child a >> text=XA-AAA"); s.wait_for_selector("text=About this hub")
     check("new hub location shown on server", "10.61230" in s.inner_text("#app"))
@@ -182,6 +189,7 @@ with sync_playwright() as pw:
     def adv_open(pg):
         pg.wait_for_selector("[data-adv=password_min]", state="attached")
         if pg.locator("details#sec-adv:not([open])").count(): pg.click("details#sec-adv > summary")   # admin page: section closed
+        if pg.locator("details.secline[data-sec='adv']:not([open])").count(): pg.click("details.secline[data-sec='adv'] > summary")   # hub settings: line closed
         pg.click("#advform [data-all='1']")
     nav(a, A + "/#/settings"); adv_open(a)
     check("hub advanced settings in sections", a.locator("details.adv-group").count() >= 5)

@@ -18,6 +18,21 @@ Ura.add({
   "st.limit": { en: "limit {x}", sq: "kufiri {x}" }, "st.nolimit": { en: "no limit", sq: "pa kufi" },
   "st.nodes": { en: "Nodes in the radio", sq: "Nyjet në radio" },
   "st.nodes.hint": { en: "Local nodes are sent to the Ura map. Remote nodes came from linked hubs.", sq: "Nyjet lokale dërgohen në hartën e Ura. Nyjet në distancë erdhën nga hub-et e lidhur." },
+  "sec.hint": { en: "One line per part. Click a line for details and settings.", sq: "Një rresht për çdo pjesë. Klikoni një rresht për detaje dhe cilësime." },
+  "st.overview": { en: "Overview", sq: "Përmbledhje" },
+  "st.announce.hint": { en: "Announce sends this radio's name, telemetry and (if it has one) its position to the mesh and across the links. Ask neighbours makes nearby nodes answer with theirs.",
+                        sq: "Njoftimi dërgon emrin, telemetrinë dhe (nëse ka) pozicionin e kësaj radioje në rrjet dhe përmes lidhjeve. Kërkesa fqinjëve bën që nyjet afër të përgjigjen me të tyret." },
+  "wd.short": { en: "restarted {n}× (7 days)", sq: "rindezur {n}× (7 ditë)" },
+  "rx.deaf_short": { en: "hears nothing", sq: "nuk dëgjon asgjë" },
+  "nl.older": { en: "older", sq: "më të vjetra" },
+  "dg.short": { en: "message · traceroute · telemetry · position · channel test", sq: "mesazh · gjurmim rruge · telemetri · pozicion · test kanali" },
+  "dev.identity": { en: "Name and position", sq: "Emri dhe pozicioni" },
+  "dev.updown": { en: "Up / down", sq: "Lart / poshtë" }, "dev.kind": { en: "Kind", sq: "Lloji" }, "dev.fields": { en: "Fields", sq: "Fusha" },
+  "loc.mode": { en: "Taken from", sq: "Merret nga" }, "loc.mode.radio": { en: "the radio", sq: "radio" }, "loc.mode.manual": { en: "typed in", sq: "e shkruar me dorë" },
+  "tr.max_n": { en: "max {n} hops", sq: "maks. {n} hapa" }, "s.share_pos_short": { en: "Positions on map", sq: "Pozicione në hartë" },
+  "s.locked_short": { en: "locked while registered", sq: "e kyçur gjatë regjistrimit" },
+  "s.pw_short": { en: "change the password of this page", sq: "ndryshoni fjalëkalimin e kësaj faqeje" },
+  "adv.changed_n": { en: "{n} changed from default", sq: "{n} ndryshuar nga parazgjedhja" }, "adv.all_default": { en: "all at default", sq: "të gjitha me parazgjedhje" },
   "st.announce": { en: "Announce this radio now", sq: "Njofto këtë radio tani" },
   "st.ask": { en: "Ask neighbours to answer", sq: "Kërkoju fqinjëve të përgjigjen" },
   "st.announced": { en: "Sent.", sq: "U dërgua." },
@@ -306,6 +321,29 @@ function srvState(s) { return `srv.${s.link_state}`; }
 function regText(st) { return st ? t("reg." + st) : t("reg.none"); }
 function ruleRow(lbl, dir, key, rule) { return `<label class="check"><input type="checkbox" data-dir="${dir}" data-k="${key}" ${rule[key] ? "checked" : ""}> ${lbl}</label>`; }
 
+/* One line per section with a short summary; a click opens the details. Which sections are open is kept
+   per page, so the automatic refresh does not close what the operator is looking at. */
+const openSecs = {};
+function secs(page, defaults) { if (!openSecs[page]) openSecs[page] = new Set(defaults.filter(Boolean)); return openSecs[page]; }
+const B = (cls, txt) => `<span class="badge ${cls}">${txt}</span>`;
+function secBox(page, key, title, cells, body, opts) {
+  opts = opts || {};
+  const cell = ([k, v]) => `<div class="lr-cell">${k ? `<span class="lr-k">${k}</span>` : ""}${v}</div>`;
+  return `<details class="linkbox secline ${opts.cls || ""}" data-page="${page}" data-sec="${esc(key)}" ${opts.attrs || ""} ${openSecs[page] && openSecs[page].has(key) ? "open" : ""}>
+    <summary><div class="linkrow lsec"><div class="lr-peer">${title}</div><div class="lr-cells">${cells.map(cell).join("")}</div></div></summary>
+    <div class="linkbody">${body}</div></details>`;
+}
+const secTools = () => `<div class="row"><button class="small" data-secall="1">${t("adv.open_all")}</button><button class="small" data-secall="0">${t("adv.close_all")}</button></div>`;
+const secCard = (title, inner) => `<div class="card"><div class="spread"><h2>${title}</h2>${secTools()}</div>${inner}</div>`;
+function bindSecs() {
+  $$("details.secline").forEach(d => d.addEventListener("toggle", () => {
+    const set = openSecs[d.dataset.page] = openSecs[d.dataset.page] || new Set();
+    if (d.open) set.add(d.dataset.sec); else set.delete(d.dataset.sec);
+  }));
+  $$("button[data-secall]").forEach(b => b.onclick = () => $$("details.secline", b.closest(".card")).forEach(d => d.open = b.dataset.secall === "1"));
+  $$("details.secline > summary button, details.secline > summary a").forEach(x => x.addEventListener("click", e => e.stopPropagation()));
+}
+
 /* ───────── status ───────── */
 const LOCAL_COLOR = "#0f7b6c";
 const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
@@ -345,29 +383,61 @@ async function pageStatus() {
   const pendingNote = s.server.status === "pending" ? `<div class="msg warn"><b>${t("pend.title")}</b><br>${t("pend.text", { x: esc(s.server.address) })}</div>`
                     : s.server.status === "removed" ? `<div class="msg bad">${t("pend.removed")}</div>`
                     : !s.server.hub_id ? `<div class="msg info">${t("pend.none")} <a href="#/settings">${t("nav.settings")} →</a></div>` : "";
-  app().innerHTML = `${pendingNote}
-    <div class="card"><div class="spread"><h2>${t("map.title")}</h2><span class="muted small">${t("map.own_only")}</span></div>
-      <div id="map" class="minimap" style="height:440px"></div>
-      <div class="legend"><span><span class="dot big" style="background:${LOCAL_COLOR}"></span>${t("map.this_radio")}</span>
-        <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
-    <div class="grid g3">
-      <div class="card"><h2>${t("st.hub")}</h2><dl class="kv">
-        <dt>${t("name")}</dt><dd><b>${esc(s.hub.name || "–")}</b></dd>
-        <dt>${t("code")}</dt><dd>${s.hub.country && s.hub.city ? esc(s.hub.country + "-" + s.hub.city) : "–"}</dd>
-        <dt>${t("s.registration")}</dt><dd>${regText(s.server.status)}</dd></dl></div>
-      <div class="card"><h2>${t("st.server")}</h2><dl class="kv">
-        <dt>${t("status")}</dt><dd><span class="badge ${srvBadge}">${t(srvState(s))}</span> <span class="muted small">${esc(s.link_detail || "")}</span></dd>
-        <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
-        <dt>${t("links")}</dt><dd>${s.links.filter(l => l.state === "active").map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")}</dd></dl></div>
-      <div class="card"><h2>${t("st.radio")}</h2>${r ? `<dl class="kv">
-        <dt>${t("status")}</dt><dd>${r.connected ? `<span class="badge ok">${t("r.connected")}</span>` : `<span class="badge bad">${t("r.not_connected")}</span> <span class="muted small">${esc(r.error || "")}</span>`}</dd>
+  const remote = nodes.filter(n => n.remote);
+  secs("status", [!r || !r.connected || !r.ready ? "radio" : null, s.link_state !== "connected" ? "server" : null, "local"]);
+  const lim = (used, win, l) => `<b>${pct(used, win)}</b> <span class="muted small">${l ? "/ " + l + " %" : ""}</span>`;
+  const active = s.links.filter(l => l.state === "active");
+  const radioBody = r ? `<dl class="kv">
+        <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", t("r.not_connected"))} <span class="muted small">${esc(r.error || "")}</span>`}</dd>
         <dt>${t("name")}</dt><dd>${esc(r.name || "–")} <span class="muted">${esc(r.short || "")}</span></dd>
         <dt>${t("r.firmware")}</dt><dd>${esc(r.firmware || "–")}</dd>
-        <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? `<span class="badge ok">${t("yes")}</span>` : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd>
-        <dt>${t("wd.last")}</dt><dd>${r.connected ? ago(Date.now() / 1000 - r.silent_s) : "–"}</dd></dl>
+        <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? B("ok", t("yes")) : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd>
+        <dt>${t("wd.last")}</dt><dd>${r.connected ? ago(now - r.silent_s) : "–"}</dd></dl>
         ${(r.watchdog || []).length ? `<div class="msg warn small">${t("wd.events", { n: r.watchdog.length, x: ago(r.watchdog[r.watchdog.length - 1]) })}</div>` : ""}`
-        : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`}</div>
-    </div>
+      : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`;
+  const lines = [
+    secBox("status", "hub", `<b>${t("st.hub")}</b>`,
+      [[t("name"), `<b>${esc(s.hub.name || "–")}</b>`], [t("code"), s.hub.country && s.hub.city ? esc(s.hub.country + "-" + s.hub.city) : "–"], [t("s.registration"), regText(s.server.status)]],
+      `<dl class="kv"><dt>${t("name")}</dt><dd><b>${esc(s.hub.name || "–")}</b></dd>
+        <dt>${t("code")}</dt><dd>${s.hub.country && s.hub.city ? esc(s.hub.country + "-" + s.hub.city) : "–"}</dd>
+        <dt>${t("s.registration")}</dt><dd>${regText(s.server.status)}</dd></dl><p class="small"><a href="#/settings">${t("nav.settings")} →</a></p>`),
+    secBox("status", "server", `<b>${t("st.server")}</b>`,
+      [[t("status"), B(srvBadge, t(srvState(s)))], [t("s.address"), `<span class="mono small">${esc(s.server.address || "–")}</span>`],
+       [t("links"), active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")]],
+      `<dl class="kv"><dt>${t("status")}</dt><dd>${B(srvBadge, t(srvState(s)))} <span class="muted small">${esc(s.link_detail || "")}</span></dd>
+        <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
+        <dt>${t("links")}</dt><dd>${active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")} · <a href="#/links">${t("nav.links")} →</a></dd></dl>`),
+    secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
+        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", t("r.not_connected"))], [t("name"), esc(r.name || "–")],
+        [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
+        [t("wd.last"), r.connected ? ago(now - r.silent_s) : "–"],
+        ...((r.watchdog || []).length ? [["", B("warn", t("wd.short", { n: r.watchdog.length }))]] : [])] : [["", B("bad", t("err.no_radio"))]], radioBody),
+    secBox("status", "airtime", `<b>${t("st.airtime")}</b>`,
+      [[t("st.hour"), lim(a.used_hour, 3600, a.limits.pct_hour)], [t("st.day"), lim(a.used_day, 86400, a.limits.pct_day)],
+       ["", `<button class="small" id="ann">${t("st.announce")}</button> <button class="small" id="ask">${t("st.ask")}</button> <span id="annmsg" class="muted small"></span>`]],
+      `<p>${t("st.hour")}: <b>${pct(a.used_hour, 3600)}</b> (${a.limits.pct_hour ? t("st.limit", { x: a.limits.pct_hour + " %" }) : t("st.nolimit")})<br>
+         ${t("st.day")}: <b>${pct(a.used_day, 86400)}</b> (${a.limits.pct_day ? t("st.limit", { x: a.limits.pct_day + " %" }) : t("st.nolimit")})</p>
+       <p class="muted small">${t("st.announce.hint")}</p>`),
+    secBox("status", "rx", `<b>${t("rx.title")}</b>`, s.radio_stats && s.radio_stats.time ? [
+        [t("rx.rx"), s.radio_stats.numPacketsRx != null ? `<b>${s.radio_stats.numPacketsRx}</b>` : "–"],
+        [t("rx.chutil"), s.radio_stats.channelUtilization != null ? s.radio_stats.channelUtilization.toFixed(1) + " %" : "–"],
+        [t("rx.updated"), ago(s.radio_stats.time)],
+        ...(s.radio_stats.numPacketsRx === 0 ? [["", B("warn", t("rx.deaf_short"))]] : [])] : [["", `<span class="muted small">${t("rx.none")}</span>`]],
+      receptionHtml(s.radio_stats)),
+    secBox("status", "local", `<span class="dot" style="background:${LOCAL_COLOR}"></span> <b>${t("nl.local")}</b>`,
+      [[t("nc.map"), `<b>${localRecent.length + (own ? 1 : 0)}</b>`], [t("nc.memory"), `${nodes.length}`],
+       ...(hidden ? [[t("nl.older"), `${hidden}`]] : []), ...(own ? [[t("st.radio"), `${esc(own.name || own.id)} ${own.lat != null ? "📍" : ""}`]] : [])],
+      `<p class="muted small">${t("nl.local.hint")}</p>
+        ${hidden ? `<label class="check small"><input type="checkbox" id="showold" ${showOld ? "checked" : ""}> ${t("nl.show_old", { n: hidden })}</label>` : ""}
+        ${own ? `<p class="small">${t("st.radio")}: <b>${esc(own.name || own.id)}</b> ${own.lat != null ? "📍" : `<span class="muted">(${t("nl.nopos")})</span>`}</p>` : ""}
+        <div id="localtable"></div>`),
+    secBox("status", "remote", `<span class="dot" style="background:${REMOTE_COLORS[0]}"></span> <b>${t("nl.remote")}</b>`,
+      [[t("nc.remote"), `<b>${remote.length}</b>`],
+       ...gkeys.map(k => [k === "?" ? t("nl.unknown") : esc((codeOf(k) || "").split(" · ")[0]), `<span class="dot" style="background:${color[k]}"></span>${groups[k].length}`])],
+      `<p class="muted small">${t("nl.remote.hint")}</p>
+        ${gkeys.length ? gkeys.map((k, i) => `<details class="grp" data-g="${esc(k)}" ${i === 0 && k !== "?" ? "open" : ""}><summary><span class="dot" style="background:${color[k]}"></span><b>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</b> (${groups[k].length})</summary><div class="grptable"></div></details>`).join("")
+          : `<p class="muted">${t("none")}</p>`}`)];
+  app().innerHTML = `${pendingNote}
     <div class="grid g4">
       <div class="stat"><div class="v">${g.heard}</div><div class="l">${t("st.heard")}</div></div>
       <div class="stat"><div class="v">${g.sent}</div><div class="l">${t("st.sent")}</div></div>
@@ -375,28 +445,12 @@ async function pageStatus() {
       <div class="stat"><div class="v">${g.to_radio}</div><div class="l">${t("st.to_radio")}</div></div>
       ${g.transit ? `<div class="stat"><div class="v">${g.transit}</div><div class="l">${t("st.transit")}</div></div>` : ""}
     </div>
-    <div class="card" style="margin-top:1rem"><h2>${t("nc.title")}</h2><div class="grid g3">
-      <div class="stat"><div class="v">${localRecent.length + (own ? 1 : 0)}</div><div class="l">${t("nc.map")}<br><span class="small">${t("nc.map.hint")}</span></div></div>
-      <div class="stat"><div class="v">${nodes.filter(n => n.remote).length}</div><div class="l">${t("nc.remote")}</div></div>
-      <div class="stat"><div class="v">${nodes.length}</div><div class="l">${t("nc.memory")}<br><span class="small">${t("nc.memory.hint", { n: hidden })}</span></div></div></div></div>
-    <div class="grid g2">
-      <div class="card"><h2>${t("rx.title")}</h2>${receptionHtml(s.radio_stats)}</div>
-      <div class="card"><h2>${t("st.airtime")}</h2>
-        <p>${t("st.hour")}: <b>${pct(a.used_hour, 3600)}</b> (${a.limits.pct_hour ? t("st.limit", { x: a.limits.pct_hour + " %" }) : t("st.nolimit")})<br>
-           ${t("st.day")}: <b>${pct(a.used_day, 86400)}</b> (${a.limits.pct_day ? t("st.limit", { x: a.limits.pct_day + " %" }) : t("st.nolimit")})</p>
-        <div class="row"><button id="ann">${t("st.announce")}</button><button id="ask">${t("st.ask")}</button><span id="annmsg" class="muted"></span></div></div>
-    </div>
-    <div>
-      <div class="card"><div class="spread"><h2>${t("nl.local")} (${localRecent.length})</h2>
-        ${hidden ? `<label class="check small"><input type="checkbox" id="showold" ${showOld ? "checked" : ""}> ${t("nl.show_old", { n: hidden })}</label>` : ""}</div>
-        <p class="muted small">${t("nl.local.hint")}</p>
-        ${own ? `<p class="small">${t("st.radio")}: <b>${esc(own.name || own.id)}</b> ${own.lat != null ? "📍" : `<span class="muted">(${t("nl.nopos")})</span>`}</p>` : ""}
-        <div id="localtable"></div></div>
-      <div class="card"><h2>${t("nl.remote")} (${nodes.filter(n => n.remote).length})</h2>
-        <p class="muted small">${t("nl.remote.hint")}</p>
-        ${gkeys.length ? gkeys.map((k, i) => `<details class="grp" data-g="${esc(k)}" ${i === 0 && k !== "?" ? "open" : ""}><summary><span class="dot" style="background:${color[k]}"></span><b>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</b> (${groups[k].length})</summary><div class="grptable"></div></details>`).join("")
-          : `<p class="muted">${t("none")}</p>`}</div>
-    </div>`;
+    <div class="card" style="margin-top:1rem"><div class="spread"><h2>${t("map.title")}</h2><span class="muted small">${t("map.own_only")}</span></div>
+      <div id="map" class="minimap" style="height:440px"></div>
+      <div class="legend"><span><span class="dot big" style="background:${LOCAL_COLOR}"></span>${t("map.this_radio")}</span>
+        <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
+    ${secCard(t("st.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
+  bindSecs();
   const cols = [
     { key: "name", label: t("name"), render: n => `${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
     { key: "id", label: t("id"), render: n => `<span class="mono small">${esc(n.id)}</span>` },
@@ -562,39 +616,49 @@ async function pageLinks() {
 async function pageRadio() {
   const [s, c, ports] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config"), api("GET", "/api/ports")]);
   const rc = c.radios[0] || { transport: "serial", address: "" }, r = s.radio;
-  app().innerHTML = `<div class="grid g2">
-    <div class="card"><h2>${t("r.title")}</h2>
+  const nodes = r && r.connected ? await api("GET", "/api/nodes").catch(() => []) : [];
+  secs("radio", [!r || !r.connected ? "conn" : null, r && r.connected && !r.ready ? "state" : null, r && r.connected && r.ready ? "diag" : null]);
+  const connBody = `
       <label>${t("r.type")}</label><select id="rtype"><option value="mt">Meshtastic</option><option value="mc" disabled>MeshCore – ${t("r.mc_soon")}</option></select>
       <label>${t("r.transport")}</label><select id="rtr"><option value="serial">${t("r.serial")}</option><option value="tcp">${t("r.tcp")}</option><option value="ble" disabled>${t("r.ble")}</option></select>
       <div id="rser"><label>${t("r.port")}</label><select id="rport">${ports.map(p => `<option ${p === rc.address ? "selected" : ""}>${esc(p)}</option>`).join("")}
         ${rc.transport === "serial" && rc.address && !ports.includes(rc.address) ? `<option selected>${esc(rc.address)}</option>` : ""}</select>
         <div class="hint">${ports.length ? "" : t("r.none_detected")}</div></div>
       <div id="rtcp"><label>${t("r.host")}</label><input type="text" id="rhost" value="${rc.transport === "tcp" ? esc(rc.address) : ""}"></div>
-      <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button></div>
-    <div class="card"><h2>${t("r.state")}</h2>${r ? `<dl class="kv">
-      <dt>${t("status")}</dt><dd>${r.connected ? `<span class="badge ok">${t("r.connected")}</span>` : `<span class="badge bad">${t("r.not_connected")}</span> <span class="muted small">${esc(r.error || "")}</span>`}</dd>
+      <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button>`;
+  const stateBody = r ? `<dl class="kv">
+      <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", t("r.not_connected"))} <span class="muted small">${esc(r.error || "")}</span>`}</dd>
       ${r.connected ? `<dt>${t("name")}</dt><dd>${esc(r.name)} <span class="muted">${esc(r.short)} · ${esc(r.node_id)}</span></dd>
       <dt>${t("hardware")}</dt><dd>${esc(r.hw)}</dd><dt>${t("r.firmware")}</dt><dd>${esc(r.firmware)}</dd>
       <dt>${t("role")}</dt><dd>${esc(r.role)}</dd><dt>${t("r.region")}</dt><dd>${esc(r.region)} · ${esc(r.preset)}</dd>
-      <dt>${t("r.channels")}</dt><dd>${(r.channels || []).map(ch => `${esc(ch.name)} <span class="badge ${ch.public ? "info" : ""}">${ch.public ? t("r.public") : t("r.private_ch")}</span>`).join("<br>")}</dd>` : ""}
-      </dl>${r.connected ? `<h3>${r.ready ? `<span class="badge ok">${t("r.ready")}</span>` : `<span class="badge warn">${t("r.not_ready")}</span>`}</h3>
+      <dt>${t("r.channels")}</dt><dd>${(r.channels || []).map(ch => `${esc(ch.name)} ${B(ch.public ? "info" : "", ch.public ? t("r.public") : t("r.private_ch"))}`).join("<br>")}</dd>` : ""}
+      </dl>${r.connected ? `<h3>${r.ready ? B("ok", t("r.ready")) : B("warn", t("r.not_ready"))}</h3>
       ${Object.entries(r.checks || {}).map(([k, v]) => `<div>${v ? "✅" : "❌"} ${t("chk." + k)}</div>`).join("")}
       ${r.ready ? "" : `<p><button class="primary" id="prep">${t("r.prepare")}</button></p>`}<div id="pmsg"></div>
-      <p class="muted small">${t("r.fw_note")}</p><div class="msg warn small">${t("r.exclusive")}</div>` : ""}` : `<p class="muted">${t("err.no_radio")}</p>`}</div></div>`;
-  if (r && r.connected) {
-    const nodes = await api("GET", "/api/nodes");
-    const card = document.createElement("div"); card.className = "card";
-    card.innerHTML = `<h2>${t("dg.title")}</h2><p class="muted small">${t("dg.hint")}</p>
+      <p class="muted small">${t("r.fw_note")}</p><div class="msg warn small">${t("r.exclusive")}</div>` : ""}` : `<p class="muted">${t("err.no_radio")}</p>`;
+  const diagBody = `<p class="muted small">${t("dg.hint")}</p>
       <label>${t("dg.node")}</label><input type="text" id="dgnode" list="dglist" placeholder="!abcd1234">
       <datalist id="dglist">${nodes.filter(n => !n.own).sort((a, b) => (b.last_heard || 0) - (a.last_heard || 0)).map(n => `<option value="${esc(n.id)}">${esc(n.name || "")}${n.remote ? " · " + t("remote") : ""}</option>`).join("")}</datalist>
       <label>${t("dg.text")}</label><input type="text" id="dgtext" maxlength="200" value="Ura test">
       <div class="row" style="margin-top:.6rem">
         <button data-dg="dm">${t("dg.dm")}</button><button data-dg="trace">${t("dg.trace")}</button>
         <button data-dg="telemetry">${t("dg.telemetry")}</button><button data-dg="position">${t("dg.position")}</button></div>
-      <div class="row" style="margin-top:.8rem"><select id="dgch" style="max-width:260px">${(r.channels || []).map(ch => `<option value="${ch.index}">${esc(ch.name)}${ch.public ? " (" + t("r.public") + ")" : ""}</option>`).join("")}</select>
+      <div class="row" style="margin-top:.8rem"><select id="dgch" style="max-width:260px">${((r && r.channels) || []).map(ch => `<option value="${ch.index}">${esc(ch.name)}${ch.public ? " (" + t("r.public") + ")" : ""}</option>`).join("")}</select>
         <button data-dg="broadcast">${t("dg.broadcast")}</button></div><div class="hint">${t("dg.broadcast.hint")}</div>
       <div id="dgout"></div>`;
-    app().appendChild(card);
+  const lines = [
+    secBox("radio", "conn", `<b>${t("r.title")}</b>`,
+      [[t("r.type"), "Meshtastic"], [t("r.transport"), rc.transport === "tcp" ? t("r.tcp") : t("r.serial")],
+       [t("r.port"), `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`]], connBody),
+    secBox("radio", "state", `<b>${t("r.state")}</b>`, r ? [
+        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", t("r.not_connected"))],
+        ...(r.connected ? [[t("name"), `${esc(r.name)} <span class="muted small">${esc(r.node_id)}</span>`], [t("r.firmware"), esc(r.firmware)],
+                           [t("r.ready"), r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))]] : [["", `<span class="muted small">${esc(r.error || "")}</span>`]])]
+      : [["", B("bad", t("err.no_radio"))]], stateBody),
+    ...(r && r.connected ? [secBox("radio", "diag", `<b>${t("dg.title")}</b>`, [["", `<span class="muted small">${t("dg.short")}</span>`]], diagBody)] : [])];
+  app().innerHTML = secCard(t("nav.radio"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
+  bindSecs();
+  if (r && r.connected) {
     $$("button[data-dg]").forEach(b => b.onclick = async () => {
       const node = $("#dgnode").value.trim();
       $$("button[data-dg]").forEach(x => x.disabled = true);
@@ -647,35 +711,45 @@ async function pageDevice() {
     return `<div>${lbl}<input type="${f.type === "string" ? "text" : "number"}" ${f.type === "float" ? 'step="any"' : ""} id="${id}" data-f="${esc(f.name)}" data-t="${f.type}" value="${esc(v)}"></div>`;
   };
   const ch = d.channels.filter(c => c.role !== "DISABLED"), free = d.channels.find(c => c.role === "DISABLED");
+  secs("device", []);
+  const keyBadge = c => B(c.psk === "default" ? "warn" : "ok", c.psk === "default" ? t("r.public") : c.psk === "none" ? t("dev.nokey") : t("r.private_ch"));
+  const secTitle = sc => SEC_NAMES[sc.name] ? t(SEC_NAMES[sc.name]) : esc(human(sc.name));
   app().innerHTML = `
     <div class="msg warn">${t("dev.warn")}</div>
-    <div class="grid g2">
-      <div class="card"><h2>${t("dev.owner")}</h2>
-        <label>${t("dev.long")}</label><input type="text" id="olong" maxlength="39" value="${esc(d.owner.long_name)}">
+    ${secCard(t("dev.identity"), `<p class="muted small">${t("sec.hint")}</p>` +
+      secBox("device", "owner", `<b>${t("dev.owner")}</b>`, [[t("dev.long"), `<b>${esc(d.owner.long_name)}</b>`], [t("dev.short"), esc(d.owner.short_name)]],
+        `<label>${t("dev.long")}</label><input type="text" id="olong" maxlength="39" value="${esc(d.owner.long_name)}">
         <label>${t("dev.short")}</label><input type="text" id="oshort" maxlength="4" value="${esc(d.owner.short_name)}">
-        <div id="omsg"></div><button class="primary" id="osave">${t("save")}</button></div>
-      <div class="card"><h2>${t("dev.fixed")}</h2>
-        <label class="check"><input type="checkbox" id="fxon" ${d.fixed.enabled ? "checked" : ""}> ${t("dev.fixed.on")}</label>
+        <div id="omsg"></div><button class="primary" id="osave">${t("save")}</button>`) +
+      secBox("device", "fixed", `<b>${t("dev.fixed")}</b>`,
+        [[t("status"), d.fixed.enabled ? B("ok", t("on")) : B("", t("off"))], [t("position"), d.fixed.lat != null && d.fixed.lat !== "" ? fmtPos(d.fixed.lat, d.fixed.lon) : "–"]],
+        `<label class="check"><input type="checkbox" id="fxon" ${d.fixed.enabled ? "checked" : ""}> ${t("dev.fixed.on")}</label>
         <div class="grid g3" style="gap:.5rem"><div><label>${t("s.lat")}</label><input type="number" step="any" id="fxlat" value="${esc(d.fixed.lat ?? "")}"></div>
           <div><label>${t("s.lon")}</label><input type="number" step="any" id="fxlon" value="${esc(d.fixed.lon ?? "")}"></div>
           <div><label>${t("dev.alt")}</label><input type="number" id="fxalt" value="${esc(d.fixed.alt ?? 0)}"></div></div>
-        <div id="fxmsg"></div><button class="primary" id="fxsave">${t("save")}</button></div>
-    </div>
-    <div class="card"><h2>${t("dev.channels")}</h2><p class="muted small">${t("dev.channels.hint")}</p>
-      ${ch.map(c => `<details class="chbox" data-ch="${c.index}"><summary><b>#${c.index}</b> ${esc(c.name || t("dev.preset_name"))} <span class="badge ${c.role === "PRIMARY" ? "info" : ""}">${c.role === "PRIMARY" ? t("dev.primary") : t("dev.secondary")}</span> <span class="badge ${c.psk === "default" ? "warn" : "ok"}">${c.psk === "default" ? t("r.public") : c.psk === "none" ? t("dev.nokey") : t("r.private_ch")}</span></summary>
-          ${chForm(c)}</details>`).join("")}
-      ${free ? `<details class="chbox" data-ch="${free.index}" data-new="1"><summary>➕ ${t("dev.addch")}</summary>${chForm({ index: free.index, role: "SECONDARY", name: "", psk: "random", uplink: true, downlink: true, position_precision: 0, muted: false })}</details>` : ""}
+        <div id="fxmsg"></div><button class="primary" id="fxsave">${t("save")}</button>`))}
+    ${secCard(`${t("dev.channels")} (${ch.length})`, `<p class="muted small">${t("dev.channels.hint")}</p>
+      ${ch.map(c => secBox("device", "ch" + c.index, `<b>#${c.index}</b> ${esc(c.name || t("dev.preset_name"))}`,
+          [[t("dev.role"), B(c.role === "PRIMARY" ? "info" : "", c.role === "PRIMARY" ? t("dev.primary") : t("dev.secondary"))], [t("dev.key"), keyBadge(c)],
+           [t("dev.updown"), `${c.uplink ? "↑" : "–"} ${c.downlink ? "↓" : "–"}`], ...(c.muted ? [["", B("", t("dev.muted"))]] : [])],
+          chForm(c), { cls: "chbox", attrs: `data-ch="${c.index}"` })).join("")}
+      ${free ? secBox("device", "chnew", `➕ ${t("dev.addch")}`, [], chForm({ index: free.index, role: "SECONDARY", name: "", psk: "random", uplink: true, downlink: true, position_precision: 0, muted: false }),
+          { cls: "chbox", attrs: `data-ch="${free.index}" data-new="1"` }) : ""}
       ${d.url ? `<p class="small">${t("dev.url")}: <a href="${esc(d.url)}" target="_blank" rel="noopener" class="mono">${esc(d.url)}</a></p>` : ""}
-      <div id="chmsg"></div></div>
-    <div class="card"><h2>${t("dev.all")}</h2><p class="muted small">${t("dev.all.hint")}</p>
-      ${d.sections.map(s => `<details class="secbox" data-sec="${s.name}" data-kind="${s.kind}"><summary><b>${SEC_NAMES[s.name] ? t(SEC_NAMES[s.name]) : esc(human(s.name))}</b> <span class="muted small">${s.kind === "module" ? t("dev.module") : t("dev.config")}${s.reboot ? " · " + t("dev.reboot") : ""}</span></summary>
-        <div class="grid g3" style="gap:.4rem 1rem;margin-top:.6rem">${s.fields.map(f => field(s.name, f, s.values[f.name])).join("")}</div>
-        <div class="row" style="margin-top:.6rem"><button class="primary" data-save-sec="${s.name}">${t("save")}</button><span class="muted small" data-secmsg="${s.name}"></span></div></details>`).join("")}</div>`;
+      <div id="chmsg"></div>`)}
+    ${secCard(`${t("dev.all")} (${d.sections.length})`, `<p class="muted small">${t("dev.all.hint")}</p>
+      ${d.sections.map(sc => secBox("device", sc.name, `<b>${secTitle(sc)}</b>`,
+          [[t("dev.kind"), sc.kind === "module" ? t("dev.module") : t("dev.config")], [t("dev.fields"), sc.fields.length],
+           ...(sc.reboot ? [["", B("warn", t("dev.reboot"))]] : []), ["", `<span class="muted small" data-secmsg="${sc.name}"></span>`]],
+          `<div class="grid g3" style="gap:.4rem 1rem;margin-top:.6rem">${sc.fields.map(f => field(sc.name, f, sc.values[f.name])).join("")}</div>
+          <div class="row" style="margin-top:.6rem"><button class="primary" data-save-sec="${sc.name}">${t("save")}</button></div>`,
+          { attrs: `data-kind="${sc.kind}"` })).join("")}`)}`;
+  bindSecs();
   const orig = {}; d.sections.forEach(s => orig[s.name] = s.values);
   $("#osave").onclick = async () => { try { await api("POST", "/api/radio/owner", { long_name: $("#olong").value, short_name: $("#oshort").value }); $("#omsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#omsg").innerHTML = `<div class="msg bad">${t("dev.owner.bad")}</div>`; } };
   $("#fxsave").onclick = async () => { try { await api("POST", "/api/radio/fixed", { fixed: { enabled: $("#fxon").checked, lat: $("#fxlat").value, lon: $("#fxlon").value, alt: $("#fxalt").value } }); $("#fxmsg").innerHTML = `<div class="msg ok">${t("saved")} ${t("dev.restarts")}</div>`; } catch (e) { $("#fxmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; } };
   $$("button[data-save-sec]").forEach(b => b.onclick = async () => {
-    const box = b.closest("[data-sec]"), sec = box.dataset.sec, values = {};
+    const box = b.closest("details[data-sec]"), sec = box.dataset.sec, values = {};
     $$("[data-f]", box).forEach(i => { const v = i.type === "checkbox" ? i.checked : i.value; if (String(v) !== String(orig[sec][i.dataset.f])) values[i.dataset.f] = v; });
     const msg = $(`[data-secmsg="${sec}"]`);
     if (!Object.keys(values).length) { msg.textContent = t("dev.nochange"); return; }
@@ -726,14 +800,24 @@ async function pageSettings() {
       ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
       ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
   const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
-  app().innerHTML = `<div class="grid g2">
-    <div class="card"><h2>${t("s.hub")}</h2>
-      ${inp("hname", "s.name", "text", h.name, reg)}${inp("hemail", "s.email", "email", h.email, reg)}
+  const spec = await api("GET", "/api/advanced_spec");
+  spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
+  const advChanged = Object.entries(c.advanced || {}).filter(([k, v]) => spec[k] && String(v) !== String(spec[k].default)).length
+                   + ((c.server.web_port || 8443) !== 8443 ? 1 : 0);
+  const sb = s.link_state === "connected" ? "ok" : (s.link_state === "connecting" ? "warn" : "bad");
+  secs("settings", [!reg ? "hub" : null, !reg || s.link_state !== "connected" ? "server" : null]);
+  const onoff = v => v ? B("ok", t("on")) : B("", t("off"));
+  const lines = [
+    secBox("settings", "hub", `<b>${t("s.hub")}</b>`,
+      [[t("s.name"), `<b>${esc(h.name || "–")}</b>`], [t("code"), h.country && h.city ? esc(h.country + "-" + h.city) : "–"], [t("s.email"), esc(h.email || "–")],
+       ...(reg ? [["", B("", "🔒 " + t("s.locked_short"))]] : [])],
+      `${inp("hname", "s.name", "text", h.name, reg)}${inp("hemail", "s.email", "email", h.email, reg)}
       <div class="grid g2" style="gap:.5rem">${inp("hcountry", "s.country", "text", h.country, reg)}${inp("hcity", "s.city", "text", h.city, reg)}</div>
       <label>${t("s.desc")}</label><textarea id="hdesc" ${reg ? "disabled" : ""}>${esc(h.description || "")}</textarea>
-      ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}</div>
-    <div class="card"><h2>${t("s.server")}</h2>
-      <label>${t("s.address")}</label><div class="row"><input type="text" id="saddr" value="${esc(c.server.address)}" style="flex:1"><button id="scheck">${t("s.check")}</button></div>
+      ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}`),
+    secBox("settings", "server", `<b>${t("s.server")}</b>`,
+      [[t("s.address"), `<span class="mono small">${esc(c.server.address || "–")}</span>`], [t("status"), B(sb, t(srvState(s)))], [t("s.registration"), regText(c.server.status)]],
+      `<label>${t("s.address")}</label><div class="row"><input type="text" id="saddr" value="${esc(c.server.address)}" style="flex:1"><button id="scheck">${t("s.check")}</button></div>
       ${c.server.fingerprint ? `<div class="msg info small" style="margin-top:.6rem">${t("s.trusted_server")} <b class="mono">${esc(c.server.address)}</b><br>${t("s.trusted")}: <span class="mono">${esc(c.server.fingerprint)}</span></div>` : ""}
       <div id="sfp"></div>
       <h3>${t("s.registration")}</h3><p>${regText(c.server.status)} ${reg ? `<span class="muted small mono">${esc(c.server.hub_id)}</span>` : ""}</p>
@@ -741,29 +825,35 @@ async function pageSettings() {
       <div id="jmsg"></div>
       ${!reg && c.server.fingerprint ? `<div id="sjoinbox"><p class="small">${t("s.join_to", { x: `<b class="mono">${esc(c.server.address)}</b>` })}</p><button class="primary" id="sjoin">${t("s.join")}</button></div>
         <p class="msg warn small hidden" id="sjoinwarn">${t("s.join_check_first")}</p>` : ""}
-      ${reg ? `<button class="danger" id="sforget">${t("s.forget")}</button>` : ""}</div>
-    <div class="card"><h2>${t("loc.title")}</h2>
-      <p class="muted small">${t("loc.hint")}</p>
+      ${reg ? `<button class="danger" id="sforget">${t("s.forget")}</button>` : ""}`),
+    secBox("settings", "loc", `<b>${t("loc.title")}</b>`,
+      [[t("loc.mode"), h.location_mode === "manual" ? t("loc.mode.manual") : t("loc.mode.radio")], [t("position"), h.lat != null && h.lat !== "" ? fmtPos(h.lat, h.lon) : "–"]],
+      `<p class="muted small">${t("loc.hint")}</p>
       <label class="check"><input type="radio" name="lmode" value="radio" ${h.location_mode !== "manual" ? "checked" : ""}> ${t("loc.radio")}</label>
       <label class="check"><input type="radio" name="lmode" value="manual" ${h.location_mode === "manual" ? "checked" : ""}> ${t("loc.manual")}</label>
       <p class="small">${t("loc.radio_pos")}: ${s.radio_position ? `<b>${fmtPos(s.radio_position.lat, s.radio_position.lon)}</b> <button class="small" id="luse">${t("loc.use")}</button>` : `<span class="muted">${t("loc.no_radio_pos")}</span>`}</p>
       <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat)}${inp("hlon", "s.lon", "number", h.lon)}</div>
-      <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button></div>
-    <div class="card"><h2>${t("s.limits")}</h2>
-      ${inp("ahour", "s.air_hour", "number", c.airtime.pct_hour)}${inp("aday", "s.air_day", "number", c.airtime.pct_day)}
+      <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button>`),
+    secBox("settings", "limits", `<b>${t("s.limits")}</b>`,
+      [[t("st.hour"), c.airtime.pct_hour ? c.airtime.pct_hour + " %" : t("st.nolimit")], [t("st.day"), c.airtime.pct_day ? c.airtime.pct_day + " %" : t("st.nolimit")],
+       [t("tr.title"), onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
+       [t("s.share_pos_short"), onoff(c.share_positions_on_map)]],
+      `${inp("ahour", "s.air_hour", "number", c.airtime.pct_hour)}${inp("aday", "s.air_day", "number", c.airtime.pct_day)}
       <p class="hint">${t("s.air_hint")}</p>
       <label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
       <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
       <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
       <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
       <h3>${t("s.defaults")}</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
-      <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button></div>
-    <div class="card"><h2>${t("s.password")}</h2><input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
-      <button id="pwsave">${t("save")}</button> <button id="logout">${t("logout")}</button></div></div>
-    <div class="card"><h2>${t("adv.title")}</h2><p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
-      <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button></div>`;
-  const spec = await api("GET", "/api/advanced_spec");
-  spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
+      <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button>`),
+    secBox("settings", "pw", `<b>${t("s.password")}</b>`, [["", `<span class="muted small">${t("s.pw_short")}</span>`], ["", `<button class="small" id="logout">${t("logout")}</button>`]],
+      `<input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
+      <button id="pwsave">${t("save")}</button>`),
+    secBox("settings", "adv", `<b>${t("adv.title")}</b>`, [["", advChanged ? B("warn", t("adv.changed_n", { n: advChanged })) : `<span class="muted small">${t("adv.all_default")}</span>`]],
+      `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
+      <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`)];
+  app().innerHTML = secCard(t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
+  bindSecs();
   const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
     groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
              ["adv.g.nodes", ["node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
