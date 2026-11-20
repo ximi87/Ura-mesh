@@ -288,6 +288,7 @@ class Counters:
     def __init__(self):
         self.lock = threading.Lock()
         self.g = {"heard": 0, "uplinked": 0, "sent": 0, "received": 0, "to_radio": 0, "transit": 0}
+        self.last_block = {}           # peer -> reason of the last blocked packet (for the log)
         self.peer = {}          # peer -> {"sent", "received", "blocked_send": {reason: n}, "blocked_recv": {...}}
         self.airtime = []       # [(time, seconds)]
         self.started = time.time()
@@ -304,6 +305,7 @@ class Counters:
             p = self.p(peer)
             if reason:
                 p[key][reason] = p[key].get(reason, 0) + 1
+                self.last_block[peer] = reason
             else:
                 p[key] += 1
 
@@ -1366,9 +1368,20 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
         inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode(), "path": path, **meta}).encode()
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
         counters.peer_add(peer, "sent" if len(path) == 1 else "transit")
+    if own or boxes:
+        names = {h["id"]: h.get("code") for h in link.directory}
+        log.info("%s %s: sent to %s%s", "radio ->" if own else "passing on", pkt_desc(c),
+                 ", ".join(names.get(x, x) for x in boxes) or "nobody",
+                 "".join(f"; not to {names.get(x, x)} ({counters.last_block.get(x, '?')})" for x in active_peers() if x not in boxes and x not in exclude))
     if boxes:
         counters.add("sent" if len(path) == 1 else "transit")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "boxes": boxes}), loop)
+
+
+def pkt_desc(c):
+    """Short description of a packet for the log: private / channel, kind, sender."""
+    where = "private" if c["private"] else ("public " if c["public"] else "group ") + c["channel"]
+    return f"{where} {c['kind']} from {c['sender']}"
 
 
 def rule_reach(rule):
@@ -1431,19 +1444,24 @@ def receive_from_peer(peer, topic, data, origin=None):
         return
     if c.get("sender"):
         origins.note(c["sender"], origin or peer)
+    frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
+    via = "" if not origin or origin == peer else f" (from {next((h.get('code') for h in link.directory if h['id'] == origin), origin)})"
     ok, why = allowed(cfg.rules_for(peer)["receive"], c)
     if not ok:
         counters.peer_add(peer, "blocked_recv", why)
+        log.info("from %s%s %s: not put on air (%s)", frm, via, pkt_desc(c), why)
         return
     a = cfg.get()["airtime"]
     toa = time_on_air(c["size"] + 16, *r.lora_params())
     if (a.get("pct_hour") and counters.air_used(3600) + toa > 3600 * a["pct_hour"] / 100) or \
        (a.get("pct_day") and counters.air_used(86400) + toa > 86400 * a["pct_day"] / 100):
         counters.peer_add(peer, "blocked_recv", "airtime")
+        log.info("from %s%s %s: not put on air (airtime limit)", frm, via, pkt_desc(c))
         return
     if r.downlink(topic, data):
         counters.air_add(toa)
         counters.peer_add(peer, "received")
+        log.info("from %s%s %s: put on air", frm, via, pkt_desc(c))
     else:
         counters.peer_add(peer, "blocked_recv", "no_radio")
 
