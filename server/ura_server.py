@@ -544,7 +544,8 @@ async def hub_leave(hub):
     for r in db.q("SELECT id FROM links WHERE state!='removed' AND (a=? OR b=?)", (hub, hub)):
         await link_remove(hub, r["id"])
     db.x("DELETE FROM stats WHERE src=? OR dst=?", (hub, hub))
-    log.info("hub %s left the network (registration forgotten by its operator)", hub)
+    db.x("DELETE FROM hubs WHERE id=?", (hub,))             # as if it never existed
+    log.info("hub %s left the network (registration forgotten by its operator; all its data deleted)", hub)
     await push_directory()
 
 
@@ -812,6 +813,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                         from_thread(link_remove(None, r["id"]))
                     db.x("DELETE FROM stats WHERE src=? OR dst=?", (hub, hub))
                     from_thread(tell_and_close(hub, {"t": "status", "status": "removed"}))
+                    from_thread(delete_hub_row(hub))
                 from_thread(push_directory())
                 return self.reply({"ok": True})
             m = re.match(r"^/api/admin/complaint/(\d+)$", p)
@@ -949,15 +951,37 @@ def run_web(crt, key):
     srv.serve_forever()
 
 
+async def delete_hub_row(hub):
+    await asyncio.sleep(3)                                   # after the hub was told it is removed
+    db.x("DELETE FROM hubs WHERE id=?", (hub,))
+    db.x("DELETE FROM stats WHERE src=? OR dst=?", (hub, hub))
+    await push_directory()
+
+
+def cleanup_once():
+    """Nothing stays behind: statistics of links that no longer exist, old link rows, removed hubs and their
+    nodes are deleted; statistics older than the retention time too."""
+    out = {
+        "old statistics": db.x("DELETE FROM stats WHERE hour < ?", (now() - adv("stats_retention_days") * 86400,)).rowcount,
+        "statistics of ended links": db.x("""DELETE FROM stats WHERE NOT EXISTS (SELECT 1 FROM links l WHERE l.state='active'
+                                             AND ((l.a=stats.src AND l.b=stats.dst) OR (l.a=stats.dst AND l.b=stats.src)))""").rowcount,
+        "ended links": db.x("DELETE FROM links WHERE state='removed'").rowcount,
+        "removed hubs": db.x("DELETE FROM hubs WHERE status='removed'").rowcount,
+        "nodes of hubs that are gone": db.x("DELETE FROM nodes WHERE hub NOT IN (SELECT id FROM hubs WHERE status='approved')").rowcount,
+    }
+    done = {k: v for k, v in out.items() if v}
+    if done:
+        log.info("clean-up: deleted %s", ", ".join(f"{v} {k}" for k, v in done.items()))
+    return done
+
+
 def cleanup_loop():
-    """Remove statistics older than the retention time: at start, then every hour (traffic or not)."""
+    """At start, then every hour."""
     while True:
         try:
-            n = db.x("DELETE FROM stats WHERE hour < ?", (now() - adv("stats_retention_days") * 86400,)).rowcount
-            if n:
-                log.info("removed %d statistics rows older than %d days", n, adv("stats_retention_days"))
+            cleanup_once()
         except Exception as e:
-            log.warning("statistics clean-up: %s", e)
+            log.warning("clean-up: %s", e)
         time.sleep(3600)
 
 

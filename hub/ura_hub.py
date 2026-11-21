@@ -1423,7 +1423,8 @@ class Link:
                 first = json.loads(await asyncio.wait_for(reader.readline(), 15))
                 if first.get("t") != "welcome":
                     self.state, self.detail = "refused", first.get("reason", "")
-                    cfg.update(lambda d: d["server"].update(status=self.detail))
+                    st = "removed" if self.detail in ("removed", "unknown_hub") else self.detail   # the server no longer has us
+                    cfg.update(lambda d: d["server"].update(status=st))
                     writer.close()
                     await self._wait(adv("refused_retry_s"))
                     continue

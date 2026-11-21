@@ -19,7 +19,7 @@ away, transit not allowed, radio not connected.
 
 ## Logs
 
-Every hub has a **Logs** page, the server has a **Log** section in *Admin*. They show the program's own
+Every hub has a **Logs** page; the server has a **Logs** page in the menu (visible to the admin only). They show the program's own
 log, newest at the bottom: filter *everything / warnings and errors / errors only*, search text, update
 every 5 seconds. Each file (the last ~5 MB, in the data folder under `logs/`) can be downloaded as a text
 file to send to someone. The hub writes one line per packet: sent to which hubs (or why not), put on air
@@ -39,6 +39,10 @@ older installations: add that line under `RestartSec=` and run `sudo systemctl d
 - **Leaving the server** (*Settings → Ura server → Forget*): the server address, its trusted fingerprint,
   the registration, all links, partner keys and the partners' nodes on the radio are deleted — the hub is
   as if it had never used that server.
+- **On the server:** a hub that leaves or is removed is deleted completely (the hub, its links, their
+  statistics, its nodes). The server also clears leftovers by itself at start and every hour: statistics of
+  links that no longer exist, ended links, removed hubs and their nodes. The *Statistics* page shows only
+  links that exist.
 - **Removing the radio** (*Radio → Remove this radio from the hub*): its port, the saved copy of its channels
   and which partner its nodes came from are forgotten; connect a radio again as if it were new. Nothing on
   the radio itself is changed.

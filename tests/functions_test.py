@@ -440,6 +440,15 @@ check("admin removes hub C: C told 'removed'", wait(lambda: status("C")["server"
 check("... its link at B is gone", wait(lambda: not link_with("B", "C"), 8))
 check("... A-B untouched", link_with("A", "B")["state"] == "active")
 check("... C gone from public list + nodes", ids["C"] not in [x["id"] for x in S("/api/public/hubs")])
+def c_left():
+    d_ = sqlite3.connect(f"{T}/srv/ura.db")
+    n_ = sum(d_.execute(q, (ids["C"], ids["C"])).fetchone()[0] for q in (
+        "SELECT COUNT(*) FROM hubs WHERE id=? OR id=?", "SELECT COUNT(*) FROM links WHERE a=? OR b=?",
+        "SELECT COUNT(*) FROM stats WHERE src=? OR dst=?", "SELECT COUNT(*) FROM nodes WHERE hub=? OR hub=?"))
+    d_.close()
+    return n_ == 0
+import sqlite3
+check("... server: nothing about C left (hub, links, statistics, nodes)", wait(c_left, 8))
 r = h["B"]("/api/server/forget", {})
 check("B leaves the server", r.get("ok"), r)
 check("... server removed B and the A-B link", wait(lambda: not any(x["id"] == ids["B"] for x in S("/api/admin/state")["hubs"]), 8))
@@ -616,7 +625,16 @@ srv_pid = lambda: subprocess.run(f"ss -ltnp 'sport = :{SRV_HUB_PORT}' | grep -oP
 S("/api/admin/advanced", {"advanced": {"stats_retention_days": 7}})
 h["A"]("/api/advanced", {"advanced": {"queue_max": 50, "server_retry_s": 3}})
 os.kill(int(srv_pid()), signal.SIGTERM); time.sleep(2)
-db = sqlite3.connect(f"{T}/srv/ura.db"); db.execute("INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES('old','old','mt',?,5,500)", ((int(time.time()) // 3600 - 24 * 30) * 3600,)); db.commit(); db.close()
+db = sqlite3.connect(f"{T}/srv/ura.db"); db.execute("INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES('old','old','mt',?,5,500)", ((int(time.time()) // 3600 - 24 * 30) * 3600,)); 
+# leftovers like a server from before the clean-up rule: a removed hub, an ended link, statistics of a link that is gone
+db.execute("INSERT INTO stats(src,dst,net,hour,frames,bytes) VALUES('h_gone1','h_gone2','mt',?,3,300)", (int(time.time()) // 3600 * 3600,))
+hc = [r[1] for r in db.execute("PRAGMA table_info(hubs)")]
+row = dict(zip(hc, db.execute("SELECT * FROM hubs LIMIT 1").fetchone())); row.update(id="h_gone1", status="removed")
+db.execute(f"INSERT INTO hubs({','.join(row)}) VALUES({','.join('?' * len(row))})", tuple(row.values()))
+lc = [r[1] for r in db.execute("PRAGMA table_info(links)") if r[1] != "id"]
+lrow = dict(zip(lc, db.execute(f"SELECT {','.join(lc)} FROM links LIMIT 1").fetchone())); lrow.update(a="h_gone1", b="h_gone2", state="removed")
+db.execute(f"INSERT INTO links({','.join(lrow)}) VALUES({','.join('?' * len(lrow))})", tuple(lrow.values()))
+db.commit(); db.close()
 check("hub notices the server is gone", wait(lambda: status("A")["link_state"] != "connected", 10), status("A")["link_state"])
 queued = [send("A", "LongFast") for _ in range(55)]
 subprocess.Popen(f"cd {REPO}/server && URA_DATA={T}/srv URA_PORT={SRV_HUB_PORT} URA_WEB_PORT={SRV_WEB} setsid nohup python3 -u ura_server.py >> {T}/server.log 2>&1 < /dev/null &", shell=True)
@@ -629,6 +647,11 @@ check("packets heard while the server was down are delivered afterwards (queue)"
 check("... but no more than the queue size (50)", got <= 50, f"{got} of 55")
 db = sqlite3.connect(f"{T}/srv/ura.db"); old = db.execute("SELECT COUNT(*) FROM stats WHERE src='old'").fetchone()[0]; db.close()
 check("statistics older than 7 days removed", old == 0, old)
+db = sqlite3.connect(f"{T}/srv/ura.db")
+left = (db.execute("SELECT COUNT(*) FROM stats WHERE src='h_gone1'").fetchone()[0], db.execute("SELECT COUNT(*) FROM hubs WHERE status='removed'").fetchone()[0],
+        db.execute("SELECT COUNT(*) FROM links WHERE state='removed'").fetchone()[0])
+db.close()
+check("server start clean-up: statistics of links that are gone, removed hubs, ended links -> all deleted", left == (0, 0, 0), left)
 
 sec("waiting times: lockouts, replay window, watchdog, silent server")
 h["A"]("/api/advanced", {"advanced": {"lockout_attempts": 3, "lockout_minutes": 1}})

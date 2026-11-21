@@ -675,7 +675,7 @@ async function pageAdmin() {
       <label>${t("password")}</label><input type="password" id="pw" autocomplete="current-password"><div class="hint">${t("password.min", { n: INFO.password_min })}</div>
       <div id="lmsg"></div><button class="primary" id="lbtn">${INFO.setup_needed ? t("setup.btn") : t("login")}</button></div></div>`;
     const go = async () => {
-      try { await api("POST", INFO.setup_needed ? "/api/setup" : "/api/login", { password: $("#pw").value }); pageAdmin(); }
+      try { await api("POST", INFO.setup_needed ? "/api/setup" : "/api/login", { password: $("#pw").value }); route(); }      // route(): menu with Logs for the admin
       catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${e.message === "wrong_password" ? t("password.wrong") : e.message === "locked" ? t("a.locked") : e.message === "password_short" ? t("password.short") : esc(e.message)}</div>`; }
     };
     $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
@@ -706,12 +706,10 @@ async function pageAdmin() {
     ${sec("sec-pw", t("a.change_pw"), `<div style="max-width:420px"><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>`, false)}
     ${sec("sec-adv", t("adv.title"), `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`, false)}
     ${sec("sec-prog", t("pg.title"), `<div id="pgctl"></div>`, false)}
-    ${sec("sec-logs", t("lg.title") + " — ura-server", `<p class="muted small">${t("lg.hint")}</p><div id="alogs"></div>`, false)}</div>`;
+</div>`;
   $$("details.acard").forEach(d => d.addEventListener("toggle", () => { adminOpen.delete(d.open ? "!" + d.id : d.id); adminOpen.add(d.open ? d.id : "!" + d.id); }));
   $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const d = $("#" + a.dataset.go); d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); });
   programControl($("#pgctl"), "/api/admin/program", s.started, s.version, "ura-server");
-  const lgd = $("#sec-logs"), startLogs = () => { if (lgd.open && !lgd.dataset.on) { lgd.dataset.on = 1; logViewer($("#alogs"), "/api/admin/logs"); } };
-  lgd.addEventListener("toggle", startLogs); startLogs();
   adminHubList($("#hpending"), pending, nLinks, true);
   adminHubList($("#happroved"), approved, nLinks, false);
   $("#lerun").onclick = async () => { await api("POST", "/api/admin/acme/run", {}); $("#lemsg").textContent = t("le.started"); setTimeout(pageAdmin, 20000); };
@@ -727,7 +725,7 @@ async function pageAdmin() {
     try { await api("POST", "/api/admin/advanced", { advanced: af.read() }); af.mark([]); INFO = {}; $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
     catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${t("adv.invalid")}</div>`; }
   };
-  $("#lo").onclick = async () => { await api("POST", "/api/logout", {}); pageAdmin(); };
+  $("#lo").onclick = async () => { await api("POST", "/api/logout", {}); route(); };
   $("#adminroot").addEventListener("click", async e => {
     const b = e.target.closest("button[data-a]"); if (!b) return;
     e.preventDefault(); e.stopPropagation();
@@ -759,6 +757,12 @@ function adminBadge() {
 }
 setInterval(async () => { try { if (!document.hidden && INFO.admin) { INFO = await api("GET", "/api/public/info"); adminBadge(); } } catch (e) {} }, 60000);
 
+function pageServerLogs() {
+  if (!INFO.admin) { location.hash = "#/admin"; return; }
+  app().innerHTML = `<div class="card"><h2>${t("lg.title")} — ura-server</h2><p class="muted small">${t("lg.hint")}</p><div id="logs"></div></div>`;
+  logViewer($("#logs"), "/api/admin/logs");
+}
+
 async function route() {
   renderHeader(t("site.title"), MENU);
   if (mapObj) { mapObj.remove(); mapObj = null; }
@@ -766,6 +770,7 @@ async function route() {
   app().innerHTML = `<p class="muted">${t("loading")}</p>`;
   try {
     INFO = await api("GET", "/api/public/info");          // fresh on every page: admin state + waiting hubs
+    renderHeader(t("site.title"), INFO.admin ? [...MENU, ["#/logs", "nav.logs"]] : MENU);   // Logs: admin only
     adminBadge();
     $("#foot").innerHTML = (location.hash.replace(/^#\/?/, "") === "") ? "" :
       esc(t("foot")) + (INFO.project_url ? ` · <a href="${esc(INFO.project_url)}" target="_blank" rel="noopener">${t("foot.project")}</a>` : "");
@@ -778,6 +783,7 @@ async function route() {
       case "join": return pageJoin();
       case "complaints": return await pageComplaints();
       case "admin": return await pageAdmin();
+      case "logs": return pageServerLogs();
       default: app().innerHTML = `<div class="card">${t("notfound")}</div>`;
     }
   } catch (e) { app().innerHTML = `<div class="card msg bad">${t("error")}: ${esc(e.message)}</div>`; }
