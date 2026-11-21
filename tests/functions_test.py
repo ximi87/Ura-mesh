@@ -245,6 +245,7 @@ check("registrations closed -> join refused", not rj.get("hub_id"), rj)
 S("/api/admin/advanced", {"advanced": {"registrations_open": True}})
 check("join with empty address refused", h["A"]("/api/server/join", {"address": ""}).get("error") == "not_trusted")
 for n in HUBS: ids[n] = register(n)
+for n in HUBS: h[n]("/api/advanced", {"advanced": {"node_sync": False}})   # tested on its own below; keeps the counts exact
 check("all hubs registered", all(ids.values()), ids)
 st = S("/api/admin/state")
 check("server lists them as pending", sum(1 for x in st["hubs"] if x["status"] == "pending") == len(HUBS))
@@ -559,12 +560,12 @@ check("node age 2 days -> the 3-day-old node leaves the server map", wait(lambda
 h["A"]("/api/advanced", {"advanced": {"node_max_age_days": 7}})
 check("node age 7 days -> it is back", wait(lambda: "Three days" in [x["name"] for x in pub("A")["nodes"]], 15))
 lat0, lon0 = pub("A")["hub"]["lat"], pub("A")["hub"]["lon"]
-h["A"]("/api/advanced", {"advanced": {"location_follow_m": 50}})
-h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": lat0 + 0.00018, "lon": lon0, "alt": 10}})
+h["A"]("/api/advanced", {"advanced": {"location_follow_m": 2000}})
+h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": lat0 + 0.01, "lon": lon0, "alt": 10}})
 time.sleep(4)
-check("radio moved ~20 m, follow distance 50 m -> hub position unchanged", abs(pub("A")["hub"]["lat"] - lat0) < 1e-6, pub("A")["hub"]["lat"])
-h["A"]("/api/advanced", {"advanced": {"location_follow_m": 10}})
-check("follow distance 10 m -> hub follows the radio", wait(lambda: abs(pub("A")["hub"]["lat"] - (lat0 + 0.00018)) < 1e-5, 6), pub("A")["hub"]["lat"])
+check("radio moved ~1.1 km, follow distance 2000 m -> hub position unchanged", abs(pub("A")["hub"]["lat"] - lat0) < 1e-6, pub("A")["hub"]["lat"])
+h["A"]("/api/advanced", {"advanced": {"location_follow_m": 500}})
+check("follow distance 500 m -> hub follows the radio", wait(lambda: abs(pub("A")["hub"]["lat"] - (lat0 + 0.01)) < 1e-5, 6), pub("A")["hub"]["lat"])
 h["A"]("/api/advanced", {"advanced": {"clock_sync": False}})
 h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A2"}})
 wait(lambda: status("A")["radio"]["connected"] and status("A")["radio"]["address"] == "/dev/fake-A2", 15); time.sleep(6)
@@ -760,11 +761,16 @@ h["A"]("/api/test/fake", {"call": "no_position", "reconnect": True})
 check("radio without GPS and without a position -> 'has a position' red, not ready",
       wait(lambda: status("A")["radio"]["connected"] and status("A")["radio"]["checks"].get("position_known") is False, 20) and not status("A")["radio"]["ready"],
       (status("A")["radio"] or {}).get("checks"))
+h["A"]("/api/hub", {"hub": {"lat": 41.336789, "lon": 19.812345, "location_mode": "manual"}})
 hub_loc = h["A"]("/api/config")["hub"]
+check("the hub's location is stored only approximately (≈ 1 km, 2 decimals)", (hub_loc["lat"], hub_loc["lon"]) == (41.34, 19.81), hub_loc)
 h["A"]("/api/radio/prepare", {})
 check("... 'Prepare' gives the radio the hub's location as fixed position -> ready",
       wait(lambda: any(x["call"] == "setFixedPosition" and abs(x["lat"] - hub_loc["lat"]) < 1e-6 for x in h["A"]("/api/test/radio")["calls"]), 60)
       and wait(lambda: status("A")["radio"]["checks"].get("position_known") and status("A")["radio"]["ready"], 15), (hub_loc, status("A")["radio"]["checks"]))
+h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": 41.123456, "lon": 19.654321, "alt": 0}})
+fx = [x for x in h["A"]("/api/test/radio")["calls"] if x["call"] == "setFixedPosition"][-1]
+check("a fixed position typed exactly is written to the radio approximately", (fx["lat"], fx["lon"]) == (41.12, 19.65), fx)
 
 sec("remove the radio from the hub, connect it again")
 r = h["A"]("/api/radio/remove", {})
@@ -830,6 +836,29 @@ check("server 'Restart program' -> runs again", wait(lambda: (lambda c_: (c_("/a
 S = client(f"https://127.0.0.1:{SRV_WEB}"); S("/api/login", {"password": PW + "S"})
 check("... hubs reconnect by themselves", wait(lambda: status("A")["link_state"] == "connected" and status("B")["link_state"] == "connected", 30))
 check("... link A - B still active", (link_with("A", "B") or {}).get("state") == "active")
+
+# ── node announcements: nodes a radio knows (quiet ones too) reach the linked hub's radio ──
+section[0] = "node announcements"
+local_a = {0x0a1a0001: "Quiet node one", 0x0a1a0002: "Quiet node two"}       # known to A's radio, silent for 30 / 90 min
+for num_, nm_ in local_a.items():
+    h["A"]("/api/test/fake", {"call": "add_local", "args": {"num": num_, "name": nm_, "minutes_ago": 30 if num_ & 1 else 90}})
+d0 = len(h["B"]("/api/test/radio").get("downlink", []))
+h["A"]("/api/advanced", {"advanced": {"node_sync": True, "node_sync_gap_s": 2}})
+def announced_on_b():
+    got = {}
+    for d_ in h["B"]("/api/test/radio").get("downlink", [])[d0:]:
+        env = mqtt_pb2.ServiceEnvelope(); env.ParseFromString(base64.b64decode(d_["data"]))
+        pk = env.packet; frm = getattr(pk, "from")
+        if frm not in local_a or not pk.encrypted: continue
+        dat = mesh_pb2.Data(); dat.ParseFromString(decrypt_packet(expand_psk(base64.b64decode("AQ==")), pk.id, frm, pk.encrypted))
+        if dat.portnum == portnums_pb2.PortNum.NODEINFO_APP:
+            u = mesh_pb2.User(); u.ParseFromString(dat.payload); got[frm] = u.long_name
+    return got
+got = wait(lambda: (lambda g: g if set(g) >= set(local_a) else None)(announced_on_b()), 10 + 3 * len(local_a))
+check("every node A's radio knows (also quiet ones) is announced and put on air at B, with its name",
+      got and all(got[k] == v for k, v in local_a.items()), (local_a, announced_on_b()))
+check("... B's hub knows them as nodes from A", wait(lambda: {int(x["id"][1:], 16) for x in h["B"]("/api/nodes") if x.get("origin") == ids["A"]} >= set(local_a), 8))
+h["A"]("/api/advanced", {"advanced": {"node_sync": False}})
 
 # ── factory reset: hub B (registered, linked with A) -> nothing left anywhere, first-start mode ──
 section[0] = "factory reset"

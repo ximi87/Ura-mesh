@@ -177,6 +177,7 @@ Ura.add({
   "chk.mqtt_enabled": { en: "MQTT on", sq: "MQTT aktiv" }, "chk.proxy_to_client": { en: "MQTT through the hub (client proxy)", sq: "MQTT përmes hub-it (client proxy)" },
   "chk.private_address": { en: "MQTT address private", sq: "Adresa MQTT private" }, "chk.encryption": { en: "Packets stay encrypted", sq: "Paketat mbeten të enkriptuara" },
   "chk.ignore_mqtt_off": { en: "“Ignore MQTT” off", sq: "“Ignore MQTT” joaktiv" }, "chk.channels_linked": { en: "Channels: uplink + downlink on", sq: "Kanalet: uplink + downlink aktiv" },
+  "chk.position_approx": { en: "The radio sends its own position only approximately (≈ 700 m) — “Prepare” sets this", sq: "Radio e dërgon pozicionin e vet vetëm përafërsisht (≈ 700 m) — “Përgatit” e vendos" },
   "chk.position_known": { en: "The radio has a position (GPS, or a fixed position — “Prepare” uses the hub's location from Settings)", sq: "Radio ka një pozicion (GPS, ose pozicion fiks — “Përgatit” përdor vendndodhjen e hub-it nga Cilësimet)" },
   "chk.region_set": { en: "LoRa region set (Device settings → LoRa) — without it the radio does not transmit", sq: "Rajoni LoRa i caktuar (Cilësimet e pajisjes → LoRa) — pa të radio nuk transmeton" },
   "dg.forget": { en: "Forget this node", sq: "Harroje këtë nyje" },
@@ -234,6 +235,10 @@ Ura.add({
   "nc.memory": { en: "In the radio's memory", sq: "Në kujtesën e radios" }, "nc.memory.hint": { en: "everything the radio remembers, incl. {n} older or without time", sq: "gjithçka që radio mban mend, përfshirë {n} më të vjetra ose pa kohë" },
   "adv.node_max_age_days": { en: "A node counts as “heard here” if heard within (days)", sq: "Një nyje llogaritet “dëgjuar këtu” nëse është dëgjuar brenda (ditë)" },
   "adv.nodes_report_min": { en: "Send the full node list to the server at least every (minutes)", sq: "Dërgo listën e plotë të nyjeve te serveri të paktën çdo (minuta)" },
+  "adv.node_sync": { en: "Announce the nodes this radio knows to the linked hubs (not only what it hears while the link is up)", sq: "Njofto nyjet që njeh kjo radio te hub-et e lidhura (jo vetëm çfarë dëgjon ndërsa lidhja është aktive)" },
+  "adv.node_sync_hours": { en: "… each node again every (hours)", sq: "… çdo nyje përsëri çdo (orë)" },
+  "adv.node_sync_gap_s": { en: "… one node every (seconds) — keeps the air free", sq: "… një nyje çdo (sekonda) — mban ajrin të lirë" },
+  "adv.node_sync_age_h": { en: "… only nodes heard within the last (hours)", sq: "… vetëm nyjet e dëgjuara në (orët) e fundit" },
   "adv.nodes_check_s": { en: "Check for node changes every (seconds)", sq: "Kontrollo për ndryshime të nyjeve çdo (sekonda)" },
   "adv.location_follow_m": { en: "Follow the radio's position when it moved more than (metres)", sq: "Ndiq pozicionin e radios kur ka lëvizur më shumë se (metra)" },
   "adv.location_check_s": { en: "Check the radio's position every (seconds)", sq: "Kontrollo pozicionin e radios çdo (sekonda)" },
@@ -1075,11 +1080,11 @@ async function pageSettings() {
   };
   const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
     groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
-             ["adv.g.nodes", ["node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
+             ["adv.g.nodes", ["node_sync", "node_sync_hours", "node_sync_gap_s", "node_sync_age_h", "node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
              ["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
              ["adv.g.security", ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
              ["adv.g.web", ["tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s"]]],
-    depends: { clock_sync_min: "clock_sync" } });
+    depends: { clock_sync_min: "clock_sync", node_sync_hours: "node_sync", node_sync_gap_s: "node_sync", node_sync_age_h: "node_sync" } });
   $("#advsave").onclick = async () => {
     const all = af.read(), port = all.server_web_port; delete all.server_web_port;
     try { await api("POST", "/api/advanced", { advanced: all, server_web_port: port }); af.mark([]); $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
@@ -1193,7 +1198,7 @@ const wz = { cur: null, sub: null, live: null, timer: null, prepUntil: 0 };
 function wzState(s, c) {
   const r = s.radio || {}, h = c.hub;
   const st = { radio: !!r.connected, prep: !!(r.connected && r.ready),
-    hub: !!c.server.hub_id || !!(h.name && h.email && h.country && h.city),
+    hub: !!(h.name && h.email && h.country && h.city && h.lat != null && h.lon != null),     // every hub has an (approximate) location
     server: !!c.server.hub_id && ["pending", "approved"].includes(c.server.status),          // sent: approval comes later
     link: (s.links || []).some(l => l.state === "active") || !!SESS.setup_done };              // or "finish, link later"
   st.done = ["hub", "radio", "prep", "server", "link"].every(k => st[k]);
@@ -1342,12 +1347,17 @@ async function wzBody(k, el, s, c) {
       ${f("wzhn", "s.name", h.name)}${f("wzhe", "s.email", h.email, "email")}
       <div class="grid g2" style="gap:.5rem">${f("wzhc", "s.country", h.country, "text", 'maxlength="3"')}${f("wzhy", "s.city", h.city, "text", 'maxlength="3"')}</div>
       <div class="hint">${t("wz.hub.code")}</div>
+      <h3 style="margin-top:1rem">${t("wz.hub.loc")}</h3><p class="small">${t("wz.hub.loc_hint")}</p>
+      <div class="grid g2" style="gap:.5rem">${f("wzhlat", "s.lat", h.lat, "number", 'step="0.01"')}${f("wzhlon", "s.lon", h.lon, "number", 'step="0.01"')}</div>
       <label>${t("s.desc")}</label><textarea id="wzhd">${esc(h.description || "")}</textarea>
       <div class="row" style="margin-top:.6rem"><button class="primary" id="wzhgo">${t("wz.next")}</button></div><div id="wzhmsg"></div>`;
     $("#wzhgo").onclick = async () => {
       const v = { name: $("#wzhn").value.trim(), email: $("#wzhe").value.trim(), country: $("#wzhc").value.trim().toUpperCase(),
-                  city: $("#wzhy").value.trim().toUpperCase(), description: $("#wzhd").value.trim() };
-      const bad = !v.name ? "s.name" : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email) ? "s.email" : !/^[A-Z]{2,3}$/.test(v.country) ? "s.country" : !/^[A-Z]{2,3}$/.test(v.city) ? "s.city" : "";
+                  city: $("#wzhy").value.trim().toUpperCase(), description: $("#wzhd").value.trim(),
+                  lat: $("#wzhlat").value.trim(), lon: $("#wzhlon").value.trim(), location_mode: "manual" };
+      const la = parseFloat(v.lat), lo = parseFloat(v.lon);
+      const bad = !v.name ? "s.name" : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email) ? "s.email" : !/^[A-Z]{2,3}$/.test(v.country) ? "s.country" : !/^[A-Z]{2,3}$/.test(v.city) ? "s.city"
+        : !(la >= -90 && la <= 90 && v.lat !== "") ? "s.lat" : !(lo >= -180 && lo <= 180 && v.lon !== "") ? "s.lon" : "";
       if (bad) return wzMsg($("#wzhmsg"), "bad", t("wz.hub.fix", { x: t(bad) }));
       try { await api("POST", "/api/hub", { hub: v }); wzMsg($("#wzhmsg"), "ok", t("saved")); wz.tick(true); }
       catch (e) { wzMsg($("#wzhmsg"), "bad", errText(e)); }
@@ -1467,6 +1477,9 @@ Ura.add({
   "wz.hub.hint": { en: "How this hub appears to the others. The e-mail is seen only by the server's administrator. After registering, these are locked.",
                    sq: "Si duket ky hub për të tjerët. E-mail-i shihet vetëm nga administratori i serverit. Pas regjistrimit, këto kyçen." },
   "wz.hub.code": { en: "Country and place: 2–3 letters each. Together they are the hub's short code, e.g. AB-CDE.", sq: "Shteti dhe vendi: 2–3 shkronja secili. Së bashku janë kodi i shkurtër i hub-it, p.sh. AB-CDE." },
+  "wz.hub.loc": { en: "Approximate location (required)", sq: "Vendndodhja e përafërt (e detyrueshme)" },
+  "wz.hub.loc_hint": { en: "Every radio that is part of Ura has a location, so that it can be shown on the maps. Approximate is enough — e.g. the middle of the town. Ura keeps it to about 1 km (2 decimals) and never sends it more exactly. A radio without GPS gets it as its fixed position.",
+                       sq: "Çdo radio që është pjesë e Ura ka një vendndodhje, që të shfaqet në harta. Mjafton e përafërt — p.sh. qendra e qytetit. Ura e mban në rreth 1 km (2 shifra dhjetore) dhe nuk e dërgon kurrë më saktë. Një radio pa GPS e merr si pozicion fiks." },
   "wz.hub.fix": { en: "Please fill in correctly: {x}", sq: "Ju lutem plotësoni saktë: {x}" },
   "wz.srv.hint": { en: "Enter the address of the Ura server you were given (name or IP, with port), then press “Check server”.", sq: "Shkruani adresën e serverit Ura që ju është dhënë (emër ose IP, me portë), pastaj shtypni “Kontrollo serverin”." },
   "wz.srv.check": { en: "Check server", sq: "Kontrollo serverin" },

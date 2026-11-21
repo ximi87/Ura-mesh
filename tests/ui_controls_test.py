@@ -169,8 +169,8 @@ with sync_playwright() as pw:
     check("... airtime/positions NOT reset by that save", cfgA()["airtime"]["pct_hour"] == 7.5 and cfgA()["share_positions_on_map"] is False)
     go(a, "A", "settings", "details.secline"); open_sec(a, "loc")
     a.check("input[name=lmode][value=manual]"); a.fill("#hlat", "44.123"); a.fill("#hlon", "11.456"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg")
-    check("Settings/location manual saved", abs(cfgA()["hub"]["lat"] - 44.123) < 1e-6)
-    check("... and on the server within 5 s", wait(lambda: abs(S(f"/api/public/hub/{ids['A']}")["hub"]["lat"] - 44.123) < 1e-6, 5))
+    check("Settings/location manual saved (approximate, 2 decimals)", abs(cfgA()["hub"]["lat"] - 44.12) < 1e-6, cfgA()["hub"]["lat"])
+    check("... and on the server within 5 s", wait(lambda: abs(S(f"/api/public/hub/{ids['A']}")["hub"]["lat"] - 44.12) < 1e-6, 5))
     go(a, "A", "settings", "details.secline"); open_sec(a, "loc")
     a.check("input[name=lmode][value=radio]"); a.click("#locsave"); a.wait_for_selector("#locmsg .msg")
     check("Settings/location 'from radio' saved + follows radio", wait(lambda: cfgA()["hub"]["location_mode"] == "radio" and abs(cfgA()["hub"]["lat"] - 45.0) < 1e-3, 8), cfgA()["hub"])
@@ -359,8 +359,11 @@ with sync_playwright() as pw:
     d.wait_for_selector("#wzhn"); d.fill("#wzhn", "Hub D"); d.fill("#wzhe", "not-an-address"); d.fill("#wzhc", "XT"); d.fill("#wzhy", "DDD"); d.click("#wzhgo")
     check("Wizard step 1: a wrong e-mail is refused with a clear message", "mail" in d.locator("#wzhmsg").inner_text().lower(), d.locator("#wzhmsg").inner_text())
     d.fill("#wzhe", "d@example.org"); d.click("#wzhgo")
+    check("Wizard step 1: without a location -> refused (every hub radio has a location)", d.locator(".wzs.cur[data-k='hub']").count() == 1 and d.locator("#wzhmsg .msg.bad").count() == 1,
+          d.locator("#wzhmsg").inner_text())
+    d.fill("#wzhlat", "45.123456"); d.fill("#wzhlon", "10.987654"); d.click("#wzhgo")
     check("Wizard step 1: saved -> green, step 2 (radio) opens",
-          wait(lambda: d.locator(".wzs.ok[data-k='hub']").count() == 1 and d.locator(".wzs.cur[data-k='radio']").count() == 1, 10) and hd("/api/config")["hub"]["city"] == "DDD")
+          wait(lambda: d.locator(".wzs.ok[data-k='hub']").count() == 1 and d.locator(".wzs.cur[data-k='radio']").count() == 1, 10) and hd("/api/config")["hub"]["city"] == "DDD" and (hd("/api/config")["hub"]["lat"], hd("/api/config")["hub"]["lon"]) == (45.12, 10.99))
     check("Wizard step 2: radio type Meshtastic chosen, MeshCore shown as not yet available",
           d.locator("input[name=wztype][value=mt]").is_checked() and d.locator("input[name=wztype][value=mc]").is_disabled())
     d.wait_for_selector("#wzport option", state="attached")

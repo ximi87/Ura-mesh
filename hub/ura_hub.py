@@ -35,6 +35,10 @@ CONFIG = os.path.join(DATA_DIR, "config.json")
 # web port are startup options. key: (default, min, max)  — numbers; strings/bools have None limits.
 ADV_SPEC = {
     "node_max_age_days":   (7, 1, 90),        # a node counts as "heard here" if heard within N days
+    "node_sync":           (True, None, None),  # announce the nodes this radio knows to the linked hubs (not only live traffic)
+    "node_sync_hours":     (6, 1, 48),         # ... each node again every N hours
+    "node_sync_gap_s":     (15, 2, 600),       # ... one node every N seconds (keeps the air free)
+    "node_sync_age_h":     (24, 1, 168),       # ... only nodes heard within the last N hours
     "nodes_report_min":    (10, 1, 120),      # full node report to the server at least every N minutes
     "nodes_check_s":       (60, 10, 3600),    # look for node changes every N seconds
     "location_follow_m":   (50, 5, 5000),     # follow the radio only when it moved more than N metres
@@ -528,6 +532,7 @@ class Radio:
         self.stop = False
         self.stats = {}                   # what the radio reports about its own reception
         self.own_fix = None               # the radio's own position at full precision
+        self.topic_root = None            # MQTT topic root the radio uses (learned from its uplinks)
         self.last_rx = time.time()        # last time the radio sent the hub anything at all
         self.watchdog = []                # times the watchdog had to act (7 days)
         self.wd_events = []               # what it found and did: [{time, stage, finding}]
@@ -550,6 +555,8 @@ class Radio:
             self.last_rx = self.last_pkt = time.time()
             self.hour_px += 1
         if self._mine(interface) and proxymessage.data:
+            if "/2/" in (proxymessage.topic or ""):
+                self.topic_root = proxymessage.topic.split("/2/")[0]      # e.g. msh/EU_868 — used for node announcements
             counters.add("uplinked")
             loop.call_soon_threadsafe(self._enqueue, (proxymessage.topic, bytes(proxymessage.data)))
 
@@ -800,7 +807,9 @@ class Radio:
                 "debug_log_off": not lc.security.debug_log_api_enabled,
                 "region_set": lc.lora.region != 0,     # a radio without a region (e.g. after a reset) does not transmit
                 # without a position the node crosses the links but appears on no map: a GPS, or a fixed position
-                "position_known": bool(self.own_fix) or lc.position.gps_mode == config_pb2.Config.PositionConfig.GpsMode.ENABLED}
+                "position_known": bool(self.own_fix) or lc.position.gps_mode == config_pb2.Config.PositionConfig.GpsMode.ENABLED,
+                "position_approx": (lc.position.gps_mode == config_pb2.Config.PositionConfig.GpsMode.ENABLED or not self.own_fix
+                                    or (approx(self.own_fix["lat"]) == self.own_fix["lat"] and approx(self.own_fix["lon"]) == self.own_fix["lon"])) and all(c_.settings.module_settings.position_precision <= APPROX_BITS for c_ in (ln.channels or []) if c_.role != 0)}
             base.update({"name": me.get("user", {}).get("longName"), "short": me.get("user", {}).get("shortName"),
                          "node_id": me.get("user", {}).get("id"), "hw": me.get("user", {}).get("hwModel"),
                          "firmware": getattr(md, "firmware_version", "") if md else "",
@@ -1007,6 +1016,58 @@ class Radio:
         iface.sendMqttClientProxyMessage(topic, data)
         counters.add("to_radio")
         return True
+
+    def sync_candidates(self):
+        """Nodes this radio knows from ITS OWN mesh (not via Ura), heard recently, newest first."""
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            return []
+        my, remote = iface.myInfo.my_node_num, set(origins.map)
+        out = []
+        for num, n in list((iface.nodesByNum or {}).items()):
+            nid = (n.get("user") or {}).get("id") or f"!{num:08x}"
+            if num == my or n.get("viaMqtt") or nid in remote or not (n.get("user") or {}).get("longName"):
+                continue
+            if not n.get("lastHeard") or time.time() - n["lastHeard"] > adv("node_sync_age_h") * 3600:
+                continue
+            out.append((n["lastHeard"], num))
+        return [num for _, num in sorted(out, reverse=True)]
+
+    def sync_packets(self, num):
+        """A known node's node info (and its position, if it shares one) as this radio would upload it on the
+        main channel — so a linked hub's radio learns the node without waiting for it to transmit."""
+        with self.lock:
+            iface = self.iface
+        if iface is None:
+            return []
+        n = (iface.nodesByNum or {}).get(num) or {}
+        prim = next((ch for ch in iface.localNode.channels or [] if ch.role == 1), None)
+        if not n.get("user") or prim is None:
+            return []
+        lc = iface.localNode.localConfig
+        name = prim.settings.name or self._preset_name(lc)
+        key = expand_psk(bytes(prim.settings.psk))
+        root = self.topic_root or ("msh/" + config_pb2.Config.LoRaConfig.RegionCode.Name(lc.lora.region))
+        gw = (iface.getMyUser() or {}).get("id") or f"!{iface.myInfo.my_node_num:08x}"
+        u = dict(n["user"]); u.pop("raw", None)
+        parts = [(portnums_pb2.PortNum.NODEINFO_APP, ParseDict(u, mesh_pb2.User(), ignore_unknown_fields=True).SerializeToString())]
+        p = n.get("position") or {}
+        if p.get("latitudeI") and p.get("longitudeI"):
+            parts.append((portnums_pb2.PortNum.POSITION_APP, mesh_pb2.Position(
+                latitude_i=int(p["latitudeI"]), longitude_i=int(p["longitudeI"]), altitude=int(p.get("altitude") or 0),
+                time=int(p.get("time") or 0), precision_bits=int(p.get("precisionBits") or 0)).SerializeToString()))
+        out = []
+        for port, payload in parts:
+            pid = secrets.randbits(32) or 1
+            plain = mesh_pb2.Data(portnum=port, payload=payload).SerializeToString()
+            pkt = mesh_pb2.MeshPacket(to=0xFFFFFFFF, id=pid, channel=channel_code(name, bytes(prim.settings.psk)),
+                                      hop_limit=3, hop_start=3,
+                                      encrypted=decrypt_packet(key, pid, num, plain) if key else plain)   # AES-CTR both ways
+            setattr(pkt, "from", num)
+            env = mqtt_pb2.ServiceEnvelope(packet=pkt, channel_id=name, gateway_id=gw)
+            out.append((f"{root}/2/e/{name}/{gw}", env.SerializeToString()))
+        return out
 
     def announce(self, want_response=False):
         with self.lock:
@@ -1287,7 +1348,7 @@ class Radio:
             ln.removeFixedPosition()
             log.info("radio fixed position removed")
             return
-        lat, lon, alt = float(data["lat"]), float(data["lon"]), int(float(data.get("alt") or 0))
+        lat, lon, alt = approx(data["lat"]), approx(data["lon"]), int(float(data.get("alt") or 0))
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
             raise ValueError("position")
         ln.setFixedPosition(lat, lon, alt)
@@ -1312,16 +1373,23 @@ class Radio:
             ln.localConfig.security.debug_log_api_enabled = False
             ln.writeConfig("security")
         for ch in ln.channels or []:
+            changed = False
             if ch.role != 0 and not (ch.settings.uplink_enabled and ch.settings.downlink_enabled):
                 ch.settings.uplink_enabled = ch.settings.downlink_enabled = True
+                changed = True
+            if ch.role != 0 and ch.settings.module_settings.position_precision > APPROX_BITS:
+                ch.settings.module_settings.position_precision = APPROX_BITS      # ≈ 700 m, never the exact place
+                changed = True
+            if changed:
                 ln.writeChannel(ch.index)
         ln.commitSettingsTransaction()
         log.info("radio prepared for Ura (it restarts now)")
         # no GPS and no position of its own: give it the hub's location as fixed position (sent after the restart)
-        h = cfg.get()["hub"]
-        if not self.own_fix and ln.localConfig.position.gps_mode != config_pb2.Config.PositionConfig.GpsMode.ENABLED \
-                and h.get("lat") is not None and h.get("lon") is not None:
-            lat, lon = float(h["lat"]), float(h["lon"])
+        h, f = cfg.get()["hub"], self.own_fix
+        exact = f and (approx(f["lat"]) != f["lat"] or approx(f["lon"]) != f["lon"])
+        if ln.localConfig.position.gps_mode != config_pb2.Config.PositionConfig.GpsMode.ENABLED and (exact or (
+                not f and h.get("lat") is not None and h.get("lon") is not None)):
+            lat, lon = (f["lat"], f["lon"]) if f else (float(h["lat"]), float(h["lon"]))     # set_fixed rounds it
             def later():
                 for _ in range(20):               # the radio restarts after "prepare": wait until it is back (≤ 40 s)
                     time.sleep(2)
@@ -1356,6 +1424,14 @@ def drop_from_cache(iface, node_id=None):
             iface.nodesByNum.pop(num, None)
             if iface.nodes:
                 iface.nodes.pop(nid, None)
+
+
+APPROX_BITS = 15             # Meshtastic channel position precision for the hub radio's own position (≈ 700 m)
+APPROX_DECIMALS = 2          # a hub radio's location is approximate: 0.01° ≈ 1 km — never more exact
+
+
+def approx(v):
+    return None if v in (None, "") else round(float(v), APPROX_DECIMALS)
 
 
 def forget_peer(peer, everything=False, wait=False):
@@ -1705,7 +1781,8 @@ class Link:
                 log.info("connected to server %s as %s (%s)", c["address"], c["hub_id"], first.get("status"))
                 self.kick()                   # a (re)connected server gets the current nodes and location at once
                 tasks = [asyncio.create_task(self._uplink()), asyncio.create_task(self._keepalive()),
-                         asyncio.create_task(self._nodes()), asyncio.create_task(self._location())]
+                         asyncio.create_task(self._nodes()), asyncio.create_task(self._location()),
+                         asyncio.create_task(self._node_sync())]
                 try:
                     await self._push_info_soon()
                     last_rx = time.time()
@@ -1842,6 +1919,32 @@ class Link:
                     last, last_sig = time.time(), sig
             if await self._sleep_or(self.kick_nodes, 10):
                 checked, last_sig = 0, None
+
+    async def _node_sync(self):
+        """Ura passes on live traffic; a node that is quiet while a link is up would stay unknown on the other side.
+        So each node this radio knows from its own mesh is announced to the linked hubs: one every
+        "node_sync_gap_s" seconds, each again every "node_sync_hours" hours, everything again when a partner
+        (re)appears. The same link rules and the partner's airtime limit apply as for live packets."""
+        sent, partners = {}, set()
+        while True:
+            await asyncio.sleep(max(2, adv("node_sync_gap_s")))
+            r = mt_radio()
+            online = {h["id"] for h in self.directory if h.get("online")}
+            now_partners = set(active_peers()) & online
+            if now_partners - partners:
+                sent.clear()                  # a partner came (back): it gets every node
+            partners = now_partners
+            if not adv("node_sync") or not partners or r is None or r.iface is None:
+                continue
+            due = [n for n in await asyncio.to_thread(r.sync_candidates)
+                   if time.time() - sent.get(n, 0) > adv("node_sync_hours") * 3600]
+            if not due:
+                continue
+            num = due[0]
+            for topic, data in await asyncio.to_thread(r.sync_packets, num):
+                await asyncio.to_thread(send_to_peers, topic, data)
+            sent[num] = time.time()
+            log.info("node !%08x announced to the linked hubs (known to this radio, %d more to go)", num, len(due) - 1)
 
     async def _location(self):
         """Keep the hub's map position in step: follow the radio (automatic) or the typed-in one."""
@@ -2356,7 +2459,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 for k in ("lat", "lon"):
                     if k in h:
                         try:
-                            d["hub"][k] = float(h[k]) if h[k] not in (None, "") else None
+                            d["hub"][k] = approx(h[k])          # approximate (≈ 1 km), never exact
                         except ValueError:
                             pass
                 if "share_positions_on_map" in b:

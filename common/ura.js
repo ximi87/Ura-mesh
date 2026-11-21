@@ -301,6 +301,7 @@ function logViewer(el, base) {
     if (!document.body.contains(el)) { clearInterval(logTimer); return; }
     const q = new URLSearchParams({ lines: $("#lglines").value, level: $("#lglevel").value, q: $("#lgq").value });
     const d = await api("GET", base + "?" + q);
+    if (!document.body.contains(el) || !$("#lgbox")) return;        // the page was left meanwhile
     const box = $("#lgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
     box.innerHTML = d.lines.map(l => `<span class="${/ (ERROR|CRITICAL) /.test(l) ? "lg-e" : / WARNING /.test(l) ? "lg-w" : ""}">${esc(l)}</span>`).join("\n")
       || `<span class="muted">${t("lg.none")}</span>`;
@@ -311,7 +312,7 @@ function logViewer(el, base) {
   ["lglines", "lglevel"].forEach(id => $("#" + id).onchange = load);
   $("#lgq").oninput = () => { clearTimeout(el._qt); el._qt = setTimeout(load, 400); };
   $("#lgnow").onclick = load;
-  load().catch(e => { $("#lgbox").textContent = e.message; });
+  load().catch(e => { if ($("#lgbox")) $("#lgbox").textContent = e.message; });
   logTimer = setInterval(() => { if ($("#lgauto") && $("#lgauto").checked && !document.hidden) load().catch(() => {}); }, 5000);
 }
 

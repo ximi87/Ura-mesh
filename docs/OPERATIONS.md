@@ -62,6 +62,14 @@ the page follows the steps until the hub is back in first-start mode:
 
 Only the website's certificate stays (it holds no data; the browser would otherwise warn again).
 
+## Nodes are announced across links
+
+Live packets cross a link the moment the radio hears them. A node that stays quiet while the link is up would never
+be known on the other side, so each hub also **announces the nodes its radio knows from its own mesh** (name, key,
+and position if the node shares one) to its linked hubs: one node every 15 s, each again every 6 h, everything again
+when a partner comes back. The link's send rules and the partner's airtime limit apply as for live packets.
+Settings → Advanced → *Nodes and location* has the switch and the timings.
+
 ## Ending a link cleans up by itself
 
 When a link ends — either side ends it, the admin removes a hub, or a hub leaves the server — both hubs

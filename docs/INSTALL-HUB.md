@@ -75,7 +75,7 @@ Keep the website to your local network (a firewall rule, or simply no port forwa
 steps in order. Each step shows what is really happening (checking, connecting, waiting for approval…)
 and turns green by itself when it is done; then the next one opens. You never need another page.
 
-1. **Name this hub** — name, e-mail, country and place code (2–3 letters each).
+1. **Name this hub** — name, e-mail, country and place code (2–3 letters each). Also its **approximate location** (required): every radio that is part of Ura has one; Ura keeps it to about 1 km and never sends it more exactly. A radio without GPS gets it as its fixed position; a radio with GPS sends its own position only approximately (≈ 700 m).
 2. **Connect the radio** — radio type (Meshtastic; MeshCore later), then the USB port. The hub asks
    every USB device what it is and shows its real name; *Connect* shows the radio's name and how
    many nodes it holds — or what else is on the port.

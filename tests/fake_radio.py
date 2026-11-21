@@ -117,6 +117,11 @@ class FakeInterface:
         self.isConnected = threading.Event(); self.isConnected.set()
 
     # tests only (POST /api/test/fake): things that happen to a real radio outside the hub's control
+    def test_add_local(self, num, name, minutes_ago=30):   # a node of this radio's own mesh that is quiet now
+        n = {"num": num, "user": {"id": f"!{num:08x}", "longName": name, "shortName": name[:4], "hwModel": "HELTEC_V3"},
+             "lastHeard": int(time.time()) - minutes_ago * 60, "hopsAway": 1}
+        self.radio_db[num] = dict(n); self.nodesByNum[num] = n; self.nodes[f"!{num:08x}"] = n
+
     def test_no_position(self):              # a radio without GPS whose stored position is gone
         me = self.myInfo.my_node_num
         self.radio_db[me].pop("position", None)
