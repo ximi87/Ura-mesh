@@ -486,6 +486,15 @@ def classify(data, channels):
     if port is None:
         return out
     out["kind"] = KIND.get(port, "other")
+    if port == portnums_pb2.PortNum.ROUTING_APP and ch and ch.get("key") and pkt.HasField("encrypted"):
+        try:                                     # an answer about a message: say what it is (e.g. the key problem)
+            d = mesh_pb2.Data(); d.ParseFromString(decrypt_packet(ch["key"], pkt.id, getattr(pkt, "from"), pkt.encrypted))
+            rt = mesh_pb2.Routing(); rt.ParseFromString(d.payload)
+            if rt.WhichOneof("variant") == "error_reason":
+                out["routing"] = mesh_pb2.Routing.Error.Name(rt.error_reason)
+                out["to"] = f"!{pkt.to:08x}"
+        except Exception:
+            pass
     return out
 
 
@@ -2058,7 +2067,8 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
 def pkt_desc(c):
     """Short description of a packet for the log: private / channel, kind, sender."""
     where = "private" if c["private"] else ("public " if c["public"] else "group ") + c["channel"]
-    return f"{where} {c['kind']} from {c['sender']}"
+    extra = f" ({'received OK' if c['routing'] == 'NONE' else 'error ' + c['routing']}, to {c['to']})" if c.get("routing") else ""
+    return f"{where} {c['kind']}{extra} from {c['sender']}"
 
 
 def rule_reach(rule):
@@ -2137,12 +2147,23 @@ def receive_from_peer(peer, topic, data, origin=None):
         counters.peer_add(peer, "blocked_recv", "airtime")
         log.info("from %s%s %s: not put on air (airtime limit)", frm, via, pkt_desc(c))
         return
-    if r.downlink(topic, data):
-        counters.air_add(toa)
-        counters.peer_add(peer, "received")
-        log.info("from %s%s %s: put on air", frm, via, pkt_desc(c))
-    else:
+    def put_on_air(waited=0):
+        if r.downlink(topic, data):
+            counters.air_add(toa)
+            counters.peer_add(peer, "received")
+            log.info("from %s%s %s: put on air%s", frm, via, pkt_desc(c), f" (after waiting {waited} s for the radio)" if waited else "")
+            return True
+        return False
+    if put_on_air():
+        return
+    def later():                 # the radio is reconnecting (e.g. re-read after a link ended): wait for it, ≤ 15 s
+        for i in range(15):
+            time.sleep(1)
+            if r.iface is not None and put_on_air(i + 1):
+                return
         counters.peer_add(peer, "blocked_recv", "no_radio")
+        log.info("from %s%s %s: not put on air (radio not connected)", frm, via, pkt_desc(c))
+    threading.Thread(target=later, daemon=True).start()
 
 
 # ───────────────────────── website ─────────────────────────
