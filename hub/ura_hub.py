@@ -653,6 +653,7 @@ class Radio:
                         self.last_pkt = time.time()
                     time_set = 0
                     p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
+                    self.own_fix = None           # what this radio really has now, not what an earlier one had
                     self._set_fix(p)
                     log.info("radio connected: %s (%s)", self.info().get("name"), self.conf.get("address"))
                     global radio_result
@@ -797,7 +798,9 @@ class Radio:
                 "encryption": mc.mqtt.encryption_enabled, "ignore_mqtt_off": not lc.lora.ignore_mqtt,
                 "channels_linked": all(c["uplink"] and c["downlink"] for c in chans) if chans else False,
                 "debug_log_off": not lc.security.debug_log_api_enabled,
-                "region_set": lc.lora.region != 0}     # a radio without a region (e.g. after a reset) does not transmit
+                "region_set": lc.lora.region != 0,     # a radio without a region (e.g. after a reset) does not transmit
+                # without a position the node crosses the links but appears on no map: a GPS, or a fixed position
+                "position_known": bool(self.own_fix) or lc.position.gps_mode == config_pb2.Config.PositionConfig.GpsMode.ENABLED}
             base.update({"name": me.get("user", {}).get("longName"), "short": me.get("user", {}).get("shortName"),
                          "node_id": me.get("user", {}).get("id"), "hw": me.get("user", {}).get("hwModel"),
                          "firmware": getattr(md, "firmware_version", "") if md else "",
@@ -1314,6 +1317,22 @@ class Radio:
                 ln.writeChannel(ch.index)
         ln.commitSettingsTransaction()
         log.info("radio prepared for Ura (it restarts now)")
+        # no GPS and no position of its own: give it the hub's location as fixed position (sent after the restart)
+        h = cfg.get()["hub"]
+        if not self.own_fix and ln.localConfig.position.gps_mode != config_pb2.Config.PositionConfig.GpsMode.ENABLED \
+                and h.get("lat") is not None and h.get("lon") is not None:
+            lat, lon = float(h["lat"]), float(h["lon"])
+            def later():
+                for _ in range(20):               # the radio restarts after "prepare": wait until it is back (≤ 40 s)
+                    time.sleep(2)
+                    if self.iface is not None and self.iface is not iface:
+                        break
+                time.sleep(3)
+                try:
+                    self.set_fixed({"enabled": True, "lat": lat, "lon": lon, "alt": 0})
+                except Exception as e:
+                    log.warning("could not give the radio the hub's location: %s", e)
+            threading.Thread(target=later, daemon=True).start()
 
 
 def enqueue(q, item):
@@ -2532,6 +2551,8 @@ class Web(http.server.BaseHTTPRequestHandler):
         if p == "/api/test/fake" and TEST_MODE:        # tests only: make the simulated radio do something
             r = mt_radio()
             getattr(r.iface, "test_" + str(b.get("call")))(**(b.get("args") or {}))
+            if b.get("reconnect"):
+                r._drop(r.iface, "test: read the radio again", False)
             return self.reply({"ok": True})
         if p == "/api/test/replay" and TEST_MODE:     # tests only: feed a received box again, optionally altered
             peer, box = test_boxes[int(b.get("index", -1))]
@@ -2558,6 +2579,8 @@ class Web(http.server.BaseHTTPRequestHandler):
             r = mt_radio()
             if not r or r.iface is None:
                 return self.reply({"error": "no_radio"}, 400)
+            keep = dict(r.own_fix) if r.own_fix else None     # the radio forgets its own position too: write it back
+            gps = r.iface.localNode.localConfig.position.gps_mode == config_pb2.Config.PositionConfig.GpsMode.ENABLED
             r.iface.localNode.resetNodeDb()
             drop_from_cache(r.iface)
             with origins.lock:
@@ -2567,6 +2590,11 @@ class Web(http.server.BaseHTTPRequestHandler):
             def refill():
                 time.sleep(5)
                 rr = mt_radio()
+                if rr and keep and not gps:
+                    try:
+                        rr.set_fixed({"enabled": True, "lat": keep["lat"], "lon": keep["lon"], "alt": keep.get("alt") or 0})
+                    except Exception as e:
+                        log.warning("could not write the radio's position back: %s", e)
                 if rr:
                     rr.announce(True)
             threading.Thread(target=refill, daemon=True).start()

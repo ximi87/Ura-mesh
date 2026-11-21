@@ -177,6 +177,7 @@ Ura.add({
   "chk.mqtt_enabled": { en: "MQTT on", sq: "MQTT aktiv" }, "chk.proxy_to_client": { en: "MQTT through the hub (client proxy)", sq: "MQTT përmes hub-it (client proxy)" },
   "chk.private_address": { en: "MQTT address private", sq: "Adresa MQTT private" }, "chk.encryption": { en: "Packets stay encrypted", sq: "Paketat mbeten të enkriptuara" },
   "chk.ignore_mqtt_off": { en: "“Ignore MQTT” off", sq: "“Ignore MQTT” joaktiv" }, "chk.channels_linked": { en: "Channels: uplink + downlink on", sq: "Kanalet: uplink + downlink aktiv" },
+  "chk.position_known": { en: "The radio has a position (GPS, or a fixed position — “Prepare” uses the hub's location from Settings)", sq: "Radio ka një pozicion (GPS, ose pozicion fiks — “Përgatit” përdor vendndodhjen e hub-it nga Cilësimet)" },
   "chk.region_set": { en: "LoRa region set (Device settings → LoRa) — without it the radio does not transmit", sq: "Rajoni LoRa i caktuar (Cilësimet e pajisjes → LoRa) — pa të radio nuk transmeton" },
   "dg.forget": { en: "Forget this node", sq: "Harroje këtë nyje" },
   "dg.forget.hint": { en: "For a node that was reset: it has a new key, and this radio still holds the old one (its private messages fail with a key/channel error). After forgetting, press “Ask neighbours to answer” on the hub where that node is — its new key arrives in seconds.",
@@ -1184,9 +1185,7 @@ async function route() {
   }
 }
 Ura.onLang = route;
-window.addEventListener("hashchange", route);
 document.documentElement.lang = Ura.lang;
-route();
 
 /* ───────── setup wizard: every step in order, each showing what really happens ───────── */
 const WZ_STEPS = ["hub", "radio", "prep", "server", "link", "done"];
@@ -1195,8 +1194,8 @@ function wzState(s, c) {
   const r = s.radio || {}, h = c.hub;
   const st = { radio: !!r.connected, prep: !!(r.connected && r.ready),
     hub: !!c.server.hub_id || !!(h.name && h.email && h.country && h.city),
-    server: c.server.status === "approved" && s.link_state === "connected",
-    link: (s.links || []).some(l => l.state === "active") };
+    server: !!c.server.hub_id && ["pending", "approved"].includes(c.server.status),          // sent: approval comes later
+    link: (s.links || []).some(l => l.state === "active") || !!SESS.setup_done };              // or "finish, link later"
   st.done = ["hub", "radio", "prep", "server", "link"].every(k => st[k]);
   return st;
 }
@@ -1207,14 +1206,14 @@ function wzSummary(k, s, c) {
   return k === "radio" ? `${esc(r.name || "")} · ${t("wz.nodes_n", { n: r.nodes ?? "?" })}`
     : k === "prep" ? t("r.ready")
     : k === "hub" ? `${esc(c.hub.country)}-${esc(c.hub.city)} · ${esc(c.hub.name)}`
-    : k === "server" ? `${esc(c.server.address)} · ${t("reg.approved")}`
-    : k === "link" ? act.map(l => esc(l.peer_code)).join(", ") : "";
+    : k === "server" ? `${esc(c.server.address)} · ${c.server.status === "approved" ? t("reg.approved") : t("wz.srv.waiting_short")}`
+    : k === "link" ? (act.length ? act.map(l => esc(l.peer_code)).join(", ") : t("wz.link.later")) : "";
 }
 function wzSub(k, s, c) {          // when this changes, the open step is drawn again
   const r = s.radio || {};
   if (k === "radio") return [c.radios[0] && c.radios[0].address, r.connected, r.error].join("|");
   if (k === "server") return [c.server.fingerprint, c.server.hub_id, c.server.status, s.link_state].join("|");
-  if (k === "link" || k === "done") return JSON.stringify([(s.links || []).map(l => [l.id, l.state, l.i_accepted]), (s.directory || []).map(h => [h.id, h.online])]);
+  if (k === "link" || k === "done") return s.server.status + "|" + s.link_state + "|" + JSON.stringify([(s.links || []).map(l => [l.id, l.state, l.i_accepted]), (s.directory || []).map(h => [h.id, h.online])]);
   return "";
 }
 async function pageSetup() {
@@ -1399,14 +1398,28 @@ async function wzBody(k, el, s, c) {
     };
     return;
   }
-  if (k === "link") { wzLinks(el, s, t("wz.link.hint")); return; }
+  if (k === "link") {
+    const box = document.createElement("div"); el.innerHTML = ""; el.appendChild(box);
+    if (s.server.status !== "approved" || s.link_state !== "connected")
+      box.innerHTML = `<div class="msg info">${wzSpin(s.server.status === "pending" ? t("wz.srv.pending_link") : t("wz.srv.connecting", { x: t(srvState(s)) }))}</div>`;
+    else wzLinks(box, s, t("wz.link.hint"));
+    const fin = document.createElement("div");
+    fin.innerHTML = `<p class="small muted" style="margin-top:.8rem">${t("wz.link.finish_hint")}</p><button id="wzfinish">${t("wz.link.finish")}</button>`;
+    el.appendChild(fin);
+    $("#wzfinish").onclick = async () => { SESS.setup_done = true; await api("POST", "/api/wizard", { done: true }).catch(() => {}); wz.tick(true); };
+    return;
+  }
   // done
   const act = (s.links || []).filter(l => l.state === "active");
-  el.innerHTML = `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || ""), n: r.nodes ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>
+  const pend = s.server.status === "pending" ? `<div class="msg info">${wzSpin(t("wz.srv.pending_link"))}</div>`
+    : !act.length ? `<div class="msg info">${t("wz.done.nolink")}</div>` : "";
+  el.innerHTML = `${act.length && s.server.status === "approved" ? `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || ""), n: r.nodes ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>`
+      : `<div class="msg ok">${t("wz.done.setup", { r: esc(r.name || ""), n: r.nodes ?? "?" })}</div>`}${pend}
     <p class="small">${t("wz.done.hint")}</p>
     <div class="row"><button class="primary" id="wzask">${t("wz.done.ask")}</button><a class="btn" href="#/">${t("wz.done.status")}</a></div><div id="wzdmsg">${wz.doneMsg || ""}</div>
     <h3>${t("wz.link.more_t")}</h3><div id="wzmore"></div>`;
-  wzLinks($("#wzmore"), s, t("wz.link.more"));
+  if (s.server.status === "approved" && s.link_state === "connected") wzLinks($("#wzmore"), s, t("wz.link.more"));
+  else $("#wzmore").innerHTML = `<p class="small muted">${t("wz.link.after")}</p>`;
   $("#wzask").onclick = async () => {
     $("#wzask").disabled = true;
     try { await api("POST", "/api/radio/announce", { ask: true }); wzMsg($("#wzdmsg"), "ok", t("wz.done.asked")); }
@@ -1477,5 +1490,17 @@ Ura.add({
   "wz.done.asked": { en: "Sent. Nearby nodes answer within a minute or two.", sq: "U dërgua. Nyjet e afërta përgjigjen brenda një-dy minutave." },
   "wz.link.more_t": { en: "Link with more hubs", sq: "Lidhu me më shumë hub-e" },
   "wz.link.more": { en: "You can ask more hubs at any time; each one accepts on its side. Rules per link and ending a link are on the “Links” page.", sq: "Mund të kërkoni më shumë hub-e në çdo kohë; secili pranon nga ana e vet. Rregullat për çdo lidhje dhe mbyllja e një lidhjeje janë te faqja “Lidhjet”." },
+  "wz.srv.waiting_short": { en: "waiting for approval", sq: "në pritje të miratimit" },
+  "wz.srv.pending_link": { en: "The registration is sent; the server's administrator still has to approve this hub. Everything else works meanwhile — links can be made once it is approved (this updates by itself).", sq: "Regjistrimi u dërgua; administratori i serverit duhet ende ta miratojë këtë hub. Gjithçka tjetër punon ndërkohë — lidhjet mund të bëhen pasi të miratohet (kjo përditësohet vetë)." },
+  "wz.link.later": { en: "later", sq: "më vonë" },
+  "wz.link.finish": { en: "Finish setup — link later", sq: "Përfundo konfigurimin — lidhu më vonë" },
+  "wz.link.finish_hint": { en: "No hub to link with yet, or you want to do it later? Finish the setup now; links can be made any time on “Setup” or “Links”.", sq: "Ende pa hub për t'u lidhur, ose doni ta bëni më vonë? Përfundoni konfigurimin tani; lidhjet mund të bëhen në çdo kohë te “Konfigurimi” ose “Lidhjet”." },
+  "wz.done.setup": { en: "Setup finished: radio “{r}” with {n} nodes is ready.", sq: "Konfigurimi përfundoi: radio “{r}” me {n} nyje është gati." },
+  "wz.done.nolink": { en: "No link yet. As soon as another hub is on the server, ask it below.", sq: "Ende pa lidhje. Sapo një hub tjetër të jetë në server, kërkojeni më poshtë." },
+  "wz.link.after": { en: "Links can be made once the server has approved this hub.", sq: "Lidhjet mund të bëhen pasi serveri ta ketë miratuar këtë hub." },
   "wz.done.status": { en: "Go to the status page", sq: "Shko te faqja e gjendjes" },
 });
+
+// start only after every part of this file (pages, wizard, texts) is loaded — otherwise the menu shows raw keys
+window.addEventListener("hashchange", route);
+route();

@@ -51,6 +51,8 @@ class FakeNode:
         me = self.iface.myInfo.my_node_num
         for num in [k for k in self.iface.radio_db if k != me]:
             self.iface.radio_db.pop(num)
+        self.iface.radio_db[me].pop("position", None)     # like the real radio: its own stored position goes too
+        self.localConfig.position.fixed_position = False
         self._rec("resetNodeDb")
 
     def removeNode(self, node_id):
@@ -115,6 +117,11 @@ class FakeInterface:
         self.isConnected = threading.Event(); self.isConnected.set()
 
     # tests only (POST /api/test/fake): things that happen to a real radio outside the hub's control
+    def test_no_position(self):              # a radio without GPS whose stored position is gone
+        me = self.myInfo.my_node_num
+        self.radio_db[me].pop("position", None)
+        self.localNode.localConfig.position.fixed_position = False
+
     def test_hear(self, code, sender):
         """The radio hears a packet on a channel it cannot read (another key or name)."""
         from pubsub import pub

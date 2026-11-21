@@ -752,6 +752,19 @@ check("forget: bad node id refused", h["A"]("/api/radio/forget_node", {"node": "
 n_sent = len(h["A"]("/api/test/radio")["sent"])
 check("clear the radio's node list -> only the radio itself left", h["A"]("/api/radio/reset_nodes", {}).get("ok") and [x["own"] for x in h["A"]("/api/nodes")] == [True], h["A"]("/api/nodes"))
 check("... and the neighbours are asked to answer", wait(lambda: any(x.get("want_response") for x in h["A"]("/api/test/radio")["sent"][n_sent:]), 10))
+pos0 = status("A")["radio_position"]
+n_calls = len(h["A"]("/api/test/radio")["calls"])
+check("... the radio's own position (wiped by the radio with the list) is written back",
+      pos0 and wait(lambda: any(x["call"] == "setFixedPosition" and abs(x["lat"] - pos0["lat"]) < 1e-6 for x in h["A"]("/api/test/radio")["calls"][n_calls - 5:]), 15), pos0)
+h["A"]("/api/test/fake", {"call": "no_position", "reconnect": True})
+check("radio without GPS and without a position -> 'has a position' red, not ready",
+      wait(lambda: status("A")["radio"]["connected"] and status("A")["radio"]["checks"].get("position_known") is False, 20) and not status("A")["radio"]["ready"],
+      (status("A")["radio"] or {}).get("checks"))
+hub_loc = h["A"]("/api/config")["hub"]
+h["A"]("/api/radio/prepare", {})
+check("... 'Prepare' gives the radio the hub's location as fixed position -> ready",
+      wait(lambda: any(x["call"] == "setFixedPosition" and abs(x["lat"] - hub_loc["lat"]) < 1e-6 for x in h["A"]("/api/test/radio")["calls"]), 60)
+      and wait(lambda: status("A")["radio"]["checks"].get("position_known") and status("A")["radio"]["ready"], 15), (hub_loc, status("A")["radio"]["checks"]))
 
 sec("remove the radio from the hub, connect it again")
 r = h["A"]("/api/radio/remove", {})

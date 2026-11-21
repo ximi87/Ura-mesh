@@ -106,6 +106,10 @@ def peer_table_text(p):
 with sync_playwright() as pw:
     br = pw.chromium.launch()
     a, b = page(br, "A"), page(br, "B")
+    for r_ in ("", "links", "radio", "device", "settings", "logs", "setup"):
+        a.goto(f"https://127.0.0.1:{HUBS['A']}/#/{r_}"); a.wait_for_timeout(150)
+        if "nav." in a.locator("nav").first.inner_text(): break
+    check("Menu never shows raw text keys (e.g. 'nav.setup') while pages change", "nav." not in a.locator("nav").first.inner_text(), a.locator("nav").first.inner_text())
 
     # ── per-link rules on A's Links page: every tick box, saved, really changed ──
     go(a, "A", "links", "details.linkbox[data-link]"); box = open_link(a)
@@ -375,12 +379,14 @@ with sync_playwright() as pw:
     d.wait_for_selector("#wzsjoin", timeout=15000)
     check("Wizard step 4: 'Check server' -> the server answered, with its fingerprint", "answered" in d.locator("#wzsmsg").inner_text())
     d.click("#wzsjoin")
-    check("Wizard step 4: registration sent -> 'waiting for the administrator' shown",
-          wait(lambda: "administrator" in d.locator(".wzs[data-k='server']").inner_text(), 15), d.locator(".wzs[data-k='server']").inner_text())
+    check("Wizard step 4: registration sent -> step green at once, step 5 says the approval is still awaited (no waiting in step 4)",
+          wait(lambda: d.locator(".wzs.ok[data-k='server']").count() == 1 and "administrator" in d.locator(".wzs[data-k='link']").inner_text(), 15),
+          d.locator(".wzs[data-k='link']").inner_text())
+    check("Wizard step 5: 'Finish setup — link later' offered", d.locator("#wzfinish").count() == 1)
     idD = wait(lambda: hd("/api/config")["server"]["hub_id"], 10)
     S = client(f"https://127.0.0.1:{SW}"); S("/api/login", {"password": PW})     # the browser's admin login replaced the old session
     ap_ = S(f"/api/admin/hub/{idD}/approve", {}); check("(admin approves hub D)", ap_.get("ok"), (idD, ap_, hd("/api/config")["server"]))
-    check("Wizard step 4: approved by the admin -> connected, step green", wait(lambda: d.locator(".wzs.ok[data-k='server']").count() == 1, 30))
+    check("Wizard step 5: approved by the admin -> the other hubs appear by themselves", wait(lambda: d.locator(f"button[data-wzask='{ids['A']}']").count() == 1, 30))
     btn = f"button[data-wzask='{ids['A']}']"
     d.wait_for_selector(btn, timeout=15000)
     check("Wizard step 5: the other hubs are listed with 'Ask for a link'", d.locator(f"button[data-wzask='{ids['B']}']").count() == 1)
