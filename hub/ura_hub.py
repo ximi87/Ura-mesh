@@ -363,9 +363,19 @@ def parse_channel_link(url):
     return cs
 
 
+def _decodes(key, pkt):
+    try:
+        d = mesh_pb2.Data()
+        d.ParseFromString(decrypt_packet(key, pkt.id, getattr(pkt, "from"), pkt.encrypted))
+        return d.portnum or None
+    except Exception:
+        return None
+
+
 def classify(data, channels):
-    """Return {channel, public, private, kind, size} for a ServiceEnvelope, or None if invalid.
-    channels: {channel_id: {"key": bytes|None, "public": bool}} from the radio."""
+    """Return {channel, public, private, kind, size, code} for a ServiceEnvelope, or None if invalid.
+    channels: Radio.channel_keys() — {name: [{"key", "public", "code"}]}. Like the radios, the channel is found by
+    its code (in every encrypted packet), not only by its name: two channels may share a name."""
     env = mqtt_pb2.ServiceEnvelope()
     try:
         env.ParseFromString(data)
@@ -375,22 +385,26 @@ def classify(data, channels):
     out = {"channel": env.channel_id, "public": False, "private": env.channel_id == "PKI",
            "sender": f"!{getattr(pkt, 'from'):08x}",
            "kind": "unknown", "size": len(pkt.encrypted) if pkt.HasField("encrypted") else len(pkt.decoded.payload) + 4}
-    ch = channels.get(env.channel_id)
-    if ch:
-        out["public"] = ch["public"]
+    cands = [] if out["private"] else list(channels.get(env.channel_id) or [])
+    if pkt.channel and cands:                    # the packet's channel code picks the channel (and its key)
+        cands = [c for c in cands if c["code"] == pkt.channel] or None
+    if cands is None:
+        out["unreadable"] = True                 # a channel of that name exists here, but with another key
+        return out
+    port, ch = None, None
     if pkt.HasField("decoded"):
-        port = pkt.decoded.portnum
-    elif ch and ch["key"] and not out["private"]:
-        try:
-            d = mesh_pb2.Data()
-            d.ParseFromString(decrypt_packet(ch["key"], pkt.id, getattr(pkt, "from"), pkt.encrypted))
-            port = d.portnum
-            if not port:
-                raise ValueError("no port")
-        except Exception:
-            out["unreadable"] = True              # same channel name, but this radio's key does not open it
-            return out
+        port, ch = pkt.decoded.portnum, (cands[0] if cands else None)
     else:
+        for c in cands:
+            if c["key"] and (port := _decodes(c["key"], pkt)):
+                ch = c
+                break
+        if cands and ch is None:
+            out["unreadable"] = True             # same channel name, but this radio's key does not open it
+            return out
+    if ch:
+        out["public"], out["code"] = ch["public"], ch["code"]
+    if port is None:
         return out
     out["kind"] = KIND.get(port, "other")
     return out
@@ -787,7 +801,8 @@ class Radio:
         return {"added": added, "skipped": skipped, "warning": warn}
 
     def channel_keys(self):
-        """{channel_id: {"key", "public"}} as the radio names channels in MQTT topics."""
+        """{channel name as in MQTT topics: [{"key", "public", "code"}]}. A name can belong to several channels
+        (a channel without a name carries the preset name, like the main channel); the code tells them apart."""
         with self.lock:
             iface = self.iface
         out = {}
@@ -798,7 +813,8 @@ class Radio:
             if ch.role == 0:
                 continue
             name = ch.settings.name or self._preset_name(lc)
-            out[name] = {"key": expand_psk(bytes(ch.settings.psk)), "public": self._is_public(ch.settings.psk)}
+            out.setdefault(name, []).append({"key": expand_psk(bytes(ch.settings.psk)), "public": self._is_public(ch.settings.psk),
+                                             "code": channel_code(name, ch.settings.psk)})
         return out
 
     def lora_params(self):

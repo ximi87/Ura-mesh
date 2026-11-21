@@ -86,7 +86,7 @@ PORT = {"text": portnums_pb2.PortNum.TEXT_MESSAGE_APP, "position": portnums_pb2.
         "telemetry": portnums_pb2.PortNum.TELEMETRY_APP}
 
 
-def packet(channel, kind="text", size=6):
+def packet(channel, kind="text", size=6, key=None):
     """A packet as the radio hands it to the hub (channel-encrypted ServiceEnvelope). PKI = private message."""
     sender, pid = random.randint(0x10000000, 0x7FFFFFFF), random.randint(1, 2**31)
     env = mqtt_pb2.ServiceEnvelope(); env.channel_id = channel; env.gateway_id = "!a1000000"
@@ -96,7 +96,11 @@ def packet(channel, kind="text", size=6):
     else:
         p.to = 0xFFFFFFFF
         d = mesh_pb2.Data(portnum=PORT[kind], payload=b"ura test " + os.urandom(size))
-        p.encrypted = decrypt_packet(KEYS[channel], pid, sender, d.SerializeToString())   # CTR: same op encrypts
+        k = key or KEYS[channel]
+        p.encrypted = decrypt_packet(k, pid, sender, d.SerializeToString())   # CTR: same op encrypts
+        code = 0
+        for b in channel.encode() + k: code ^= b
+        p.channel = code                       # like real radios: the channel code travels in every packet
     return f"msh/EU_868/2/e/{channel}/!a1000000", env.SerializeToString(), sender
 
 
@@ -674,6 +678,25 @@ check("both hubs have 'Team' with different keys -> not put on air, reason 'othe
 h["B"]("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name": "Team", "psk": base64.b64encode(TEAM_PSK).decode(), "uplink": True, "downlink": True, "position_precision": 0, "muted": False}})
 time.sleep(1)
 check("same key again -> Team passes", arrives("A", "B", "Team"))
+
+sec("two channels with the same name (a channel without a name = the preset name)")
+dup_key = os.urandom(32)
+for n in ("A", "B"):
+    h[n]("/api/radio/channel", {"channel": {"index": 2, "role": "SECONDARY", "name": "", "psk": base64.b64encode(dup_key).decode(), "uplink": True, "downlink": True, "position_precision": 0, "muted": False}})
+time.sleep(1)
+check("both radios: public LongFast (code 8) + private 'LongFast' without a name", sum(1 for c in ra()["channels"] if c["name"] == "LongFast") == 2, ra()["channels"])
+check("public LongFast still crosses (was broken: the second key was used)", arrives("A", "B", "LongFast"))
+check("public positions still cross", arrives("A", "B", "LongFast", "position"))
+def send_dup(frm):
+    topic, data, snd = packet("LongFast", key=dup_key)
+    h[frm]("/api/test/inject", {"topic": topic, "data": base64.b64encode(data).decode()}); return snd
+sd = send_dup("A"); time.sleep(3)
+check("private same-name channel, group not ticked -> blocked as group", sd not in senders_on_air("B") and blocked("A", "B", "send", "group") > 0)
+rules("A", "B", send={"groups": ["Team", "LongFast"]}); rules("B", "A", receive={"groups": ["Team", "LongFast"]})
+sd = send_dup("A")
+check("group 'LongFast' (private) ticked on both -> crosses", wait(lambda: sd in senders_on_air("B"), 5))
+for n in ("A", "B"):
+    h[n]("/api/radio/channel", {"channel": {"index": 2, "role": "DISABLED"}})
 
 # ── report ─────────────────────────────────────────────────────────────────
 kill_ports()

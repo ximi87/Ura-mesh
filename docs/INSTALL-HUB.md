@@ -104,6 +104,12 @@ between two nodes are the only exception — they use the nodes' own keys and al
   other only when the codes are equal. The public LongFast channel has code **8**.
 - **The hub warns you.** When its radio hears packets it cannot read, the *Status* page shows the
   channel code and the nodes sending on it — typically a node whose key was changed.
+- **A node that was reset (factory reset, new firmware with erase) gets a new private key.** Nodes that
+  knew it before — also on the other side of Ura — still hold the old key and answer its private
+  messages with an error (the phone shows a key or channel mismatch). Remove that node once from
+  their node list (on the other hub's radio too), then press **Ask neighbours to answer** on the
+  hub where the node is: its name card with the new key crosses Ura in seconds. The same button helps
+  after a node list was cleared: nodes learn each other again at once instead of after hours.
 - **The hub keeps a copy of the radio's channels.** If you replace or reset the radio, or change its
   channels with the phone app, *Device settings* tells you and offers **Write the saved channels to
   the radio** (or *Keep the radio's channels*).

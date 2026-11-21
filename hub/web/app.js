@@ -531,7 +531,8 @@ async function pageLinks() {
   const r = s.radio || {};
   const chans = (r.channels || []);
   const pubName = (chans.find(x => x.public) || {}).name || "LongFast";
-  const groups = chans.filter(x => !x.public).map(x => x.name);
+  const groups = [...new Set(chans.filter(x => !x.public).map(x => x.name))];
+  const gcodes = g => chans.filter(x => !x.public && x.name === g).map(x => x.code).join(", ");
   const ok = s.link_state === "connected" && s.server.status === "approved";
   const linked = new Set(s.links.map(l => l.peer));
   const others = s.directory.filter(h => h.id !== s.server.hub_id);
@@ -545,7 +546,7 @@ async function pageLinks() {
       ${dir === "send" ? onwardBox(peer, rule) + ruleRow(t("rule.transit") + ` <span class="muted small">${t("rule.transit.hint")}</span>`, dir, "transit", rule)
                        : ruleRow(t("rule.from_beyond") + ` <span class="muted small">${t("rule.from_beyond.hint")}</span>`, dir, "from_beyond", rule)}
       <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
-      ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)}</label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
+      ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)} <span class="muted small">(${t("ch.code")} ${gcodes(gname)})</span></label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
   // the hubs this peer offers to pass my packets on to (its published transit list), each with a tick box
   const REACH_ANY = 7;
   const reachOf = rule => rule.reach != null ? +rule.reach : ((rule.onward_to || []).length ? Math.min(REACH_ANY, ((c.transit && c.transit.max_hops) || 2) - 1) : 0);
