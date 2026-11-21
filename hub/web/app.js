@@ -149,8 +149,14 @@ Ura.add({
   "r.saved_missing": { en: "saved, but not plugged in", sq: "e ruajtur, por jo e lidhur" },
   "r.k.meshtastic": { en: "Meshtastic radio", sq: "Radio Meshtastic" }, "r.k.meshcore": { en: "MeshCore radio — not supported yet", sq: "Radio MeshCore — ende pa mbështetje" },
   "r.k.unknown": { en: "not recognised as a radio", sq: "nuk njihet si radio" }, "r.k.busy": { en: "in use by another program", sq: "në përdorim nga një program tjetër" },
-  "r.k.missing": { en: "nothing plugged in", sq: "asgjë e lidhur" }, "r.k.inuse": { en: "connected to this hub", sq: "e lidhur me këtë hub" },
-  "r.ports_hint": { en: "The hub asked every port what is plugged in. Only a Meshtastic radio can be chosen.", sq: "Hub-i pyeti çdo portë se çfarë është e lidhur. Mund të zgjidhet vetëm një radio Meshtastic." },
+  "r.k.missing": { en: "nothing plugged in", sq: "asgjë e lidhur" },
+  "r.k.checking": { en: "checking what it is…", sq: "po kontrollohet çfarë është…" },
+  "r.k.no_answer": { en: "no answer yet — you can still try it", sq: "ende pa përgjigje — mund ta provoni" },
+  "r.no_answer_now": { en: "The device on the port does not answer yet; the hub keeps trying.", sq: "Pajisja në portë ende nuk përgjigjet; hub-i vazhdon të provojë." },
+  "r.connecting": { en: "Connecting to the radio and reading it… this can take up to a minute.", sq: "Po lidhet me radion dhe po e lexon… mund të zgjasë deri në një minutë." },
+  "r.conn_ok": { en: "Connected: {x} — {n} nodes read from the radio.", sq: "U lidh: {x} — {n} nyje të lexuara nga radio." },
+  "r.conn_wait": { en: "No answer from the device yet. The hub keeps trying — check that it is switched on.", sq: "Ende pa përgjigje nga pajisja. Hub-i vazhdon të provojë — kontrolloni që është ndezur." }, "r.k.inuse": { en: "connected to this hub", sq: "e lidhur me këtë hub" },
+  "r.ports_hint": { en: "The hub asks every port what is plugged in (a radio with debug output on can take ~15 s). A device that answers as something else — e.g. MeshCore — cannot be chosen. Saving connects to the radio and shows what it really is.", sq: "Hub-i pyet çdo portë se çfarë është e lidhur (një radio me debug të ndezur mund të dojë ~15 s). Një pajisje që përgjigjet si diçka tjetër — p.sh. MeshCore — nuk mund të zgjidhet. Ruajtja lidhet me radion dhe tregon çfarë është vërtet." },
   "r.no_mt": { en: "No Meshtastic radio is plugged in.", sq: "Nuk është lidhur asnjë radio Meshtastic." },
   "r.found_ok": { en: "Saved: {x}. The hub connects to it now.", sq: "U ruajt: {x}. Hub-i po lidhet me të tani." },
   "r.found_bad": { en: "Not saved — on this port the hub found: {x}. The hub works only with a Meshtastic radio.", sq: "Nuk u ruajt — në këtë portë hub-i gjeti: {x}. Hub-i punon vetëm me radio Meshtastic." },
@@ -384,8 +390,9 @@ const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
 function errText(e) { const k = "err." + e.message; return (t(k) !== k ? t(k) : esc(e.message)) + (e.data && e.data.detail ? ` <span class="small mono">(${esc(e.data.detail)})</span>` : ""); }
-const kindTxt = p => p.kind === "meshtastic" ? `${t("r.k.meshtastic")} “${p.name || "?"}” ${p.id || ""}${p.in_use ? " · " + t("r.k.inuse") : ""}` : t("r.k." + p.kind) + (p.name ? ` “${p.name}”` : "");
-const radioErr = r => r.error === "port not present" ? "" : r.error === "not_meshtastic" && r.found ? esc(t("r.not_mt_now", { x: kindTxt(r.found) })) : esc(r.error || "");
+const kindTxt = p => !p.kind ? t("r.k.checking") : p.kind === "meshtastic" ? `${t("r.k.meshtastic")} “${p.name || "?"}” ${p.id || ""}${p.in_use ? " · " + t("r.k.inuse") : ""}` : t("r.k." + p.kind) + (p.name ? ` “${p.name}”` : "");
+const radioErr = r => r.error === "port not present" ? "" : r.error === "not_meshtastic" && r.found ? esc(t("r.not_mt_now", { x: kindTxt(r.found) }))
+  : r.error === "no_answer" ? esc(t("r.no_answer_now")) : r.error === "busy" ? esc(t("r.k.busy")) : esc(r.error || "");
 function srvState(s) { return `srv.${s.link_state}`; }
 function regText(st) { return st ? t("reg." + st) : t("reg.none"); }
 function ruleRow(lbl, dir, key, rule) { return `<label class="check"><input type="checkbox" data-dir="${dir}" data-k="${key}" ${rule[key] ? "checked" : ""}> ${lbl}</label>`; }
@@ -708,16 +715,17 @@ async function pageRadio() {
   if (!app().innerHTML.trim()) app().innerHTML = `<div class="card muted">${t("loading") !== "loading" ? t("loading") : "…"}</div>`;
   const [s, c, ports] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config"), api("GET", "/api/ports")]);
   const portTxt = p => `${kindTxt(p)} — ${p.dev}${p.usb ? " (" + p.usb + ")" : ""}`;
-  const paths = ports.map(p => p.path), mtPorts = ports.filter(p => p.kind === "meshtastic");
+  const paths = ports.map(p => p.path), canUse = p => !["meshcore", "unknown", "busy"].includes(p.kind);
+  const firstUse = ports.find(p => p.kind === "meshtastic") || ports.find(canUse);
   const rc = c.radios[0] || { transport: "serial", address: "" }, r = s.radio;
   const nodes = r && r.connected ? await api("GET", "/api/nodes").catch(() => []) : [];
   secs("radio", [!r || !r.connected ? "conn" : null, r && r.connected && !r.ready ? "state" : null, r && r.connected && r.ready ? "diag" : null]);
   const connBody = `
       <label>${t("r.type")}</label><select id="rtype"><option value="mt">Meshtastic</option><option value="mc" disabled>MeshCore – ${t("r.mc_soon")}</option></select>
       <label>${t("r.transport")}</label><select id="rtr"><option value="serial">${t("r.serial")}</option><option value="tcp">${t("r.tcp")}</option><option value="ble" disabled>${t("r.ble")}</option></select>
-      <div id="rser"><label>${t("r.port")}</label><select id="rport">${ports.map(p => `<option value="${esc(p.path)}" ${p.kind !== "meshtastic" ? "disabled" : ""} ${p.path === rc.address || (!rc.address && p === mtPorts[0]) ? "selected" : ""}>${esc(portTxt(p))}</option>`).join("")}
+      <div id="rser"><label>${t("r.port")}</label><select id="rport">${ports.map(p => `<option value="${esc(p.path)}" ${canUse(p) ? "" : "disabled"} ${p.path === rc.address || (!rc.address && p === firstUse) ? "selected" : ""}>${esc(portTxt(p))}</option>`).join("")}
         ${rc.transport === "serial" && rc.address && !paths.includes(rc.address) ? `<option value="${esc(rc.address)}" selected>${esc(t("r.saved_missing"))}: ${esc(rc.address.replace(/^.*\//, ""))}</option>` : ""}</select>
-        <div class="hint">${!ports.length ? `<span class="badge bad">${t("r.none_detected")}</span>` : !mtPorts.length ? `<span class="badge bad">${t("r.no_mt")}</span> ` : ""}${ports.length ? `<span class="muted small">${t("r.ports_hint")}</span>` : ""}</div></div>
+        <div class="hint">${!ports.length ? `<span class="badge bad">${t("r.none_detected")}</span>` : `<span class="muted small">${t("r.ports_hint")}</span>`}</div></div>
       <div id="rtcp"><label>${t("r.host")}</label><input type="text" id="rhost" value="${rc.transport === "tcp" ? esc(rc.address) : ""}"></div>
       <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button>
       ${rc.address ? `<div style="margin-top:1rem;border-top:1px solid var(--line);padding-top:.8rem"><button class="danger" id="rremove">${t("r.remove")}</button>
@@ -806,13 +814,30 @@ async function pageRadio() {
     try { await api("POST", "/api/radio/remove", {}); $("#rmsg").innerHTML = `<div class="msg ok">${t("r.removed")}</div>`; setTimeout(pageRadio, 2500); }
     catch (e) { $("#rmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
+  // after the page is shown: ask each port what it is, one by one in the background, and fill in the answer
+  ports.filter(p => !p.kind).forEach(p => api("GET", "/api/ports?check=" + encodeURIComponent(p.path)).then(x => {
+    const o = [...document.querySelectorAll("#rport option")].find(o => o.value === p.path);
+    if (!o) return;
+    o.textContent = portTxt(x); o.disabled = !canUse(x);
+    if (x.kind === "meshtastic" && !rc.address) $("#rport").value = p.path;
+  }).catch(() => {}));
   $("#rsave").onclick = async () => {
     const addr = tr.value === "tcp" ? $("#rhost").value : $("#rport").value;
     if (!addr) return;
     $("#rsave").disabled = true;
     try {
       const res = await api("POST", "/api/radio", { radio: { transport: tr.value, address: addr } });
-      $("#rmsg").innerHTML = `<div class="msg ok">${res.found ? esc(t("r.found_ok", { x: kindTxt(res.found) })) : t("saved")}</div>`; setTimeout(pageRadio, 6000);
+      if (res.state !== "connecting") { $("#rmsg").innerHTML = `<div class="msg ok">${res.found ? esc(t("r.found_ok", { x: kindTxt(res.found) })) : t("saved")}</div>`; setTimeout(pageRadio, 6000); return; }
+      $("#rmsg").innerHTML = `<div class="msg info">${t("r.connecting")}</div>`;
+      for (let i = 0; i < 45; i++) {                 // wait for the real answer of the radio (up to ~90 s)
+        await new Promise(ok => setTimeout(ok, 2000));
+        if (!$("#rmsg")) return;                     // the operator left the page
+        const x = await api("GET", "/api/radio/result").catch(() => ({}));
+        if (x.address !== addr) continue;
+        if (x.state === "connected") { $("#rmsg").innerHTML = `<div class="msg ok">${esc(t("r.conn_ok", { x: kindTxt(x.found), n: x.found.nodes ?? "?" }))}</div>`; setTimeout(pageRadio, 3000); return; }
+        if (x.state === "refused") { $("#rmsg").innerHTML = `<div class="msg bad">${esc(t("r.found_bad", { x: kindTxt(x.found) }))}</div>`; $("#rsave").disabled = false; return; }
+      }
+      $("#rmsg").innerHTML = `<div class="msg warn">${t("r.conn_wait")}</div>`; $("#rsave").disabled = false;
     } catch (e) {
       $("#rmsg").innerHTML = `<div class="msg bad">${e.message === "not_meshtastic" && e.data && e.data.found ? esc(t("r.found_bad", { x: kindTxt(e.data.found) })) : errText(e)}</div>`;
       $("#rsave").disabled = false;

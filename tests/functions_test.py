@@ -572,19 +572,23 @@ check("clock sync off -> radio clock not set on connect", not any(c["call"] == "
 h["A"]("/api/advanced", {"advanced": {"clock_sync": True}})
 h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
 check("clock sync on -> radio clock set on connect", wait(lambda: any(c["call"] == "setTime" for c in h["A"]("/api/test/radio")["calls"]), 15))
-# the hub asks every port what is plugged in, and accepts only a Meshtastic radio
-pl = {x["path"]: x for x in h["A"]("/api/ports")}
-check("ports: each port says what is on it (Meshtastic / MeshCore / not a radio)",
-      (pl["/dev/fake"]["kind"], pl["/dev/fake-meshcore"]["kind"], pl["/dev/fake-unknown"]["kind"]) == ("meshtastic", "meshcore", "unknown"), pl)
+# the hub asks every port what is plugged in, and keeps only a Meshtastic radio
+t0_ = time.time(); pl = {x["path"]: x for x in h["A"]("/api/ports")}
+check("ports: the list comes at once, without talking to the devices", time.time() - t0_ < 2 and set(pl) >= {"/dev/fake", "/dev/fake-meshcore", "/dev/fake-unknown"}, pl)
+kinds = tuple(h["A"]("/api/ports?check=" + q)["kind"] for q in ("/dev/fake", "/dev/fake-meshcore", "/dev/fake-unknown"))
+check("ports: checking each port says what is on it (Meshtastic / MeshCore / not a radio)", kinds == ("meshtastic", "meshcore", "unknown"), kinds)
 rmc = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-meshcore"}})
-check("save a MeshCore radio -> refused, the answer names it as MeshCore",
+check("save a port known to hold a MeshCore radio -> refused at once, the answer names it as MeshCore",
       rmc.get("_status") == 400 and rmc.get("error") == "not_meshtastic" and rmc["found"]["kind"] == "meshcore" and "MeshCore" in rmc.get("text", ""), rmc)
 run_ = h["A"]("/api/config")["radios"]
 check("... the saved radio is unchanged and still connected", run_ and run_[0]["address"] == "/dev/fake-A3" and status("A")["radio"]["connected"], run_)
 run_ = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-unknown"}})
-check("save a device that is not a radio -> refused as not recognised", run_.get("_status") == 400 and run_["found"]["kind"] == "unknown", run_)
+check("save a port that was not checked -> the hub tries to connect", run_.get("ok") and run_.get("state") == "connecting", run_)
+res_ = wait(lambda: (lambda x: x if x.get("state") == "refused" else None)(h["A"]("/api/radio/result")), 20)
+check("... it is not a Meshtastic radio -> refused, named, and nothing kept", res_ and res_["found"]["kind"] == "unknown" and h["A"]("/api/config")["radios"] == [], res_)
 run_ = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
-check("save the Meshtastic radio -> accepted, the answer names it", run_.get("ok") and run_["found"]["kind"] == "meshtastic", run_)
+res_ = wait(lambda: (lambda x: x if x.get("state") == "connected" else None)(h["A"]("/api/radio/result")), 20)
+check("save the Meshtastic radio -> connected, the answer names it and its node count", res_ and res_["found"]["kind"] == "meshtastic" and res_["found"]["name"] and res_["found"]["nodes"], res_)
 check("... its nodes are on the server map", wait(lambda: len(pub("A")["nodes"]) > 0, 15))
 h["A"]("/api/radio/remove", {})
 check("remove radio -> its nodes deleted from the server map too", wait(lambda: len(pub("A")["nodes"]) == 0, 10), len(pub("A")["nodes"]))
