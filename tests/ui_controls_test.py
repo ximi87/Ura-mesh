@@ -406,6 +406,15 @@ with sync_playwright() as pw:
     check("Wizard: hub left the server (fresh start) -> the wizard opens by itself again", "#/setup" in d.url)
     d.click("#wzskip"); d.wait_for_selector("details.secline")
     check("Wizard: 'Skip the wizard (advanced)' -> normal pages, remembered", hd("/api/session")["setup_skipped"] is True and d.locator("#wz").count() == 0)
+    go_d = lambda r: (d.goto(f"https://127.0.0.1:{PD}/#/{r}"), d.reload())
+    go_d("settings"); d.wait_for_selector("details.secline[data-sec='reset']", state="attached")
+    d.locator("details.secline[data-sec='reset'] > summary").click()
+    d.click("#frgo")
+    check("Settings/Factory reset: without typing RESET -> refused with a message", "RESET" in d.locator("#frmsg").inner_text())
+    d.fill("#frconfirm", "RESET"); d.click("#frgo")
+    d.wait_for_selector("#pw", timeout=150000)
+    check("Settings/Factory reset: click -> the hub comes back in first-start mode (new password)", hd("/api/session").get("setup_needed") is True or
+          client(f"https://127.0.0.1:{PD}")("/api/session").get("setup_needed") is True)
     br.close()
 
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports), shell=True)

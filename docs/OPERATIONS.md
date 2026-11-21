@@ -47,6 +47,21 @@ older installations: add that line under `RestartSec=` and run `sudo systemctl d
   and which partner its nodes came from are forgotten; connect a radio again as if it were new. Nothing on
   the radio itself is changed.
 
+## Factory reset (hub)
+
+*Settings → Factory reset* brings the hub back to the state right after installing. Type `RESET`, confirm, and
+the page follows the steps until the hub is back in first-start mode:
+
+1. The server is told that the hub leaves: it deletes the hub, its links, statistics and nodes; partners are told
+   and clean up on their side. (If the server cannot be reached, it is said so; the administrator removes the hub.)
+2. The partners' nodes are removed from the radio, 2 s apart, then checked on the radio. The radio's own settings
+   are not changed.
+3. Settings, password, hub name, end-to-end keys, saved radio and channels, node memory, logs and map cache are deleted.
+4. The program restarts: choose a new password; the setup wizard starts at step 1. The new log begins with
+   "factory reset done".
+
+Only the website's certificate stays (it holds no data; the browser would otherwise warn again).
+
 ## Ending a link cleans up by itself
 
 When a link ends — either side ends it, the admin removes a hub, or a hub leaves the server — both hubs

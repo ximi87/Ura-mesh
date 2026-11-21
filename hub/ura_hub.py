@@ -1339,7 +1339,7 @@ def drop_from_cache(iface, node_id=None):
                 iface.nodes.pop(nid, None)
 
 
-def forget_peer(peer, everything=False):
+def forget_peer(peer, everything=False, wait=False):
     """A link ended (or the hub left the server): delete everything about that partner, as if the link never
     existed — its rules, its pinned end-to-end key, its counters, and its nodes on our radio (their names and
     keys; a node that was reset meanwhile is then learned fresh). `everything`: no link is left, so all remote
@@ -1385,7 +1385,60 @@ def forget_peer(peer, everything=False):
             left = len([nid for nid in ids if nid in set((r.iface.nodes or {}).keys())])
         log.info("link to %s ended: its rules, key and %d remote node(s) on the radio were deleted%s", peer, total - left,
                  f" ({left} could not be deleted)" if left else " (checked on the radio)")
-    threading.Thread(target=radio_forget, daemon=True).start()
+    if wait:
+        radio_forget()
+    else:
+        threading.Thread(target=radio_forget, daemon=True).start()
+
+
+# ───────────────────────── factory reset ─────────────────────────
+reset_state = {}           # progress of a running factory reset, shown on the page
+
+
+def factory_reset():
+    """Delete everything this hub knows and start again as if just installed: leave the server (it deletes this
+    hub, its links, statistics and nodes), remove the partners' nodes from the radio, delete settings, password,
+    keys, node memory, logs and map cache, then restart in first-start mode. The website certificate stays
+    (it holds no data; the browser would only warn again)."""
+    import shutil
+    def step(text):
+        reset_state.setdefault("steps", []).append(text)
+        log.info("factory reset: %s", text)
+    reset_state.clear(); reset_state.update(running=True, steps=[])
+    c = cfg.get()
+    if c["server"]["hub_id"]:
+        try:
+            told = run_coro(server_leave(), timeout=25)
+        except Exception:
+            told = False
+        step("server told: this hub, its links, statistics and nodes deleted there" if told
+             else "server could not be reached — it removes this hub when the administrator does")
+    peers = set(c["rules"]) | set(c["peer_keys"]) | origins.peers()
+    if mt_radio() is not None and mt_radio().iface is not None:
+        step("removing the partners' nodes from the radio (2 s each, then checked on the radio)…")
+        for peer in peers or {""}:
+            forget_peer(peer, everything=True, wait=True)
+        step("partners' nodes removed from the radio")
+    elif peers:
+        step("no radio connected: its node list was not touched")
+    def wipe():
+        for r in list(radios.values()):
+            r.close()
+        for name in os.listdir(DATA_DIR):
+            p_ = os.path.join(DATA_DIR, name)
+            if name in ("web.crt", "web.key"):
+                continue
+            if name in ("logs", "tiles") and os.path.isdir(p_):
+                shutil.rmtree(p_, ignore_errors=True)
+            elif name.startswith(("config", "origins", "identity")) and os.path.isfile(p_):
+                os.remove(p_)
+        for h_ in list(logging.getLogger().handlers):          # the old log file is gone: start a new one
+            if isinstance(h_, logging.handlers.RotatingFileHandler):
+                logging.getLogger().removeHandler(h_); h_.close()
+        log_setup(DATA_DIR)
+        logging.getLogger().info("factory reset done: settings, password, keys, node memory, logs and map cache deleted")
+    step("deleting settings, password, keys, node memory, logs and map cache; restarting…")
+    program_action("restart", wipe)
 
 
 # ───────────────────────── what is on a serial port ─────────────────────────
@@ -2155,6 +2208,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 c.pop("web_password", None)
                 c["server"].pop("key", None)
                 return self.reply(c)
+            if p == "/api/factory_reset":
+                return self.reply(reset_state)
             if p == "/api/radio/result":
                 return self.reply(radio_result)
             if p == "/api/radio/settings":
@@ -2239,6 +2294,13 @@ class Web(http.server.BaseHTTPRequestHandler):
                     return self.reply({"error": "invalid", "fields": ["server_web_port"]}, 400)
                 cfg.update(lambda d: d["server"].update(web_port=port))
             link.kick()                       # e.g. node age / follow distance changed: report with the new values
+            return self.reply({"ok": True})
+        if p == "/api/factory_reset":
+            if b.get("confirm") != "RESET":
+                return self.reply({"error": "confirm"}, 400)
+            if reset_state.get("running"):
+                return self.reply({"ok": True, "already": True})
+            threading.Thread(target=factory_reset, daemon=True).start()
             return self.reply({"ok": True})
         if p == "/api/wizard":                       # use / skip the setup wizard
             def upd(d):

@@ -1044,12 +1044,34 @@ async function pageSettings() {
       <button id="pwsave">${t("save")}</button>`),
     secBox("settings", "program", `<b>${t("pg.title")}</b>`, [[t("pg.version"), esc(SESS.version || "–")], [t("pg.since"), ago(SESS.started)]],
       `<div id="pgctl"></div>`),
+    secBox("settings", "reset", `<b>${t("fr.title")}</b>`, [["", `<span class="muted small">${t("fr.short")}</span>`]],
+      `<p class="small">${t("fr.hint")}</p><ul class="small">${["fr.l1", "fr.l2", "fr.l3", "fr.l4"].map(k => `<li>${t(k)}</li>`).join("")}</ul>
+      <p class="small muted">${t("fr.keep")}</p>
+      <label>${t("fr.type")}</label><input type="text" id="frconfirm" autocomplete="off" placeholder="RESET" style="max-width:200px">
+      <div class="row" style="margin-top:.6rem"><button class="danger" id="frgo">${t("fr.button")}</button></div><div id="frmsg"></div>`),
     secBox("settings", "adv", `<b>${t("adv.title")}</b>`, [["", advChanged ? B("warn", t("adv.changed_n", { n: advChanged })) : `<span class="muted small">${t("adv.all_default")}</span>`]],
       `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
       <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`)];
   app().innerHTML = secCard(t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
   programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
+  $("#frgo").onclick = async () => {
+    if ($("#frconfirm").value.trim() !== "RESET") return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.type_bad")}</div>`;
+    if (!confirm(t("fr.q"))) return;
+    $("#frgo").disabled = true; $("#frconfirm").disabled = true;
+    try { await api("POST", "/api/factory_reset", { confirm: "RESET" }); }
+    catch (e) { $("#frmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#frgo").disabled = false; return; }
+    clearInterval(timer);
+    let steps = [];
+    for (let i = 0; i < 400; i++) {                  // follow the reset; when the hub is back in first-start mode, open it
+      await new Promise(ok => setTimeout(ok, 2000));
+      const ss = await fetch("/api/session", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (ss && ss.setup_needed) { location.hash = "#/"; location.reload(); return; }
+      const st = await api("GET", "/api/factory_reset").catch(() => null);
+      if (st && st.steps) steps = st.steps;
+      if ($("#frmsg")) $("#frmsg").innerHTML = `<div class="msg info"><span class="spin"></span> ${t("fr.running")}<ul class="small">${steps.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`;
+    }
+  };
   const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
     groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
              ["adv.g.nodes", ["node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
@@ -1395,6 +1417,19 @@ async function wzBody(k, el, s, c) {
 }
 
 Ura.add({
+  "fr.title": { en: "Factory reset", sq: "Rikthim në gjendjen fillestare" },
+  "fr.short": { en: "delete everything, start again", sq: "fshi gjithçka, fillo nga e para" },
+  "fr.hint": { en: "Brings this hub back to the state right after installing, as if it had never been used:", sq: "E kthen këtë hub në gjendjen menjëherë pas instalimit, sikur të mos ishte përdorur kurrë:" },
+  "fr.l1": { en: "the server is told that this hub leaves — it deletes the hub, its links, statistics and nodes; partners are told", sq: "serveri njoftohet se ky hub largohet — fshin hub-in, lidhjet, statistikat dhe nyjet; partnerët njoftohen" },
+  "fr.l2": { en: "the partners' nodes are removed from the radio (the radio's own settings are not changed)", sq: "nyjet e partnerëve hiqen nga radio (cilësimet e vetë radios nuk ndryshohen)" },
+  "fr.l3": { en: "settings, password, hub name, keys, saved radio and channels, node memory, logs and map cache are deleted", sq: "fshihen cilësimet, fjalëkalimi, emri i hub-it, çelësat, radio dhe kanalet e ruajtura, kujtesa e nyjeve, regjistrat dhe harta" },
+  "fr.l4": { en: "the program restarts: choose a new password, then the setup wizard begins at step 1", sq: "programi rindizet: zgjidhni fjalëkalim të ri, pastaj udhëzuesi fillon nga hapi 1" },
+  "fr.keep": { en: "Kept: only the website's certificate (it holds no data; your browser would otherwise warn again).", sq: "Mbetet: vetëm certifikata e faqes (nuk mban të dhëna; përndryshe shfletuesi do të paralajmëronte përsëri)." },
+  "fr.type": { en: "Type RESET to confirm", sq: "Shkruani RESET për ta konfirmuar" },
+  "fr.type_bad": { en: "Type RESET (capital letters) in the box first.", sq: "Shkruani fillimisht RESET (shkronja të mëdha) në kuti." },
+  "fr.button": { en: "Delete everything and start again", sq: "Fshi gjithçka dhe fillo nga e para" },
+  "fr.q": { en: "Really delete everything on this hub? This cannot be undone.", sq: "Vërtet të fshihet gjithçka në këtë hub? Nuk mund të kthehet." },
+  "fr.running": { en: "Factory reset running — the page opens the first setup by itself when it is finished:", sq: "Rikthimi po punon — faqja hap konfigurimin e parë vetë kur të mbarojë:" },
   "nav.setup": { en: "Setup", sq: "Konfigurimi" },
   "wz.title": { en: "Set up this hub — step by step", sq: "Konfiguro këtë hub — hap pas hapi" },
   "wz.intro": { en: "Do the steps in order. Each step shows what is really happening and turns green by itself when it is done; the next one then opens. You do not need to go to any other page.",

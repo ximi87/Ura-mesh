@@ -818,6 +818,36 @@ S = client(f"https://127.0.0.1:{SRV_WEB}"); S("/api/login", {"password": PW + "S
 check("... hubs reconnect by themselves", wait(lambda: status("A")["link_state"] == "connected" and status("B")["link_state"] == "connected", 30))
 check("... link A - B still active", (link_with("A", "B") or {}).get("state") == "active")
 
+# ── factory reset: hub B (registered, linked with A) -> nothing left anywhere, first-start mode ──
+section[0] = "factory reset"
+idB = ids["B"]
+MY_KEY_B = h["B"]("/api/status")["my_key"]
+r_ = h["B"]("/api/factory_reset", {"confirm": "wrong"})
+check("factory reset without typing RESET -> refused", r_.get("_status") == 400)
+h["B"]("/api/factory_reset", {"confirm": "RESET"})
+fresh = lambda: client(f"https://127.0.0.1:{HUBS['B'][0]}")("/api/session")
+check("factory reset -> the hub restarts in first-start mode (choose a password)", wait(lambda: fresh().get("setup_needed") is True, 120))
+def srv_left(hid):
+    d_ = sqlite3.connect(f"{T}/srv/ura.db")
+    n_ = sum(d_.execute(q, (hid, hid)).fetchone()[0] for q in (
+        "SELECT COUNT(*) FROM hubs WHERE id=? OR id=?", "SELECT COUNT(*) FROM links WHERE a=? OR b=?",
+        "SELECT COUNT(*) FROM stats WHERE src=? OR dst=?", "SELECT COUNT(*) FROM nodes WHERE hub=? OR hub=?"))
+    d_.close(); return n_
+check("... server: nothing about the hub left (hub, links, statistics, nodes)", wait(lambda: srv_left(idB) == 0, 10), srv_left(idB))
+check("... partner A: the link and B's rules and key are gone", wait(lambda: not link_with("A", "B") and idB not in h["A"]("/api/config")["rules"]
+                                                                 and idB not in h["A"]("/api/config")["peer_keys"], 15))
+left_files = sorted(os.listdir(f"{T}/hB"))
+check("... hub folder: old settings, node memory, backups and map cache deleted", not any(f.startswith(("origins", "config.")) or f == "tiles" for f in left_files)
+      and "config.json" not in left_files or json.load(open(f"{T}/hB/config.json")).get("web_password") is None, left_files)
+logtxt = open(f"{T}/hB/logs/ura-hub.log").read() if os.path.exists(f"{T}/hB/logs/ura-hub.log") else ""
+check("... old log deleted; the new log starts with the reset", "factory reset done" in logtxt and "link to" not in logtxt, logtxt[:300])
+hb = client(f"https://127.0.0.1:{HUBS['B'][0]}"); hb("/api/setup", {"password": PW})
+cb = hb("/api/config")
+check("... after a new password: no name, no server, no radio, no rules, no keys — like a new installation",
+      not cb["hub"]["name"] and not cb["server"]["address"] and not cb["server"]["fingerprint"] and cb["radios"] == [] and cb["rules"] == {} and cb["peer_keys"] == {}
+      and not cb.get("setup_done") and not cb.get("setup_skipped"), cb["server"])
+check("... a new end-to-end identity (old key deleted)", hb("/api/status")["my_key"] != MY_KEY_B)
+
 # ── report ─────────────────────────────────────────────────────────────────
 kill_ports()
 bad = [r for r in results if not r[2]]
