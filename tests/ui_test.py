@@ -32,6 +32,9 @@ def setup_login(p, base):
     p.goto(base + "/#/")
     p.wait_for_selector("#pw")
     p.fill("#pw", PW); p.click("#lbtn")
+    if ":8199" not in base:                      # a hub: this test is the "set up yourself" way -> skip the wizard
+        p.wait_for_selector("#wzskip")
+        p.once("dialog", lambda d: d.accept()); p.click("#wzskip")
 
 def hub_register(p, base, name, country, city, lat, lon):
     setup_login(p, base)
@@ -133,7 +136,7 @@ with sync_playwright() as pw:
     pid = subprocess.run("ss -ltnp 'sport = :8196' | grep -oP 'pid=\\K[0-9]+' | head -1", shell=True, capture_output=True, text=True).stdout.strip()
     subprocess.run(["kill", pid]); time.sleep(1.5)
     os.remove(f"{T}/hB/identity.key")
-    subprocess.Popen(f"cd {REPO}/hub && URA_DATA={T}/hB URA_WEB_PORT=8196 setsid nohup {HUBPY} -u ura_hub.py >> {T}/hubB.log 2>&1 < /dev/null &", shell=True)
+    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_DATA={T}/hB URA_WEB_PORT=8196 setsid nohup {HUBPY} -u ura_hub.py >> {T}/hubB.log 2>&1 < /dev/null &", shell=True)
     time.sleep(7)
     nav(b, B + "/#/"); b.wait_for_selector("#pw"); b.fill("#pw", PW); b.click("#lbtn"); b.wait_for_selector("text=Server connection")
     nav(a, A + "/#/links"); a.wait_for_selector("text=Safety code")

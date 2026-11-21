@@ -385,7 +385,7 @@ Ura.add({
   "err.address_required": { en: "Please enter the server address.", sq: "Ju lutem vendosni adresën e serverit." },
 });
 
-const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"], ["#/logs", "nav.logs"]];
+const MENU = [["#/setup", "nav.setup"], ["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"], ["#/logs", "nav.logs"]];
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
@@ -1148,6 +1148,12 @@ async function route() {
     if (page === "device") return await pageDevice();
     if (page === "settings") return await pageSettings();
     if (page === "logs") return pageLogs();
+    if (page === "setup") return await pageSetup();
+    if (!SESS.setup_skipped && !SESS.setup_done) {   // never fully set up yet: the wizard first (it can be skipped)
+      const [s0, c0] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
+      if (!wzState(s0, c0).done) { history.replaceState(null, "", "#/setup"); return await pageSetup(); }
+      SESS.setup_done = true; api("POST", "/api/wizard", { done: true }).catch(() => {});   // set up (on any page): remembered
+    }
     await pageStatus();
     timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, (SESS.page_refresh_s || 30) * 1000);
   } catch (e) {
@@ -1159,3 +1165,282 @@ Ura.onLang = route;
 window.addEventListener("hashchange", route);
 document.documentElement.lang = Ura.lang;
 route();
+
+/* ───────── setup wizard: every step in order, each showing what really happens ───────── */
+const WZ_STEPS = ["hub", "radio", "prep", "server", "link", "done"];
+const wz = { cur: null, sub: null, live: null, timer: null, prepUntil: 0 };
+function wzState(s, c) {
+  const r = s.radio || {}, h = c.hub;
+  const st = { radio: !!r.connected, prep: !!(r.connected && r.ready),
+    hub: !!c.server.hub_id || !!(h.name && h.email && h.country && h.city),
+    server: c.server.status === "approved" && s.link_state === "connected",
+    link: (s.links || []).some(l => l.state === "active") };
+  st.done = ["hub", "radio", "prep", "server", "link"].every(k => st[k]);
+  return st;
+}
+const wzPortTxt = p => `${kindTxt(p)} — ${p.dev}${p.usb ? " (" + p.usb + ")" : ""}`;
+const wzUsable = p => !["meshcore", "unknown", "busy"].includes(p.kind);
+function wzSummary(k, s, c) {
+  const r = s.radio || {}, act = (s.links || []).filter(l => l.state === "active");
+  return k === "radio" ? `${esc(r.name || "")} · ${t("wz.nodes_n", { n: r.nodes ?? "?" })}`
+    : k === "prep" ? t("r.ready")
+    : k === "hub" ? `${esc(c.hub.country)}-${esc(c.hub.city)} · ${esc(c.hub.name)}`
+    : k === "server" ? `${esc(c.server.address)} · ${t("reg.approved")}`
+    : k === "link" ? act.map(l => esc(l.peer_code)).join(", ") : "";
+}
+function wzSub(k, s, c) {          // when this changes, the open step is drawn again
+  const r = s.radio || {};
+  if (k === "radio") return [c.radios[0] && c.radios[0].address, r.connected, r.error].join("|");
+  if (k === "server") return [c.server.fingerprint, c.server.hub_id, c.server.status, s.link_state].join("|");
+  if (k === "link" || k === "done") return JSON.stringify([(s.links || []).map(l => [l.id, l.state, l.i_accepted]), (s.directory || []).map(h => [h.id, h.online])]);
+  return "";
+}
+async function pageSetup() {
+  clearInterval(wz.timer); wz.cur = null; wz.sub = null; wz.live = null;
+  app().innerHTML = `<div class="card"><h2>${t("wz.title")}</h2><p class="muted small">${t("wz.intro")}</p>
+    <ol class="wz" id="wz">${WZ_STEPS.map((k, i) => `<li class="wzs" data-k="${k}"><div class="wzh"><span class="wzn">${i + 1}</span>
+      <b>${t("wz." + k)}</b><span class="wzsum"></span></div><div class="wzb"></div></li>`).join("")}</ol>
+    <p class="small muted" style="margin-top:1rem">${t("wz.skip_hint")} <a href="#" id="wzskip">${t("wz.skip")}</a></p></div>`;
+  $("#wzskip").onclick = async e => {
+    e.preventDefault(); if (!confirm(t("wz.skip_q"))) return;
+    await api("POST", "/api/wizard", { skip: true }); SESS.setup_skipped = true; location.hash = "#/";
+  };
+  const tick = async (force) => {
+    if (!$("#wz")) { clearInterval(wz.timer); return; }
+    const [s, c] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
+    const st = wzState(s, c);
+    if (st.done && !SESS.setup_done) { SESS.setup_done = true; api("POST", "/api/wizard", { done: true }).catch(() => {}); }
+    let cur = WZ_STEPS.find(k => !st[k]) || "done";
+    if (cur === "radio" && wz.prepUntil > Date.now() && c.radios.length) cur = "prep";   // the radio restarts after "prepare"
+    const ci = WZ_STEPS.indexOf(cur);
+    $$("#wz .wzs").forEach(li => {
+      const k = li.dataset.k, i = WZ_STEPS.indexOf(k), ok = k === "done" ? st.done : st[k];
+      li.classList.toggle("ok", ok && k !== cur); li.classList.toggle("cur", k === cur); li.classList.toggle("todo", i > ci);
+      $(".wzsum", li).innerHTML = ok && k !== "done" && k !== cur ? wzSummary(k, s, c) : k === cur && k !== "done" ? `<span class="badge warn">${t("wz.now")}</span>` : "";
+    });
+    const sub = wzSub(cur, s, c), body = $(`#wz .wzs[data-k="${cur}"] .wzb`);
+    const typing = body && body.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (force || cur !== wz.cur || (sub !== wz.sub && !typing && !wz.busy)) {
+      $$("#wz .wzb").forEach(b => { if (b !== body) b.innerHTML = ""; });
+      wz.cur = cur; wz.sub = sub; wz.live = null;
+      await wzBody(cur, body, s, c);
+    } else if (wz.live) wz.live(s, c);
+  };
+  wz.tick = tick;
+  await tick();
+  wz.timer = setInterval(() => { if (!document.hidden) tick().catch(() => {}); }, 3000);
+}
+function wzLinks(el, s, hint) {      // every other hub: ask for a link / waiting / accept / linked
+  const others = (s.directory || []).filter(h => h.id !== s.server.hub_id);
+  const lk = id => (s.links || []).find(l => l.peer === id);
+  const row = h => { const l = lk(h.id);
+    const act = !l ? `<button class="primary small" data-wzask="${h.id}">${t("l.ask")}</button>`
+      : l.state === "active" ? B("ok", t("ls.linked"))
+      : l.i_accepted ? `<span class="small">${wzSpin(t("l.wait_peer", { x: esc(h.code) }))}</span>`
+      : `<button class="primary small" data-wzacc="${l.id}">${t("l.accept")}</button> <span class="small">${t("l.wait_me", { x: esc(h.code) })}</span>`;
+    return `<div class="spread reqrow"><div><b>${esc(h.code)}</b> · ${esc(h.name)} ${onlineBadge(h.online)}</div><div class="row">${act}</div></div>`; };
+  el.innerHTML = `<p class="small">${hint}</p>
+    ${others.length ? others.map(row).join("") : `<div class="msg info">${wzSpin(t("wz.link.none"))}</div>`}<div class="wzlmsg"></div>`;
+  const go = async (path, body, b) => { b.disabled = true; b.innerHTML = wzSpin(t("wz.sending"));
+    try { await api("POST", path, body); } catch (e) { wzMsg($(".wzlmsg", el), "bad", errText(e)); } setTimeout(() => wz.tick(true), 800); };
+  $$("button[data-wzask]", el).forEach(b => b.onclick = () => go("/api/links/request", { to: b.dataset.wzask }, b));
+  $$("button[data-wzacc]", el).forEach(b => b.onclick = () => go("/api/links/accept", { link: +b.dataset.wzacc }, b));
+}
+function wzMsg(el, kind, html) { el.innerHTML = html ? `<div class="msg ${kind}">${html}</div>` : ""; }
+const wzSpin = txt => `<span class="spin"></span> ${txt}`;
+
+async function wzBody(k, el, s, c) {
+  const r = s.radio || {};
+  if (k === "radio") {
+    const ports = await api("GET", "/api/ports");
+    const saved = c.radios[0];
+    el.innerHTML = `<label>${t("r.type")}</label>
+      <div class="row wztype"><label class="check"><input type="radio" name="wztype" value="mt" checked> Meshtastic</label>
+        <label class="check muted"><input type="radio" name="wztype" value="mc" disabled> MeshCore — ${t("r.mc_soon")}</label></div>
+      <p class="small">${t("wz.radio.hint")}</p>
+      ${saved && !r.connected ? `<div class="msg warn small">${t("wz.radio.saved_not", { x: esc(saved.address.replace(/^.*\//, "")) })} ${radioErr(r) || (r.error === "port not present" ? t("r.unplugged") : "")}</div>` : ""}
+      ${ports.length ? `<label>${t("r.port")}</label><select id="wzport">${ports.map(p => `<option value="${esc(p.path)}" ${wzUsable(p) ? "" : "disabled"}>${esc(wzPortTxt(p))}</option>`).join("")}</select>
+        <div class="row" style="margin-top:.6rem"><button class="primary" id="wzrgo">${t("wz.radio.connect")}</button></div>`
+        : `<div class="msg warn">${t("r.none_detected")} ${t("wz.radio.plug")}</div>`}
+      <div id="wzrmsg"></div>`;
+    const shown = ports.map(p => p.path).join("|");
+    wz.live = async () => {        // a radio plugged in or out: the list follows by itself
+      if (wz.busy) return;
+      const now = await api("GET", "/api/ports").catch(() => null);
+      if (now && now.map(p => p.path).join("|") !== shown) wz.tick(true);
+    };
+    ports.filter(p => !p.kind).forEach(p => api("GET", "/api/ports?check=" + encodeURIComponent(p.path)).then(x => {
+      const o = [...document.querySelectorAll("#wzport option")].find(o => o.value === p.path);
+      if (!o) return;
+      o.textContent = wzPortTxt(x); o.disabled = !wzUsable(x);
+      if (x.kind === "meshtastic") $("#wzport").value = p.path;
+    }).catch(() => {}));
+    if ($("#wzrgo")) $("#wzrgo").onclick = async () => {
+      const addr = $("#wzport").value, m = $("#wzrmsg");
+      if (!addr) return;
+      $("#wzrgo").disabled = true; wz.busy = true;
+      try {
+        const res = await api("POST", "/api/radio", { radio: { transport: "serial", address: addr } });
+        wzMsg(m, "info", wzSpin(t("r.connecting")));
+        for (let i = 0; i < 45 && res.state === "connecting"; i++) {
+          await new Promise(ok => setTimeout(ok, 2000));
+          if (!$("#wzrmsg")) return;
+          const x = await api("GET", "/api/radio/result").catch(() => ({}));
+          if (x.address !== addr) continue;
+          if (x.state === "connected") { wzMsg(m, "ok", esc(t("r.conn_ok", { x: kindTxt(x.found), n: x.found.nodes ?? "?" }))); break; }
+          if (x.state === "refused") { wzMsg(m, "bad", esc(t("r.found_bad", { x: kindTxt(x.found) }))); $("#wzrgo").disabled = false; wz.busy = false; return; }
+          if (i === 44) { wzMsg(m, "warn", t("r.conn_wait")); $("#wzrgo").disabled = false; }
+        }
+      } catch (e) {
+        wzMsg(m, "bad", e.message === "not_meshtastic" && e.data && e.data.found ? esc(t("r.found_bad", { x: kindTxt(e.data.found) })) : errText(e));
+        $("#wzrgo").disabled = false;
+      }
+      wz.busy = false; setTimeout(() => wz.tick(), 1500);
+    };
+    return;
+  }
+  if (k === "prep") {
+    el.innerHTML = `<p class="small">${t("wz.prep.hint")}</p><div id="wzchecks" class="small"></div>
+      <div class="row" style="margin-top:.6rem"><button class="primary" id="wzprep">${t("r.prepare")}</button></div><div id="wzpmsg"></div>`;
+    wz.live = s2 => {
+      const r2 = s2.radio || {};
+      $("#wzchecks").innerHTML = r2.connected ? Object.entries(r2.checks || {}).map(([k2, v]) => `<div>${v ? "✅" : "❌"} ${t("chk." + k2)}</div>`).join("") : "";
+      if (wz.prepUntil > Date.now()) wzMsg($("#wzpmsg"), "info", wzSpin(r2.connected ? t("wz.prep.working") : t("wz.prep.restart")));
+    };
+    wz.live(s);
+    $("#wzprep").onclick = async () => {
+      $("#wzprep").disabled = true;
+      try { await api("POST", "/api/radio/prepare", {}); wz.prepUntil = Date.now() + 120000; wz.live(await api("GET", "/api/status")); }
+      catch (e) { wzMsg($("#wzpmsg"), "bad", errText(e)); $("#wzprep").disabled = false; }
+    };
+    return;
+  }
+  if (k === "hub") {
+    const h = c.hub, f = (id, key, val, type, extra) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val || "")}" ${extra || ""}>`;
+    el.innerHTML = `<p class="small">${t("wz.hub.hint")}</p>
+      ${f("wzhn", "s.name", h.name)}${f("wzhe", "s.email", h.email, "email")}
+      <div class="grid g2" style="gap:.5rem">${f("wzhc", "s.country", h.country, "text", 'maxlength="3"')}${f("wzhy", "s.city", h.city, "text", 'maxlength="3"')}</div>
+      <div class="hint">${t("wz.hub.code")}</div>
+      <label>${t("s.desc")}</label><textarea id="wzhd">${esc(h.description || "")}</textarea>
+      <div class="row" style="margin-top:.6rem"><button class="primary" id="wzhgo">${t("wz.next")}</button></div><div id="wzhmsg"></div>`;
+    $("#wzhgo").onclick = async () => {
+      const v = { name: $("#wzhn").value.trim(), email: $("#wzhe").value.trim(), country: $("#wzhc").value.trim().toUpperCase(),
+                  city: $("#wzhy").value.trim().toUpperCase(), description: $("#wzhd").value.trim() };
+      const bad = !v.name ? "s.name" : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email) ? "s.email" : !/^[A-Z]{2,3}$/.test(v.country) ? "s.country" : !/^[A-Z]{2,3}$/.test(v.city) ? "s.city" : "";
+      if (bad) return wzMsg($("#wzhmsg"), "bad", t("wz.hub.fix", { x: t(bad) }));
+      try { await api("POST", "/api/hub", { hub: v }); wzMsg($("#wzhmsg"), "ok", t("saved")); wz.tick(true); }
+      catch (e) { wzMsg($("#wzhmsg"), "bad", errText(e)); }
+    };
+    return;
+  }
+  if (k === "server") {
+    const sv = c.server;
+    if (sv.hub_id && (sv.status === "refused" || sv.status === "removed")) {
+      el.innerHTML = `<div class="msg bad">${t("wz.srv.refused")}</div><button id="wzsagain">${t("wz.srv.again")}</button>`;
+      $("#wzsagain").onclick = async () => { await api("POST", "/api/server/forget", { force: true }).catch(() => {}); wz.tick(true); };
+      return;
+    }
+    if (sv.hub_id) {        // registration sent: waiting for approval, then the connection
+      el.innerHTML = `<div class="msg info" id="wzswait"></div><p class="small muted">${t("wz.srv.server")}: <span class="mono">${esc(sv.address)}</span></p>`;
+      wz.live = s2 => { $("#wzswait").innerHTML = sv.status === "pending" || s2.server.status === "pending" ? wzSpin(t("wz.srv.pending"))
+          : wzSpin(t("wz.srv.connecting", { x: t(srvState(s2)) }) + (s2.link_detail ? ` <span class="small">(${esc(s2.link_detail)})</span>` : "")); };
+      wz.live(s);
+      return;
+    }
+    el.innerHTML = `<p class="small">${t("wz.srv.hint")}</p>
+      <label>${t("s.address")}</label><div class="row"><input type="text" id="wzsaddr" value="${esc(sv.address)}" style="flex:1" placeholder="server.example.org:8100">
+      <button class="primary" id="wzscheck">${t("wz.srv.check")}</button></div><div id="wzsmsg"></div>`;
+    const join = async addr => {
+      const m = $("#wzsmsg"); wz.busy = true;
+      wzMsg(m, "info", wzSpin(t("wz.srv.sending")));
+      try { await api("POST", "/api/server/join", { address: addr }); wzMsg(m, "ok", t("wz.srv.sent")); }
+      catch (e) { wzMsg(m, "bad", errText(e)); }
+      wz.busy = false; wz.tick(true);
+    };
+    $("#wzscheck").onclick = async () => {
+      const addr = $("#wzsaddr").value.trim(), m = $("#wzsmsg");
+      if (!addr) return;
+      $("#wzscheck").disabled = true; wz.busy = true;
+      wzMsg(m, "info", wzSpin(t("wz.srv.checking", { x: esc(addr) })));
+      try {
+        const x = await api("POST", "/api/server/check", { address: addr });
+        m.innerHTML = `<div class="msg ok">${t("wz.srv.reached", { x: `<b class="mono">${esc(x.address)}</b>` })}<br>
+          ${t("s.trusted")}: <span class="mono small">${esc(x.fingerprint)}</span><div class="small" style="margin-top:.3rem">${t("wz.srv.fp_hint")}</div></div>
+          <div class="row"><button class="primary" id="wzsjoin">${t("wz.srv.trust_join")}</button></div>`;
+        $("#wzsjoin").onclick = async () => {
+          $("#wzsjoin").disabled = true;
+          try { await api("POST", "/api/server/trust", { address: x.address, fingerprint: x.fingerprint }); await join(x.address); }
+          catch (e) { wzMsg(m, "bad", errText(e)); }
+        };
+      } catch (e) { wzMsg(m, "bad", errText(e)); }
+      $("#wzscheck").disabled = false; wz.busy = false;
+    };
+    return;
+  }
+  if (k === "link") { wzLinks(el, s, t("wz.link.hint")); return; }
+  // done
+  const act = (s.links || []).filter(l => l.state === "active");
+  el.innerHTML = `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || ""), n: r.nodes ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>
+    <p class="small">${t("wz.done.hint")}</p>
+    <div class="row"><button class="primary" id="wzask">${t("wz.done.ask")}</button><a class="btn" href="#/">${t("wz.done.status")}</a></div><div id="wzdmsg">${wz.doneMsg || ""}</div>
+    <h3>${t("wz.link.more_t")}</h3><div id="wzmore"></div>`;
+  wzLinks($("#wzmore"), s, t("wz.link.more"));
+  $("#wzask").onclick = async () => {
+    $("#wzask").disabled = true;
+    try { await api("POST", "/api/radio/announce", { ask: true }); wzMsg($("#wzdmsg"), "ok", t("wz.done.asked")); }
+    catch (e) { wzMsg($("#wzdmsg"), "bad", errText(e)); }
+    wz.doneMsg = $("#wzdmsg") ? $("#wzdmsg").innerHTML : "";       // kept when the box is drawn again
+    $("#wzask").disabled = false;
+  };
+}
+
+Ura.add({
+  "nav.setup": { en: "Setup", sq: "Konfigurimi" },
+  "wz.title": { en: "Set up this hub — step by step", sq: "Konfiguro këtë hub — hap pas hapi" },
+  "wz.intro": { en: "Do the steps in order. Each step shows what is really happening and turns green by itself when it is done; the next one then opens. You do not need to go to any other page.",
+                sq: "Bëni hapat me radhë. Çdo hap tregon çfarë po ndodh vërtet dhe bëhet i gjelbër vetë kur përfundon; pastaj hapet hapi tjetër. Nuk duhet të shkoni në asnjë faqe tjetër." },
+  "wz.radio": { en: "Connect the radio", sq: "Lidh radion" }, "wz.prep": { en: "Prepare the radio for Ura", sq: "Përgatit radion për Ura" },
+  "wz.hub": { en: "Name this hub", sq: "Emërto këtë hub" }, "wz.server": { en: "Register on the server", sq: "Regjistrohu në server" },
+  "wz.link": { en: "Link with another hub", sq: "Lidhu me një hub tjetër" }, "wz.done": { en: "Ready", sq: "Gati" },
+  "wz.now": { en: "do this now", sq: "bëje tani" }, "wz.next": { en: "Save and continue", sq: "Ruaj dhe vazhdo" }, "wz.sending": { en: "sending…", sq: "po dërgohet…" },
+  "wz.nodes_n": { en: "{n} nodes", sq: "{n} nyje" },
+  "wz.skip_hint": { en: "Experienced? You can set everything up on the other pages yourself.", sq: "Me përvojë? Mund t'i konfiguroni të gjitha vetë në faqet e tjera." },
+  "wz.skip": { en: "Skip the wizard (advanced)", sq: "Kapërce udhëzuesin (i avancuar)" },
+  "wz.skip_q": { en: "Skip the step-by-step setup? It stays available in the menu under “Setup”.", sq: "Të kapërcehet konfigurimi hap pas hapi? Mbetet në menu te “Konfigurimi”." },
+  "wz.radio.hint": { en: "Plug the radio into this computer with a USB cable. The hub asks every USB device what it is; choose your radio and press “Connect”.",
+                     sq: "Lidhni radion Meshtastic me këtë kompjuter me kabllo USB. Hub-i pyet çdo pajisje USB se çfarë është; zgjidhni radion dhe shtypni “Lidh”." },
+  "wz.radio.plug": { en: "Plug the radio in — this list updates by itself.", sq: "Lidhni radion — kjo listë përditësohet vetë." },
+  "wz.radio.connect": { en: "Connect", sq: "Lidh" },
+  "wz.radio.saved_not": { en: "The chosen port {x} is not connected:", sq: "Porta e zgjedhur {x} nuk është e lidhur:" },
+  "wz.prep.hint": { en: "Ura needs a few settings on the radio (marked ❌ below). “Prepare” sets them; the radio restarts once. This step continues by itself.",
+                    sq: "Ura ka nevojë për disa cilësime në radio (të shënuara ❌ më poshtë). “Përgatit” i vendos; radio rindizet një herë. Ky hap vazhdon vetë." },
+  "wz.prep.working": { en: "Writing the settings to the radio…", sq: "Po shkruhen cilësimet në radio…" },
+  "wz.prep.restart": { en: "The radio is restarting — waiting for it to come back…", sq: "Radio po rindizet — po pritet të kthehet…" },
+  "wz.hub.hint": { en: "How this hub appears to the others. The e-mail is seen only by the server's administrator. After registering, these are locked.",
+                   sq: "Si duket ky hub për të tjerët. E-mail-i shihet vetëm nga administratori i serverit. Pas regjistrimit, këto kyçen." },
+  "wz.hub.code": { en: "Country and place: 2–3 letters each. Together they are the hub's short code, e.g. AB-CDE.", sq: "Shteti dhe vendi: 2–3 shkronja secili. Së bashku janë kodi i shkurtër i hub-it, p.sh. AB-CDE." },
+  "wz.hub.fix": { en: "Please fill in correctly: {x}", sq: "Ju lutem plotësoni saktë: {x}" },
+  "wz.srv.hint": { en: "Enter the address of the Ura server you were given (name or IP, with port), then press “Check server”.", sq: "Shkruani adresën e serverit Ura që ju është dhënë (emër ose IP, me portë), pastaj shtypni “Kontrollo serverin”." },
+  "wz.srv.check": { en: "Check server", sq: "Kontrollo serverin" },
+  "wz.srv.checking": { en: "Contacting {x}…", sq: "Po kontaktohet {x}…" },
+  "wz.srv.reached": { en: "Server {x} answered.", sq: "Serveri {x} u përgjigj." },
+  "wz.srv.fp_hint": { en: "If the server's administrator gave you this fingerprint, compare it. The hub will talk only to this server.", sq: "Nëse administratori i serverit ju dha këtë gjurmë, krahasojeni. Hub-i do të flasë vetëm me këtë server." },
+  "wz.srv.trust_join": { en: "Trust this server and send the registration", sq: "Besoji këtij serveri dhe dërgo regjistrimin" },
+  "wz.srv.sending": { en: "Sending the registration…", sq: "Po dërgohet regjistrimi…" },
+  "wz.srv.sent": { en: "Registration sent.", sq: "Regjistrimi u dërgua." },
+  "wz.srv.pending": { en: "Registration sent. Waiting for the server's administrator to approve this hub — this step continues by itself.", sq: "Regjistrimi u dërgua. Po pritet që administratori i serverit ta miratojë këtë hub — ky hap vazhdon vetë." },
+  "wz.srv.connecting": { en: "Approved. Connecting to the server: {x}", sq: "U miratua. Po lidhet me serverin: {x}" },
+  "wz.srv.server": { en: "Server", sq: "Serveri" },
+  "wz.srv.refused": { en: "The server refused or removed this hub's registration.", sq: "Serveri e refuzoi ose e hoqi regjistrimin e këtij hub-i." },
+  "wz.srv.again": { en: "Start the registration again", sq: "Fillo përsëri regjistrimin" },
+  "wz.link.hint": { en: "Ask another hub for a link. Its operator accepts on their hub (in this same step). When both agree, the link is active.", sq: "Kërkoni lidhje me një hub tjetër. Operatori i tij e pranon në hub-in e vet (në të njëjtin hap). Kur pajtohen të dy, lidhja është aktive." },
+  "wz.link.none": { en: "No other hub is registered on this server yet. It appears here by itself as soon as one is.", sq: "Ende nuk ka hub tjetër të regjistruar në këtë server. Shfaqet këtu vetë sapo të ketë." },
+  "wz.done.ok": { en: "Everything works: radio “{r}” with {n} nodes, connected to the server, linked with {l}.", sq: "Gjithçka punon: radio “{r}” me {n} nyje, e lidhur me serverin, e lidhur me {l}." },
+  "wz.done.hint": { en: "The nodes of the linked hubs now arrive on this radio and are passed to your LoRa nodes; yours go to them. Nodes announce themselves every few hours — “Ask neighbours to answer” makes the nearby ones answer now, so they cross the link at once.",
+                    sq: "Nyjet e hub-eve të lidhura tani vijnë në këtë radio dhe u kalohen nyjeve tuaja LoRa; tuajat shkojnë tek ata. Nyjet njoftohen çdo disa orë — “Kërkoju fqinjëve të përgjigjen” bën që të afërtit të përgjigjen tani, që të kalojnë menjëherë lidhjen." },
+  "wz.done.ask": { en: "Ask neighbours to answer", sq: "Kërkoju fqinjëve të përgjigjen" },
+  "wz.done.asked": { en: "Sent. Nearby nodes answer within a minute or two.", sq: "U dërgua. Nyjet e afërta përgjigjen brenda një-dy minutave." },
+  "wz.link.more_t": { en: "Link with more hubs", sq: "Lidhu me më shumë hub-e" },
+  "wz.link.more": { en: "You can ask more hubs at any time; each one accepts on its side. Rules per link and ending a link are on the “Links” page.", sq: "Mund të kërkoni më shumë hub-e në çdo kohë; secili pranon nga ana e vet. Rregullat për çdo lidhje dhe mbyllja e një lidhjeje janë te faqja “Lidhjet”." },
+  "wz.done.status": { en: "Go to the status page", sq: "Shko te faqja e gjendjes" },
+});

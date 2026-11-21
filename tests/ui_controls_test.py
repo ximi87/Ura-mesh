@@ -57,6 +57,7 @@ for n, port in HUBS.items():
     c("/api/server/trust", {"address": f"127.0.0.1:{SH}", "fingerprint": fp})
     ids[n] = c("/api/server/join", {"address": f"127.0.0.1:{SH}"})["hub_id"]
     S(f"/api/admin/hub/{ids[n]}/approve", {})
+h["C"]("/api/wizard", {"skip": True})      # C has no link yet: its operator chose to set up without the wizard
 time.sleep(3)
 h["A"]("/api/links/request", {"to": ids["B"]})
 lk = wait(lambda: next(l for l in h["B"]("/api/status")["links"] if l["peer"] == ids["A"]))
@@ -339,6 +340,72 @@ with sync_playwright() as pw:
     if not sp.locator("#sec-prog").evaluate("e => e.open"): sp.locator("#sec-prog > summary").click()
     sp.wait_for_timeout(500)
     check("Server admin: 'Program' with Restart and Stop", sp.locator("#pgrestart").count() == 1 and sp.locator("#pgstop").count() == 1)
+
+    # ── setup wizard: a brand-new hub set up only by clicks, step after step ──
+    PD = 8164; ports.append(PD)
+    subprocess.run(f"pid=$(ss -ltnp 'sport = :{PD}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid; rm -rf {T}/hD", shell=True)
+    subprocess.Popen(f"cd {REPO}/hub && URA_TEST_INJECT=1 URA_TEST_RADIO={REPO}/tests/fake_radio.py URA_TEST_NODE=d400000 "
+                     f"URA_DATA={T}/hD URA_WEB_PORT={PD} setsid nohup {HUBPY} -u ura_hub.py > {T}/hubD.log 2>&1 < /dev/null &", shell=True)
+    hd = client(f"https://127.0.0.1:{PD}"); wait(lambda: hd("/api/session"), 15); hd("/api/setup", {"password": PW})
+    d = br.new_context(ignore_https_errors=True, viewport={"width": 1300, "height": 1000}).new_page()
+    d.on("pageerror", lambda e: errors.append(f"D: {e}")); d.on("dialog", lambda x: x.accept())
+    d.goto(f"https://127.0.0.1:{PD}/#/"); d.wait_for_selector("#pw"); d.fill("#pw", PW); d.click("#lbtn"); d.wait_for_selector("#wz")
+    check("Wizard: a new hub opens the step-by-step setup by itself, step 1 (name) current",
+          "#/setup" in d.url and wait(lambda: d.locator(".wzs.cur[data-k='hub']").count() == 1, 8) and d.locator(".wzs.todo").count() == 5)
+    d.wait_for_selector("#wzhn"); d.fill("#wzhn", "Hub D"); d.fill("#wzhe", "not-an-address"); d.fill("#wzhc", "XT"); d.fill("#wzhy", "DDD"); d.click("#wzhgo")
+    check("Wizard step 1: a wrong e-mail is refused with a clear message", "mail" in d.locator("#wzhmsg").inner_text().lower(), d.locator("#wzhmsg").inner_text())
+    d.fill("#wzhe", "d@example.org"); d.click("#wzhgo")
+    check("Wizard step 1: saved -> green, step 2 (radio) opens",
+          wait(lambda: d.locator(".wzs.ok[data-k='hub']").count() == 1 and d.locator(".wzs.cur[data-k='radio']").count() == 1, 10) and hd("/api/config")["hub"]["city"] == "DDD")
+    check("Wizard step 2: radio type Meshtastic chosen, MeshCore shown as not yet available",
+          d.locator("input[name=wztype][value=mt]").is_checked() and d.locator("input[name=wztype][value=mc]").is_disabled())
+    d.wait_for_selector("#wzport option", state="attached")
+    od = wait(lambda: (lambda o: o if "checking" not in "".join(x[1] for x in o) else None)(d.locator("#wzport option").evaluate_all("os => os.map(o => [o.value, o.textContent, o.disabled])")), 15)
+    check("Wizard step 2: each port says what is on it; MeshCore cannot be chosen",
+          od and any(v == "/dev/fake-meshcore" and dis for v, _, dis in od) and any(v == "/dev/fake" and "Meshtastic" in txt and not dis for v, txt, dis in od), od)
+    d.select_option("#wzport", "/dev/fake"); d.click("#wzrgo")
+    check("Wizard step 2: Connect -> 'Connected: … nodes', step green",
+          wait(lambda: "Connected" in d.locator(".wzs[data-k='radio']").inner_text() or d.locator(".wzs.ok[data-k='radio']").count() == 1, 30)
+          and wait(lambda: d.locator(".wzs.ok[data-k='radio']").count() == 1, 15))
+    hd("/api/radio/section", {"kind": "module", "section": "mqtt", "values": {"enabled": False}})
+    check("Wizard step 3 opens when the radio is not ready yet", wait(lambda: d.locator(".wzs.cur[data-k='prep']").count() == 1, 10))
+    d.wait_for_selector("#wzprep"); d.click("#wzprep")
+    check("Wizard step 3: Prepare -> ready, step green", wait(lambda: d.locator(".wzs.ok[data-k='prep']").count() == 1, 25))
+    d.wait_for_selector("#wzsaddr"); d.fill("#wzsaddr", f"127.0.0.1:{SH}"); d.click("#wzscheck")
+    d.wait_for_selector("#wzsjoin", timeout=15000)
+    check("Wizard step 4: 'Check server' -> the server answered, with its fingerprint", "answered" in d.locator("#wzsmsg").inner_text())
+    d.click("#wzsjoin")
+    check("Wizard step 4: registration sent -> 'waiting for the administrator' shown",
+          wait(lambda: "administrator" in d.locator(".wzs[data-k='server']").inner_text(), 15), d.locator(".wzs[data-k='server']").inner_text())
+    idD = wait(lambda: hd("/api/config")["server"]["hub_id"], 10)
+    S = client(f"https://127.0.0.1:{SW}"); S("/api/login", {"password": PW})     # the browser's admin login replaced the old session
+    ap_ = S(f"/api/admin/hub/{idD}/approve", {}); check("(admin approves hub D)", ap_.get("ok"), (idD, ap_, hd("/api/config")["server"]))
+    check("Wizard step 4: approved by the admin -> connected, step green", wait(lambda: d.locator(".wzs.ok[data-k='server']").count() == 1, 30))
+    btn = f"button[data-wzask='{ids['A']}']"
+    d.wait_for_selector(btn, timeout=15000)
+    check("Wizard step 5: the other hubs are listed with 'Ask for a link'", d.locator(f"button[data-wzask='{ids['B']}']").count() == 1)
+    d.click(btn)
+    check("Wizard step 5: asked A -> 'waiting for … to accept'", wait(lambda: "waiting for" in d.locator(".wzs[data-k='link']").inner_text(), 10))
+    lkD = wait(lambda: next(l for l in h["A"]("/api/status")["links"] if l["peer"] == idD))
+    h["A"]("/api/links/accept", {"link": lkD["id"]})
+    check("Wizard step 6: A accepted -> 'Everything works', all steps green",
+          wait(lambda: d.locator(".wzs.cur[data-k='done']").count() == 1 and "Everything works" in d.locator(".wzs[data-k='done']").inner_text(), 20)
+          and d.locator(".wzs.ok").count() == 5)
+    d.click(f"#wzmore button[data-wzask='{ids['B']}']")
+    check("Wizard 'Ready': link with more hubs -> request to B sent", wait(lambda: any(l["peer"] == idD for l in h["B"]("/api/status")["links"]), 10))
+    d.click("#wzask")
+    check("Wizard: 'Ask neighbours to answer' sent", wait(lambda: "Sent" in d.locator("#wzdmsg").inner_text(), 8))
+    d.goto(f"https://127.0.0.1:{PD}/#/"); d.reload(); d.wait_for_selector("details.secline")
+    check("Wizard: everything done -> the hub opens the status page, no wizard", d.locator("#wz").count() == 0)
+    check("Wizard: done is remembered by the hub", hd("/api/session")["setup_done"] is True)
+    hd("/api/radio/remove", {}); d.goto(f"https://127.0.0.1:{PD}/#/"); d.reload(); d.wait_for_selector("details.secline")
+    check("Wizard: set up once -> a later problem (radio removed) shows on Status, no forced wizard", d.locator("#wz").count() == 0)
+    d.goto(f"https://127.0.0.1:{PD}/#/setup"); d.wait_for_selector("#wz")
+    check("Wizard from the menu: opens at the step that needs doing (radio)", wait(lambda: d.locator(".wzs.cur[data-k='radio']").count() == 1, 10))
+    hd("/api/server/forget", {"force": True}); d.goto(f"https://127.0.0.1:{PD}/#/"); d.reload(); d.wait_for_selector("#wz")
+    check("Wizard: hub left the server (fresh start) -> the wizard opens by itself again", "#/setup" in d.url)
+    d.click("#wzskip"); d.wait_for_selector("details.secline")
+    check("Wizard: 'Skip the wizard (advanced)' -> normal pages, remembered", hd("/api/session")["setup_skipped"] is True and d.locator("#wz").count() == 0)
     br.close()
 
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports), shell=True)

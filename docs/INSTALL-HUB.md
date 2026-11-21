@@ -69,6 +69,29 @@ self-signed: accept it once. Choose the **hub password** (at least 8 characters)
 
 Keep the website to your local network (a firewall rule, or simply no port forwarding).
 
+### Two ways to continue
+
+**The setup wizard (recommended).** After the password, the hub opens **Setup**: one box with six
+steps in order. Each step shows what is really happening (checking, connecting, waiting for approval…)
+and turns green by itself when it is done; then the next one opens. You never need another page.
+
+1. **Name this hub** — name, e-mail, country and place code (2–3 letters each).
+2. **Connect the radio** — radio type (Meshtastic; MeshCore later), then the USB port. The hub asks
+   every USB device what it is and shows its real name; *Connect* shows the radio's name and how
+   many nodes it holds — or what else is on the port.
+3. **Prepare the radio for Ura** — one click; the radio restarts once.
+4. **Register on the server** — address, *Check server* (shows its fingerprint), *Trust and send the
+   registration*, then it waits for the administrator's approval and connects.
+5. **Link with another hub** — every hub on the server with *Ask for a link*; requests from others
+   with *Accept*. Done when one link is active.
+6. **Ready** — summary, *Ask neighbours to answer*, and *Link with more hubs*.
+
+Once everything has been done, the wizard no longer opens by itself (problems show on *Status*); it
+stays in the menu under **Setup**. Leaving the server is a fresh start: the wizard opens again.
+
+**Set it up yourself (advanced).** *Skip the wizard* at the bottom of it, then use the pages below
+(sections 4–9) in any order.
+
 ## 4. Connect the radio — *Radio*
 
 - **Radio type:** Meshtastic. **Connection:** USB (pick the port from the list) or Wi-Fi/IP

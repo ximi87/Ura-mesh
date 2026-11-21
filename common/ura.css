@@ -249,3 +249,20 @@ a.stat.tile.warn .v { color: var(--warn); }
           padding: .6rem .7rem; font-size: .76rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; margin: 0; }
 .logbox .lg-e { color: var(--bad); font-weight: 600; } .logbox .lg-w { color: var(--warn); }
 .logbar { flex-wrap: wrap; gap: .5rem; align-items: center; }
+
+/* setup wizard */
+.wz { list-style: none; padding: 0; margin: .5rem 0 0; counter-reset: none; }
+.wzs { border: 1px solid var(--line); border-radius: 10px; margin: .5rem 0; padding: .6rem .8rem; background: var(--card); }
+.wzh { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.wzn { width: 1.7rem; height: 1.7rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+       font-weight: 700; font-size: .85rem; background: var(--bg); border: 1px solid var(--line); color: var(--muted); flex: none; }
+.wzsum { margin-left: auto; font-size: .85rem; color: var(--muted); }
+.wzs.ok .wzn { background: var(--ok); border-color: var(--ok); color: #fff; }
+.wzs.ok .wzn::after { content: "✓"; } .wzs.ok .wzn { font-size: 0; } .wzs.ok .wzn::after { font-size: .9rem; }
+.wzs.cur { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn-soft); }
+.wzs.cur .wzn { background: var(--warn); border-color: var(--warn); color: #fff; }
+.wzs.todo { opacity: .55; }
+.wzb:empty { display: none; } .wzb { margin-top: .6rem; }
+.spin { display: inline-block; width: .85em; height: .85em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+        animation: spin .8s linear infinite; vertical-align: -.1em; }
+@keyframes spin { to { transform: rotate(360deg); } }

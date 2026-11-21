@@ -139,6 +139,8 @@ DEFAULT_CONFIG = {
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
+    "setup_skipped": False,       # the operator chose to set up without the step-by-step wizard
+    "setup_done": False,          # every wizard step was done once: the wizard no longer opens by itself
     "transit": {"enabled": False, "max_hops": 2},   # pass traffic between my linked hubs (multi-hop)
     "advanced": {k: v[0] for k, v in ADV_SPEC.items()},
     "peer_keys": {},              # peer hub id -> pinned end-to-end public key (base64)
@@ -2115,7 +2117,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.static(p)
             if p == "/api/session":
                 return self.reply({"setup_needed": not cfg.get()["web_password"], "logged_in": self.authed(), "version": VERSION,
-                                   "started": int(STARTED),
+                                   "started": int(STARTED), "setup_skipped": bool(cfg.get().get("setup_skipped")), "setup_done": bool(cfg.get().get("setup_done")),
                                    "password_min": adv("password_min"), "page_refresh_s": adv("page_refresh_s")})
             if not self.authed():
                 return self.reply({"error": "login"}, 401)
@@ -2238,6 +2240,14 @@ class Web(http.server.BaseHTTPRequestHandler):
                 cfg.update(lambda d: d["server"].update(web_port=port))
             link.kick()                       # e.g. node age / follow distance changed: report with the new values
             return self.reply({"ok": True})
+        if p == "/api/wizard":                       # use / skip the setup wizard
+            def upd(d):
+                if "skip" in b:
+                    d["setup_skipped"] = bool(b["skip"])
+                if b.get("done"):
+                    d["setup_done"] = True
+            cfg.update(upd)
+            return self.reply({"ok": True})
         if p == "/api/program":
             act = b.get("action")
             if act not in ("restart", "stop"):
@@ -2339,6 +2349,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             def clear(d):                      # as if this server was never used: no address, no trusted fingerprint,
                 d["server"].update(address="", fingerprint="", hub_id="", key="", status="")   # no registration,
                 d["rules"], d["peer_keys"] = {}, {}                                              # no links, no keys
+                d["setup_done"] = False                                                          # a fresh start: wizard again
             cfg.update(clear)
             loop.call_soon_threadsafe(link.reconnect.set)
             if link.writer:
