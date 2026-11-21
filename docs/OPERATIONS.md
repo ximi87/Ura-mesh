@@ -33,6 +33,16 @@ the computer keeps running. Start it again on the computer: `sudo systemctl star
 `ura-server`), or restart the computer. (The service file has `RestartPreventExitStatus=64` for this;
 older installations: add that line under `RestartSec=` and run `sudo systemctl daemon-reload`.)
 
+## Deleting leaves nothing behind
+
+- **Ending a link:** see below.
+- **Leaving the server** (*Settings → Ura server → Forget*): the server address, its trusted fingerprint,
+  the registration, all links, partner keys and the partners' nodes on the radio are deleted — the hub is
+  as if it had never used that server.
+- **Removing the radio** (*Radio → Remove this radio from the hub*): its port, the saved copy of its channels
+  and which partner its nodes came from are forgotten; connect a radio again as if it were new. Nothing on
+  the radio itself is changed.
+
 ## Ending a link cleans up by itself
 
 When a link ends — either side ends it, the admin removes a hub, or a hub leaves the server — both hubs

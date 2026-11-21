@@ -138,6 +138,13 @@ Ura.add({
   "r.transport": { en: "Connection", sq: "Lidhja" }, "r.serial": { en: "USB (serial)", sq: "USB (serial)" },
   "r.tcp": { en: "Wi-Fi / IP", sq: "Wi-Fi / IP" }, "r.ble": { en: "Bluetooth (not supported yet)", sq: "Bluetooth (ende e pambështetur)" },
   "r.port": { en: "USB port", sq: "Porta USB" }, "r.host": { en: "Address (IP or host[:port])", sq: "Adresa (IP ose host[:portë])" },
+  "r.not_set": { en: "no radio set up", sq: "asnjë radio e vendosur" },
+  "r.remove": { en: "Remove this radio from the hub", sq: "Hiqe këtë radio nga hub-i" },
+  "r.remove.hint": { en: "The hub forgets this radio completely (its port, the saved copy of its channels, which partner its nodes came from). Nothing on the radio itself is changed. Afterwards connect a radio again: choose its port above and Save — as if it were new.",
+                     sq: "Hub-i e harron plotësisht këtë radio (portën, kopjen e ruajtur të kanaleve, nga cili partner erdhën nyjet). Asgjë në vetë radion nuk ndryshohet. Pastaj lidhni përsëri një radio: zgjidhni portën lart dhe Ruaj — sikur të ishte e re." },
+  "r.remove_q": { en: "Remove this radio from the hub? You can connect it (or another one) again afterwards.", sq: "Ta heq këtë radio nga hub-i? Mund ta lidhni (ose një tjetër) përsëri më pas." },
+  "r.removed": { en: "Radio removed from the hub. Plug a radio in, choose its port and press Save.", sq: "Radio u hoq nga hub-i. Lidhni një radio, zgjidhni portën dhe shtypni Ruaj." },
+  "r.none_saved": { en: "No radio is set up in this hub. Plug one in, choose its port and press Save.", sq: "Asnjë radio nuk është vendosur në këtë hub. Lidhni një, zgjidhni portën dhe shtypni Ruaj." },
   "r.unplugged": { en: "no radio plugged in", sq: "asnjë radio e lidhur" },
   "r.saved_missing": { en: "saved, but not plugged in", sq: "e ruajtur, por jo e lidhur" },
   "r.detected": { en: "Detected ports", sq: "Portat e gjetura" }, "r.none_detected": { en: "No USB radio found.", sq: "Nuk u gjet asnjë radio USB." },
@@ -699,7 +706,9 @@ async function pageRadio() {
         ${rc.transport === "serial" && rc.address && !ports.includes(rc.address) ? `<option value="${esc(rc.address)}" selected>${esc(t("r.saved_missing"))}: ${esc(rc.address.replace(/^.*\//, ""))}</option>` : ""}</select>
         <div class="hint">${ports.length ? "" : `<span class="badge bad">${t("r.none_detected")}</span>`}</div></div>
       <div id="rtcp"><label>${t("r.host")}</label><input type="text" id="rhost" value="${rc.transport === "tcp" ? esc(rc.address) : ""}"></div>
-      <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button>`;
+      <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button>
+      ${rc.address ? `<div style="margin-top:1rem;border-top:1px solid var(--line);padding-top:.8rem"><button class="danger" id="rremove">${t("r.remove")}</button>
+        <div class="hint">${t("r.remove.hint")}</div></div>` : `<div class="msg info small" style="margin-top:.6rem">${t("r.none_saved")}</div>`}`;
   const stateBody = r ? `<dl class="kv">
       <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))} <span class="muted small">${r.error === "port not present" ? "" : esc(r.error || "")}</span>`}</dd>
       ${r.connected ? `<dt>${t("name")}</dt><dd>${esc(r.name)} <span class="muted">${esc(r.short)} · ${esc(r.node_id)}</span></dd>
@@ -734,7 +743,7 @@ async function pageRadio() {
       [[t("r.type"), "Meshtastic"], [t("r.transport"), rc.transport === "tcp" ? t("r.tcp") : t("r.serial")],
        [t("r.port"), rc.transport === "tcp" ? `<span class="mono small">${esc(rc.address || "–")}</span>`
          : ports.includes(rc.address) ? `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`
-         : B("bad", t(rc.address ? "r.unplugged" : "r.none_detected"))]], connBody),
+         : rc.address ? B("bad", t("r.unplugged")) : B("", t("r.not_set"))]], connBody),
     secBox("radio", "state", `<b>${t("r.state")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
         ...(r.connected ? [[t("name"), `${esc(r.name)} <span class="muted small">${esc(r.node_id)}</span>`], [t("r.firmware"), esc(r.firmware)],
@@ -779,6 +788,11 @@ async function pageRadio() {
   const tr = $("#rtr"); tr.value = rc.transport || "serial";
   const sw = () => { $("#rser").classList.toggle("hidden", tr.value !== "serial"); $("#rtcp").classList.toggle("hidden", tr.value !== "tcp"); };
   tr.onchange = sw; sw();
+  if ($("#rremove")) $("#rremove").onclick = async () => {
+    if (!confirm(t("r.remove_q"))) return;
+    try { await api("POST", "/api/radio/remove", {}); $("#rmsg").innerHTML = `<div class="msg ok">${t("r.removed")}</div>`; setTimeout(pageRadio, 2500); }
+    catch (e) { $("#rmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
   $("#rsave").onclick = async () => {
     const addr = tr.value === "tcp" ? $("#rhost").value : $("#rport").value;
     try { await api("POST", "/api/radio", { radio: { transport: tr.value, address: addr } }); $("#rmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(pageRadio, 6000); }

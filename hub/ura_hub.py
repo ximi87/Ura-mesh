@@ -2117,9 +2117,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "leave_not_confirmed"}, 400)
             for peer in set(cfg.get()["rules"]) | set(cfg.get()["peer_keys"]) | origins.peers():
                 forget_peer(peer, everything=True)      # no links left: every partner and remote node goes
-            def clear(d):                      # a fresh start: no registration, no links -> no link rules, no partner keys
-                d["server"].update(hub_id="", key="", status="")
-                d["rules"], d["peer_keys"] = {}, {}
+            def clear(d):                      # as if this server was never used: no address, no trusted fingerprint,
+                d["server"].update(address="", fingerprint="", hub_id="", key="", status="")   # no registration,
+                d["rules"], d["peer_keys"] = {}, {}                                              # no links, no keys
             cfg.update(clear)
             loop.call_soon_threadsafe(link.reconnect.set)
             if link.writer:
@@ -2161,6 +2161,16 @@ class Web(http.server.BaseHTTPRequestHandler):
                 cfg.update(lambda d: d.update(radios=[{"id": "r1", "net": "mt", "transport": transport, "address": addr,
                                                        "enabled": bool(rc.get("enabled", True))}]))
             loop.call_soon_threadsafe(apply_radios)
+            return self.reply({"ok": True})
+        if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
+            def clear(d):
+                d["radios"], d["channels_saved"] = [], []
+            cfg.update(clear)
+            with origins.lock:
+                origins.map.clear()
+                origins.save()
+            loop.call_soon_threadsafe(apply_radios)
+            log.info("radio removed from the hub by the operator (settings, saved channels and node origins forgotten)")
             return self.reply({"ok": True})
         if p in ("/api/radio/section", "/api/radio/owner", "/api/radio/channel", "/api/radio/fixed"):
             r = mt_radio()

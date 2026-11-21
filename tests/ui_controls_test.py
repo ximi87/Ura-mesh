@@ -293,6 +293,16 @@ with sync_playwright() as pw:
     a.click("#ndreset"); a.wait_for_selector("#ndout .msg")
     check("Radio: 'Clear the radio's node list' click -> cleared", any(x["call"] == "resetNodeDb" for x in h["A"]("/api/test/radio")["calls"]))
 
+    # ── remove the radio from the hub ──
+    go(a, "A", "radio", "details.secline"); open_sec(a, "conn")
+    if check("Radio: 'Remove this radio from the hub' button", a.locator("#rremove").count() == 1):
+        a.click("#rremove"); a.wait_for_selector("#rmsg .msg")
+        check("Radio: remove click -> no radio set up in the hub", wait(lambda: h["A"]("/api/config")["radios"] == [], 5))
+        go(a, "A", "radio", "details.secline")
+        check("Radio: page says no radio is set up", "no radio set up" in a.locator("#app").inner_text())
+        h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake"}})
+        wait(lambda: (h["A"]("/api/status")["radio"] or {}).get("connected"), 15)
+
     # ── logs + program control ──
     go(a, "A", "logs", "#lgbox"); a.wait_for_timeout(1500)
     check("Logs page: the hub's log lines shown", "ura-hub" in a.locator("#lgbox").inner_text())

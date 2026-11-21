@@ -446,6 +446,8 @@ check("... server removed B and the A-B link", wait(lambda: not any(x["id"] == i
 check("... A sees the link gone", wait(lambda: not link_with("A", "B"), 8))
 check("... B's settings unlocked for a new registration", not h["B"]("/api/config")["server"]["hub_id"])
 check("... B's old link rules and partner keys cleared", not h["B"]("/api/config")["rules"] and not h["B"]("/api/config")["peer_keys"])
+sv = h["B"]("/api/config")["server"]
+check("... nothing about the server left: no address, no trusted fingerprint", not sv.get("address") and not sv.get("fingerprint") and not sv.get("key"), sv)
 check("... A dropped its rules for B", wait(lambda: ids["B"] not in h["A"]("/api/config")["rules"], 8), list(h["A"]("/api/config")["rules"]))
 
 sec("register again from scratch")
@@ -705,6 +707,14 @@ check("forget: bad node id refused", h["A"]("/api/radio/forget_node", {"node": "
 n_sent = len(h["A"]("/api/test/radio")["sent"])
 check("clear the radio's node list -> only the radio itself left", h["A"]("/api/radio/reset_nodes", {}).get("ok") and [x["own"] for x in h["A"]("/api/nodes")] == [True], h["A"]("/api/nodes"))
 check("... and the neighbours are asked to answer", wait(lambda: any(x.get("want_response") for x in h["A"]("/api/test/radio")["sent"][n_sent:]), 10))
+
+sec("remove the radio from the hub, connect it again")
+r = h["A"]("/api/radio/remove", {})
+check("'Remove this radio' -> the hub has no radio set up", r.get("ok") and h["A"]("/api/config")["radios"] == [] and wait(lambda: status("A")["radio"] is None, 8), status("A")["radio"])
+check("... the saved channel copy is forgotten too", not h["A"]("/api/config").get("channels_saved"))
+h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A"}})
+check("connected again like a new radio -> connected, ready, channels saved again", wait(lambda: (status("A")["radio"] or {}).get("connected") and status("A")["radio"]["ready"], 15)
+      and h["A"]("/api/config").get("channels_saved"))
 
 sec("two channels with the same name (a channel without a name = the preset name)")
 dup_key = os.urandom(32)
