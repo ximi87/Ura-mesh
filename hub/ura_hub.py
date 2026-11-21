@@ -522,6 +522,7 @@ class Radio:
         self.conf, self.queue = conf, queue
         self.iface, self.lock = None, threading.RLock()
         self.error, self.connected_at = "", 0
+        self.found = {}                   # what was really found on the port when it is not a Meshtastic radio
         self.stop = False
         self.stats = {}                   # what the radio reports about its own reception
         self.own_fix = None               # the radio's own position at full precision
@@ -604,10 +605,18 @@ class Radio:
         if c.get("transport") == "tcp":
             host, _, port = c["address"].partition(":")
             return meshtastic.tcp_interface.TCPInterface(host, portNumber=int(port or 4403))
-        ports = sorted(glob.glob(c["address"]))
-        if not ports:
+        if not os.path.exists(c["address"]):
             raise RuntimeError("port not present")
-        return meshtastic.serial_interface.SerialInterface(ports[0])
+        try:
+            return meshtastic.serial_interface.SerialInterface(c["address"], timeout=60)
+        except Exception as e:
+            info = identify_port(c["address"])
+            if info["kind"] != "meshtastic":
+                if self.error != "not_meshtastic":
+                    log.warning("radio %s: %s — the hub works only with a Meshtastic radio", c["address"], describe_kind(info))
+                self.found = info
+                raise RuntimeError("not_meshtastic")
+            raise RuntimeError(str(e) or "the radio did not answer")
 
     def _keep_open(self):
         time_set = 0
@@ -624,6 +633,10 @@ class Radio:
                     p = (iface.nodesByNum or {}).get(iface.myInfo.my_node_num, {}).get("position", {})
                     self._set_fix(p)
                     log.info("radio connected: %s (%s)", self.info().get("name"), self.conf.get("address"))
+                    try:
+                        link.kick()               # its nodes and position go to the server (and partners) at once
+                    except NameError:
+                        pass
                     if not cfg.get().get("channels_saved"):
                         self.save_channels()          # first radio: its channels become the hub's saved copy
                 except Exception as e:
@@ -732,6 +745,7 @@ class Radio:
             iface = self.iface
         base = {"id": self.conf.get("id"), "net": "mt", "transport": self.conf.get("transport"),
                 "address": self.conf.get("address"), "connected": iface is not None, "error": self.error,
+                "found": self.found if self.error == "not_meshtastic" else None,
                 "silent_s": int(time.time() - self.last_pkt), "watchdog": [int(t) for t in self.watchdog],
                 "watchdog_events": self.wd_events[-10:]}
         if iface is None:
@@ -1344,6 +1358,138 @@ def forget_peer(peer, everything=False):
         log.info("link to %s ended: its rules, key and %d remote node(s) on the radio were deleted%s", peer, total - left,
                  f" ({left} could not be deleted)" if left else " (checked on the radio)")
     threading.Thread(target=radio_forget, daemon=True).start()
+
+
+# ───────────────────────── what is on a serial port ─────────────────────────
+_ident_cache = {}
+
+
+def usb_label(path):
+    """Maker / model of the USB device behind a port, as the computer reports it (no guessing)."""
+    real = os.path.realpath(path)
+    dev = os.path.basename(real)
+    base = f"/sys/class/tty/{dev}/device"
+    for up in ("..", "../..", "../../.."):
+        d = os.path.normpath(os.path.join(os.path.realpath(base), up))
+        try:
+            m = open(os.path.join(d, "manufacturer")).read().strip() if os.path.exists(os.path.join(d, "manufacturer")) else ""
+            p = open(os.path.join(d, "product")).read().strip() if os.path.exists(os.path.join(d, "product")) else ""
+        except OSError:
+            continue
+        if m or p:
+            return " ".join(x for x in (m, p) if x)
+    return ""
+
+
+def identify_port(path, timeout=6.0):
+    """Ask the device on a serial port what it is, by talking to it:
+    {"kind": "meshtastic"|"meshcore"|"unknown"|"busy"|"missing", "name", "id", "hw"}.
+    Meshtastic answers its own framed handshake (0x94 0xC3 …) with its node number and name; a MeshCore
+    companion answers its "app start" frame (<…) with its name. Anything else is "unknown"."""
+    if os.environ.get("URA_TEST_RADIO") and path.startswith("/dev/fake"):     # tests: simulated ports
+        kind = "meshcore" if "meshcore" in path else "unknown" if "unknown" in path else "meshtastic"
+        return {"kind": kind, "name": {"meshcore": "Sim-MeshCore", "unknown": ""}.get(kind, "Sim-Radio"), "id": "", "hw": ""}
+    if not os.path.exists(path):
+        return {"kind": "missing", "name": "", "id": "", "hw": ""}
+    try:
+        st = os.stat(os.path.realpath(path))
+        key = (path, st.st_rdev, st.st_ctime)
+    except OSError:
+        key = None
+    if key and key in _ident_cache:
+        return _ident_cache[key]
+    import serial, termios
+    out = {"kind": "unknown", "name": "", "id": "", "hw": ""}
+    try:
+        with open(path) as f:                          # like the Meshtastic library: do not reset the board on close
+            a = termios.tcgetattr(f)
+            a[2] &= ~termios.HUPCL
+            termios.tcsetattr(f, termios.TCSAFLUSH, a)
+        s = serial.Serial(path, 115200, timeout=0.3, write_timeout=1, exclusive=True)
+    except Exception as e:
+        busy = "busy" in str(e).lower() or "lock" in str(e).lower() or "Resource temporarily" in str(e)
+        return {"kind": "busy" if busy else "unknown", "name": "", "id": "", "hw": "", "error": str(e)}
+    try:
+        time.sleep(0.3)
+        s.reset_input_buffer()
+        # MeshCore companion: CMD_APP_START → RESP_SELF_INFO (code 5), name at the end
+        pl = bytes([1, 3]) + b"\0" * 6 + b"ura"
+        s.write(b"<" + len(pl).to_bytes(2, "little") + pl)
+        buf, end = b"", time.time() + 1.5
+        while time.time() < end:
+            buf += s.read(256)
+            i = buf.find(b">")
+            if i >= 0 and len(buf) >= i + 3:
+                n = int.from_bytes(buf[i + 1:i + 3], "little")
+                if len(buf) >= i + 3 + n:
+                    p = buf[i + 3:i + 3 + n]
+                    if p and p[0] == 5 and len(p) >= 58:
+                        out = {"kind": "meshcore", "name": p[58:].split(b"\0")[0].decode("utf-8", "replace"),
+                               "id": p[4:10].hex(), "hw": ""}
+                    break
+        if out["kind"] == "unknown":
+            # Meshtastic: ToRadio{want_config_id} → FromRadio my_info, node_info(s), metadata …
+            cid = secrets.randbelow(1 << 31) or 1
+            tr = mesh_pb2.ToRadio(want_config_id=cid).SerializeToString()
+            s.reset_input_buffer()
+            s.write(b"\x94\xc3" + len(tr).to_bytes(2, "big") + tr)
+            buf, me, end = b"", None, time.time() + timeout
+            while time.time() < end:
+                buf += s.read(512)
+                while True:
+                    i = buf.find(b"\x94\xc3")
+                    if i < 0 or len(buf) < i + 4:
+                        buf = buf[i:] if i >= 0 else buf[-1:]
+                        break
+                    n = int.from_bytes(buf[i + 2:i + 4], "big")
+                    if n > 512:
+                        buf = buf[i + 2:]
+                        continue
+                    if len(buf) < i + 4 + n:
+                        buf = buf[i:]
+                        break
+                    fr = mesh_pb2.FromRadio()
+                    try:
+                        fr.ParseFromString(buf[i + 4:i + 4 + n])
+                    except Exception:
+                        fr = None
+                    buf = buf[i + 4 + n:]
+                    if fr is None:
+                        continue
+                    w = fr.WhichOneof("payload_variant")
+                    if w == "my_info":
+                        me = fr.my_info.my_node_num
+                        out.update(kind="meshtastic", id=f"!{me:08x}")
+                    elif w == "node_info" and me is not None and fr.node_info.num == me:
+                        out.update(name=fr.node_info.user.long_name, hw=mesh_pb2.HardwareModel.Name(fr.node_info.user.hw_model))
+                    elif w == "config_complete_id":
+                        end = 0
+                if out["kind"] == "meshtastic" and out["name"]:
+                    break
+    except Exception as e:
+        out["error"] = str(e)
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+    if key and out["kind"] in ("meshtastic", "meshcore"):   # a replugged device gets a new key and is asked again
+        _ident_cache[key] = out
+    return out
+
+
+def describe_kind(info):
+    """One line for messages and the log: what was found on the port."""
+    k, nm = info.get("kind"), info.get("name") or ""
+    if k == "meshtastic":
+        return f"Meshtastic radio “{nm}” {info.get('id', '')}".strip()
+    if k == "meshcore":
+        return f"MeshCore radio “{nm}”"
+    if k == "busy":
+        return "port in use by another program"
+    if k == "missing":
+        return "nothing plugged in"
+    return "not recognised as a radio"
 
 
 def mt_radio():
@@ -1965,7 +2111,21 @@ class Web(http.server.BaseHTTPRequestHandler):
                     return self.reply({"error": "no_radio"}, 400)
                 return self.reply(r.settings())
             if p == "/api/ports":
-                return self.reply(sorted(glob.glob("/dev/serial/by-id/*")) or sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")))
+                paths = sorted(glob.glob("/dev/serial/by-id/*")) or sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+                if os.environ.get("URA_TEST_RADIO"):        # tests: only simulated ports, never a real radio
+                    paths = ["/dev/fake", "/dev/fake-meshcore", "/dev/fake-unknown"]
+                r = mt_radio()
+                live = r.conf.get("address") if r is not None and r.iface is not None else None
+                def one(path):
+                    if path == live:                      # the hub is using it: ask the open connection, not the port
+                        i = r.info()
+                        info = {"kind": "meshtastic", "name": i.get("name") or "", "id": i.get("node_id") or "", "hw": i.get("hw") or "", "in_use": True}
+                    else:
+                        info = identify_port(path)
+                    return dict(info, path=path, dev=os.path.basename(os.path.realpath(path)), usb=usb_label(path))
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                    return self.reply(list(ex.map(one, paths)))
             self.reply({"error": "not_found"}, 404)
         except Exception as e:
             log.exception("GET %s", p)
@@ -2156,13 +2316,29 @@ class Web(http.server.BaseHTTPRequestHandler):
             rc = b.get("radio") or {}
             transport = "tcp" if rc.get("transport") == "tcp" else "serial"
             addr = str(rc.get("address") or "").strip()
+            found = None
+            if addr and transport == "serial":
+                r = mt_radio()
+                if r is not None and r.iface is not None and r.conf.get("address") == addr:
+                    found = {"kind": "meshtastic", "name": r.info().get("name") or "", "id": r.info().get("node_id") or ""}
+                else:
+                    if r is not None and r.conf.get("address") == addr:
+                        r.close()                       # free the port to ask it
+                        radios.pop(r.conf["id"], None)
+                    found = identify_port(addr)
+                if found["kind"] != "meshtastic":
+                    log.warning("radio not saved: %s on %s — the hub works only with a Meshtastic radio", describe_kind(found), addr)
+                    loop.call_soon_threadsafe(apply_radios)
+                    return self.reply({"error": "not_meshtastic", "found": found, "text": describe_kind(found)}, 400)
             if not addr:
                 cfg.update(lambda d: d.update(radios=[]))
             else:
                 cfg.update(lambda d: d.update(radios=[{"id": "r1", "net": "mt", "transport": transport, "address": addr,
                                                        "enabled": bool(rc.get("enabled", True))}]))
             loop.call_soon_threadsafe(apply_radios)
-            return self.reply({"ok": True})
+            if found:
+                log.info("radio saved: %s on %s", describe_kind(found), addr)
+            return self.reply({"ok": True, "found": found})
         if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
             def clear(d):
                 d["radios"], d["channels_saved"] = [], []
@@ -2171,7 +2347,9 @@ class Web(http.server.BaseHTTPRequestHandler):
                 origins.map.clear()
                 origins.save()
             loop.call_soon_threadsafe(apply_radios)
-            log.info("radio removed from the hub by the operator (settings, saved channels and node origins forgotten)")
+            if link.writer is not None:            # its nodes leave the server map too (an empty report deletes them)
+                run_coro(link.send({"t": "nodes", "net": "mt", "nodes": []}))
+            log.info("radio removed from the hub by the operator (settings, saved channels, node origins and its nodes on the server forgotten)")
             return self.reply({"ok": True})
         if p in ("/api/radio/section", "/api/radio/owner", "/api/radio/channel", "/api/radio/fixed"):
             r = mt_radio()

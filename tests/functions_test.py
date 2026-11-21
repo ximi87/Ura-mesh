@@ -572,6 +572,24 @@ check("clock sync off -> radio clock not set on connect", not any(c["call"] == "
 h["A"]("/api/advanced", {"advanced": {"clock_sync": True}})
 h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
 check("clock sync on -> radio clock set on connect", wait(lambda: any(c["call"] == "setTime" for c in h["A"]("/api/test/radio")["calls"]), 15))
+# the hub asks every port what is plugged in, and accepts only a Meshtastic radio
+pl = {x["path"]: x for x in h["A"]("/api/ports")}
+check("ports: each port says what is on it (Meshtastic / MeshCore / not a radio)",
+      (pl["/dev/fake"]["kind"], pl["/dev/fake-meshcore"]["kind"], pl["/dev/fake-unknown"]["kind"]) == ("meshtastic", "meshcore", "unknown"), pl)
+rmc = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-meshcore"}})
+check("save a MeshCore radio -> refused, the answer names it as MeshCore",
+      rmc.get("_status") == 400 and rmc.get("error") == "not_meshtastic" and rmc["found"]["kind"] == "meshcore" and "MeshCore" in rmc.get("text", ""), rmc)
+run_ = h["A"]("/api/config")["radios"]
+check("... the saved radio is unchanged and still connected", run_ and run_[0]["address"] == "/dev/fake-A3" and status("A")["radio"]["connected"], run_)
+run_ = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-unknown"}})
+check("save a device that is not a radio -> refused as not recognised", run_.get("_status") == 400 and run_["found"]["kind"] == "unknown", run_)
+run_ = h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
+check("save the Meshtastic radio -> accepted, the answer names it", run_.get("ok") and run_["found"]["kind"] == "meshtastic", run_)
+check("... its nodes are on the server map", wait(lambda: len(pub("A")["nodes"]) > 0, 15))
+h["A"]("/api/radio/remove", {})
+check("remove radio -> its nodes deleted from the server map too", wait(lambda: len(pub("A")["nodes"]) == 0, 10), len(pub("A")["nodes"]))
+h["A"]("/api/radio", {"radio": {"transport": "serial", "address": "/dev/fake-A3"}})
+check("... connect it again -> nodes back on the map", wait(lambda: len(pub("A")["nodes"]) > 0, 20))
 h["B"]("/api/advanced", {"advanced": {"keepalive_s": 5}})
 ls0 = pub("B")["hub"]["last_seen"]; time.sleep(7)
 check("keepalive 5 s -> server sees the hub alive every 5 s", pub("B")["hub"]["last_seen"] > ls0, (ls0, pub("B")["hub"]["last_seen"]))

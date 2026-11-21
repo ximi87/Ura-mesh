@@ -258,6 +258,14 @@ with sync_playwright() as pw:
     if check("Radio/'Prepare radio for Ura' button shown when not ready", a.locator("#prep").count() == 1):
         a.click("#prep")
         check("Radio/'Prepare' click -> radio ready again", wait(lambda: h["A"]("/api/status")["radio"]["ready"], 10))
+    go(a, "A", "radio", "details.secline"); open_sec(a, "conn"); a.wait_for_selector("#rport option", state="attached")
+    opts = a.locator("#rport option").evaluate_all("os => os.map(o => [o.value, o.textContent, o.disabled])")
+    od = {v: (txt, dis) for v, txt, dis in opts}
+    check("Radio/port list says what is on each port; MeshCore and unknown cannot be chosen",
+          "Meshtastic" in od["/dev/fake"][0] and not od["/dev/fake"][1] and "MeshCore" in od["/dev/fake-meshcore"][0] and od["/dev/fake-meshcore"][1]
+          and "not recognised" in od["/dev/fake-unknown"][0] and od["/dev/fake-unknown"][1], opts)
+    a.select_option("#rport", "/dev/fake"); a.click("#rsave"); a.wait_for_selector("#rmsg .msg")
+    check("Radio/Save -> the answer names the Meshtastic radio it found", "Meshtastic" in a.locator("#rmsg").inner_text(), a.locator("#rmsg").inner_text())
 
     # ── Device settings: channel edit + fixed position by click ──
     go(a, "A", "device", "details.secline"); open_sec(a, "ch1")
