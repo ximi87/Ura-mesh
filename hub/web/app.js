@@ -355,7 +355,7 @@ Ura.add({
   "err.address_required": { en: "Please enter the server address.", sq: "Ju lutem vendosni adresën e serverit." },
 });
 
-const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"]];
+const MENU = [["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"], ["#/logs", "nav.logs"]];
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
@@ -958,11 +958,14 @@ async function pageSettings() {
     secBox("settings", "pw", `<b>${t("s.password")}</b>`, [["", `<span class="muted small">${t("s.pw_short")}</span>`], ["", `<button class="small" id="logout">${t("logout")}</button>`]],
       `<input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
       <button id="pwsave">${t("save")}</button>`),
+    secBox("settings", "program", `<b>${t("pg.title")}</b>`, [[t("pg.version"), esc(SESS.version || "–")], [t("pg.since"), ago(SESS.started)]],
+      `<div id="pgctl"></div>`),
     secBox("settings", "adv", `<b>${t("adv.title")}</b>`, [["", advChanged ? B("warn", t("adv.changed_n", { n: advChanged })) : `<span class="muted small">${t("adv.all_default")}</span>`]],
       `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
       <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`)];
   app().innerHTML = secCard(t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
+  programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
   const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
     groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
              ["adv.g.nodes", ["node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
@@ -1040,6 +1043,11 @@ async function pageLogin(setup) {
   $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
 }
 
+function pageLogs() {
+  app().innerHTML = `<div class="card"><h2>${t("lg.title")} — ura-hub</h2><p class="muted small">${t("lg.hint")}</p><div id="logs"></div></div>`;
+  logViewer($("#logs"), "/api/logs");
+}
+
 async function route() {
   clearInterval(timer);
   if (mapObj) { mapObj.remove(); mapObj = null; }
@@ -1055,6 +1063,7 @@ async function route() {
     if (page === "radio") return await pageRadio();
     if (page === "device") return await pageDevice();
     if (page === "settings") return await pageSettings();
+    if (page === "logs") return pageLogs();
     await pageStatus();
     timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, (SESS.page_refresh_s || 30) * 1000);
   } catch (e) {

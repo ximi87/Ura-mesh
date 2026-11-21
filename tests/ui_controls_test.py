@@ -282,6 +282,25 @@ with sync_playwright() as pw:
     url = "https://meshtastic.org/e/#" + base64.urlsafe_b64encode(ln_(1, ln_(2, b"c" * 32) + ln_(3, b"Club"))).decode().rstrip("=")
     open_sec(a, "chimport"); a.fill("#chlink", url); a.click("#chimp"); a.wait_for_selector("#chimpmsg .msg")
     check("Device: 'Add channels from a link' click -> channel added", any(c["name"] == "Club" for c in h["A"]("/api/status")["radio"]["channels"]), a.locator("#chimpmsg").inner_text())
+    # ── logs + program control ──
+    go(a, "A", "logs", "#lgbox"); a.wait_for_timeout(1500)
+    check("Logs page: the hub's log lines shown", "ura-hub" in a.locator("#lgbox").inner_text())
+    check("Logs page: download link for the log file", a.locator("a[data-logfile='ura-hub.log']").count() == 1)
+    a.select_option("#lglevel", "error"); a.wait_for_timeout(1200)
+    txt = a.locator("#lgbox").inner_text()
+    check("Logs page: 'errors only' filter", all(" ERROR " in l or " CRITICAL " in l for l in txt.splitlines() if l.strip() and l.strip() != "No lines."), txt[:200])
+    go(a, "A", "settings", "details.secline"); open_sec(a, "program")
+    st0 = h["A"]("/api/session")["started"]
+    if check("Settings: 'Program' with Restart and Stop", a.locator("#pgrestart").count() == 1 and a.locator("#pgstop").count() == 1):
+        a.click("#pgrestart")
+        check("Settings: 'Restart program' click -> hub restarts and the page comes back", wait(lambda: client(f"https://127.0.0.1:{HUBS['A'][0]}")("/api/session").get("started", st0) > st0, 30))
+        a.wait_for_selector("details.secline", timeout=40000)
+    sp = br.new_context(ignore_https_errors=True, viewport={"width": 1300, "height": 1000}).new_page()
+    sp.on("pageerror", lambda e: errors.append(f"server: {e}"))
+    sp.goto(f"https://127.0.0.1:{SW}/#/admin"); sp.wait_for_selector("#pw"); sp.fill("#pw", PW); sp.click("#lbtn"); sp.wait_for_selector("#sec-logs")
+    sp.locator("#sec-logs > summary").click(); sp.wait_for_selector("#lgbox"); sp.wait_for_timeout(1500)
+    check("Server admin: log shown", "ura-server" in sp.locator("#lgbox").inner_text())
+    check("Server admin: 'Program' with Restart and Stop", sp.locator("#pgrestart").count() == 1 and sp.locator("#pgstop").count() == 1)
     br.close()
 
 subprocess.run(" ".join(f"pid=$(ss -ltnp 'sport = :{p}' | grep -oP 'pid=\\K[0-9]+' | head -1); [ -n \"$pid\" ] && kill $pid;" for p in ports), shell=True)

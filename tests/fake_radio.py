@@ -117,6 +117,7 @@ class FakeInterface:
         num = getattr(env.packet, "from")
         n = self.nodesByNum.setdefault(num, {"num": num, "user": {"id": f"!{num:08x}", "longName": f"Remote {num:08x}"}})
         n.update(viaMqtt=True, lastHeard=int(time.time()))
+        self.nodes[f"!{num:08x}"] = n                 # like meshtastic: the same node also in the by-id list
 
     def sendData(self, data, destinationId="^all", portNum=0, wantResponse=False, wantAck=False, **kw):
         pid = random.randint(1, 2**31)

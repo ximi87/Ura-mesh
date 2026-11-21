@@ -243,3 +243,9 @@ a.stat.tile.warn .v { color: var(--warn); }
 .lr-cells { display: flex; flex-wrap: wrap; gap: .3rem 1.6rem; align-items: center; }
 .lr-cell { min-width: 6rem; }
 @media (max-width: 900px) { .linkrow.lsec { grid-template-columns: 1.1rem 1fr; } .linkrow.lsec .lr-cells { grid-column: 2; } .lr-cells { gap: .2rem 1rem; } }
+
+/* log viewer */
+.logbox { max-height: 62vh; min-height: 12rem; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+          padding: .6rem .7rem; font-size: .76rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.logbox .lg-e { color: var(--bad); font-weight: 600; } .logbox .lg-w { color: var(--warn); }
+.logbar { flex-wrap: wrap; gap: .5rem; align-items: center; }

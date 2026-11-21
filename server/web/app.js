@@ -704,9 +704,14 @@ async function pageAdmin() {
       ${cert ? `<p class="small">${t("le.cert", { i: esc(cert.issuer), d: cert.days_left })}</p>` : ""}
       <button id="lerun">${t("le.run")}</button> <span class="muted small" id="lemsg"></span>`, certWarn)}
     ${sec("sec-pw", t("a.change_pw"), `<div style="max-width:420px"><input type="password" id="npw"><div class="hint">${t("password.min", { n: INFO.password_min })}</div><div id="pmsg"></div><button id="pbtn">${t("save")}</button></div>`, false)}
-    ${sec("sec-adv", t("adv.title"), `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`, false)}</div>`;
+    ${sec("sec-adv", t("adv.title"), `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div><div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`, false)}
+    ${sec("sec-prog", t("pg.title"), `<div id="pgctl"></div>`, false)}
+    ${sec("sec-logs", t("lg.title") + " — ura-server", `<p class="muted small">${t("lg.hint")}</p><div id="alogs"></div>`, false)}</div>`;
   $$("details.acard").forEach(d => d.addEventListener("toggle", () => { adminOpen.delete(d.open ? "!" + d.id : d.id); adminOpen.add(d.open ? d.id : "!" + d.id); }));
   $$("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); const d = $("#" + a.dataset.go); d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); });
+  programControl($("#pgctl"), "/api/admin/program", s.started, s.version, "ura-server");
+  const lgd = $("#sec-logs"), startLogs = () => { if (lgd.open && !lgd.dataset.on) { lgd.dataset.on = 1; logViewer($("#alogs"), "/api/admin/logs"); } };
+  lgd.addEventListener("toggle", startLogs); startLogs();
   adminHubList($("#hpending"), pending, nLinks, true);
   adminHubList($("#happroved"), approved, nLinks, false);
   $("#lerun").onclick = async () => { await api("POST", "/api/admin/acme/run", {}); $("#lemsg").textContent = t("le.started"); setTimeout(pageAdmin, 20000); };

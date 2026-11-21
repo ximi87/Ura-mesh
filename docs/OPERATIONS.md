@@ -17,6 +17,30 @@ direction off, public group, group not allowed, private message, position, airti
 end-to-end key / key changed, box could not be opened, went round in a circle, from a hub further
 away, transit not allowed, radio not connected.
 
+## Logs
+
+Every hub has a **Logs** page, the server has a **Log** section in *Admin*. They show the program's own
+log, newest at the bottom: filter *everything / warnings and errors / errors only*, search text, update
+every 5 seconds. Each file (the last ~5 MB, in the data folder under `logs/`) can be downloaded as a text
+file to send to someone. The hub writes one line per packet: sent to which hubs (or why not), put on air
+(or why not), with channel, kind and sender.
+
+## Restarting or stopping the program
+
+*Hub → Settings → Program* and *Server → Admin → Program*: **Restart program** loads the program again
+(links pause for a few seconds, the page reloads by itself); **Stop program** ends it and it stays off —
+the computer keeps running. Start it again on the computer: `sudo systemctl start ura-hub` (or
+`ura-server`), or restart the computer. (The service file has `RestartPreventExitStatus=64` for this;
+older installations: add that line under `RestartSec=` and run `sudo systemctl daemon-reload`.)
+
+## Ending a link cleans up by itself
+
+When a link ends — either side ends it, the admin removes a hub, or a hub leaves the server — both hubs
+delete everything about it, as if it never existed: the per-link rules, the partner's pinned end-to-end
+key, the counters, and **the partner's nodes on the radio** (their names and keys; a node that was reset
+meanwhile is learned fresh after the next link). The server deletes the link and its statistics. A new
+link starts from the defaults and a new key check (compare the safety code again).
+
 ## Troubleshooting
 
 **Remote nodes do not appear on phones near my hub**

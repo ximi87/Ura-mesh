@@ -283,3 +283,79 @@ function dataTable(el, rows, columns, opts) {
 }
 Ura.add({ "dt.search": { en: "Search name or ID…", sq: "Kërko emër ose ID…" },
           "dt.count": { en: "{n} of {m}", sq: "{n} nga {m}" }, "dt.page": { en: "page {p} of {n}", sq: "faqja {p} nga {n}" } });
+
+
+/* Log viewer (hub: /api/logs, server: /api/admin/logs): newest lines, filter, search, auto-refresh, download. */
+let logTimer = null;
+function logViewer(el, base) {
+  clearInterval(logTimer);
+  el.innerHTML = `<div class="row logbar">
+      <label class="small">${t("lg.lines")} <select id="lglines"><option>200</option><option selected>500</option><option>2000</option><option>10000</option></select></label>
+      <select id="lglevel" style="max-width:200px"><option value="">${t("lg.all")}</option><option value="warning">${t("lg.warn")}</option><option value="error">${t("lg.err")}</option></select>
+      <input type="text" id="lgq" placeholder="${t("lg.search")}" style="max-width:240px">
+      <label class="check small"><input type="checkbox" id="lgauto" checked> ${t("lg.auto")}</label>
+      <button class="small" id="lgnow">${t("lg.refresh")}</button></div>
+    <div id="lgfiles" class="small" style="margin:.4rem 0"></div>
+    <pre class="logbox" id="lgbox"></pre>`;
+  const load = async () => {
+    if (!document.body.contains(el)) { clearInterval(logTimer); return; }
+    const q = new URLSearchParams({ lines: $("#lglines").value, level: $("#lglevel").value, q: $("#lgq").value });
+    const d = await api("GET", base + "?" + q);
+    const box = $("#lgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+    box.innerHTML = d.lines.map(l => `<span class="${/ (ERROR|CRITICAL) /.test(l) ? "lg-e" : / WARNING /.test(l) ? "lg-w" : ""}">${esc(l)}</span>`).join("\n")
+      || `<span class="muted">${t("lg.none")}</span>`;
+    if (atEnd || !box.dataset.seen) { box.scrollTop = box.scrollHeight; box.dataset.seen = 1; }
+    $("#lgfiles").innerHTML = `<span class="muted">${t("lg.download")}:</span> ` + d.files.map(f =>
+      `<a href="${base}/file?name=${encodeURIComponent(f.name)}" download data-logfile="${esc(f.name)}">${esc(f.name)}</a> <span class="muted">(${Math.max(1, Math.round(f.size / 1024))} KB)</span>`).join(" · ");
+  };
+  ["lglines", "lglevel"].forEach(id => $("#" + id).onchange = load);
+  $("#lgq").oninput = () => { clearTimeout(el._qt); el._qt = setTimeout(load, 400); };
+  $("#lgnow").onclick = load;
+  load().catch(e => { $("#lgbox").textContent = e.message; });
+  logTimer = setInterval(() => { if ($("#lgauto") && $("#lgauto").checked && !document.hidden) load().catch(() => {}); }, 5000);
+}
+
+/* Restart / stop of the program itself (not the computer). path: /api/program or /api/admin/program. */
+function programControl(el, path, started, version, name) {
+  el.innerHTML = `<dl class="kv"><dt>${t("pg.version")}</dt><dd>${esc(version || "–")}</dd><dt>${t("pg.since")}</dt><dd>${started ? new Date(started * 1000).toLocaleString() : "–"} (${ago(started)})</dd></dl>
+    <p class="muted small">${t("pg.hint", { x: esc(name) })}</p>
+    <div class="row"><button class="primary" id="pgrestart">${t("pg.restart")}</button><button class="danger" id="pgstop">${t("pg.stop")}</button></div>
+    <div id="pgmsg"></div>`;
+  const wait = async () => {           // poll until the program answers again, then reload the page
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try { await fetch("/api/session", { cache: "no-store" }).then(r => { if (!r.ok && r.status !== 401) throw 0; }); location.reload(); return; } catch (e) {}
+    }
+    $("#pgmsg").innerHTML = `<div class="msg bad">${t("pg.noreturn")}</div>`;
+  };
+  $("#pgrestart").onclick = async () => {
+    if (!confirm(t("pg.restart_q", { x: name }))) return;
+    await api("POST", path, { action: "restart" });
+    $("#pgmsg").innerHTML = `<div class="msg info">${t("pg.restarting")}</div>`; wait();
+  };
+  $("#pgstop").onclick = async () => {
+    if (!confirm(t("pg.stop_q", { x: name }))) return;
+    await api("POST", path, { action: "stop" });
+    $("#pgmsg").innerHTML = `<div class="msg warn">${t("pg.stopped", { x: name })}</div>`;
+  };
+}
+
+Ura.add({
+  "nav.logs": { en: "Logs", sq: "Regjistrat" },
+  "lg.title": { en: "Log", sq: "Regjistri" }, "lg.lines": { en: "Lines", sq: "Rreshta" },
+  "lg.all": { en: "Everything", sq: "Gjithçka" }, "lg.warn": { en: "Warnings and errors", sq: "Paralajmërime dhe gabime" }, "lg.err": { en: "Errors only", sq: "Vetëm gabime" },
+  "lg.search": { en: "Search text…", sq: "Kërko tekst…" }, "lg.auto": { en: "update every 5 s", sq: "përditëso çdo 5 s" },
+  "lg.refresh": { en: "Refresh", sq: "Rifresko" }, "lg.download": { en: "Download", sq: "Shkarko" }, "lg.none": { en: "No lines.", sq: "Asnjë rresht." },
+  "lg.hint": { en: "The program's own log: newest at the bottom. The files keep the last ~5 MB; download one to send it to someone.",
+               sq: "Regjistri i vetë programit: më të rejat poshtë. Skedarët mbajnë ~5 MB e fundit; shkarkoni një për ta dërguar." },
+  "pg.title": { en: "Program", sq: "Programi" }, "pg.version": { en: "Version", sq: "Versioni" }, "pg.since": { en: "Running since", sq: "Punon që nga" },
+  "pg.hint": { en: "Restart or stop the {x} program only — the computer keeps running. After “Stop”, the program (and this page) stay off until it is started again on the computer (sudo systemctl start {x}) or the computer restarts.",
+               sq: "Rindiz ose ndalo vetëm programin {x} — kompjuteri vazhdon të punojë. Pas “Ndalo”, programi (dhe kjo faqe) mbeten jashtë deri sa të nisen përsëri në kompjuter (sudo systemctl start {x}) ose kompjuteri të rindizet." },
+  "pg.restart": { en: "Restart program", sq: "Rindiz programin" }, "pg.stop": { en: "Stop program", sq: "Ndalo programin" },
+  "pg.restart_q": { en: "Restart {x} now? Links pause for a few seconds.", sq: "Të rindizet {x} tani? Lidhjet ndalen për disa sekonda." },
+  "pg.stop_q": { en: "Stop {x}? Nothing passes until it is started again on the computer. This page will stop working too.",
+                 sq: "Të ndalet {x}? Asgjë nuk kalon deri sa të niset përsëri në kompjuter. Edhe kjo faqe do të ndalojë." },
+  "pg.restarting": { en: "Restarting… this page reloads by itself.", sq: "Po rindizet… kjo faqe ringarkohet vetë." },
+  "pg.stopped": { en: "{x} is stopped. Start it on the computer: sudo systemctl start {x}", sq: "{x} u ndal. Niseni në kompjuter: sudo systemctl start {x}" },
+  "pg.noreturn": { en: "The program did not come back within 2 minutes — look on the computer (journalctl -u …).", sq: "Programi nuk u kthye brenda 2 minutave — shikoni në kompjuter (journalctl -u …)." },
+});

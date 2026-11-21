@@ -62,6 +62,66 @@ ADV_SPEC = {
 
 log = logging.getLogger("ura-hub")
 
+# ───────────────────────── logs + program control ─────────────────────────
+import logging.handlers, sys
+STARTED = time.time()
+LOG_NAME = "ura-hub"
+
+
+def log_setup(data_dir):
+    """Besides the console (journal), keep the log in files in the data folder: 5 × 1 MB, newest first."""
+    d = os.path.join(data_dir, "logs")
+    os.makedirs(d, exist_ok=True)
+    h = logging.handlers.RotatingFileHandler(os.path.join(d, LOG_NAME + ".log"), maxBytes=1_000_000, backupCount=4, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(h)
+
+
+def log_files(data_dir):
+    d = os.path.join(data_dir, "logs")
+    names = [LOG_NAME + ".log"] + [f"{LOG_NAME}.log.{i}" for i in range(1, 5)]
+    return [{"name": n, "size": os.path.getsize(os.path.join(d, n)), "mtime": int(os.path.getmtime(os.path.join(d, n)))}
+            for n in names if os.path.exists(os.path.join(d, n))]
+
+
+def log_tail(data_dir, lines=500, level="", q=""):
+    """The newest `lines` log lines (across the rotated files), optionally only warnings/errors or matching text."""
+    d = os.path.join(data_dir, "logs")
+    want = {"warning": (" WARNING ", " ERROR ", " CRITICAL "), "error": (" ERROR ", " CRITICAL ")}.get(level)
+    q = (q or "").lower()
+    out = []
+    for f in log_files(data_dir):
+        try:
+            with open(os.path.join(d, f["name"]), encoding="utf-8", errors="replace") as fh:
+                chunk = fh.read().splitlines()
+        except OSError:
+            continue
+        sel = [l for l in chunk if (not want or any(w in l for w in want)) and (not q or q in l.lower())]
+        out = sel + out
+        if len(out) >= lines:
+            break
+    return out[-lines:]
+
+
+def program_action(action, before=None):
+    """restart: the program starts itself again (same process, new code); stop: it ends and stays stopped
+    (exit status 64 — the systemd unit has RestartPreventExitStatus=64). The computer is not touched."""
+    def go():
+        time.sleep(1)
+        try:
+            if before:
+                before()
+        except Exception:
+            pass
+        logging.getLogger().info("program %s by the operator", "restarting" if action == "restart" else "stopped")
+        for h in logging.getLogger().handlers:
+            h.flush()
+        if action == "restart":
+            os.execv(sys.executable, sys.orig_argv)
+        os._exit(64)
+    threading.Thread(target=go, daemon=True).start()
+
+
 REACH_ANY = 7                 # "anywhere": the longest chain a packet can make (8 links)
 RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True,
                 # multi-hop, decided by each hub for itself:
@@ -246,6 +306,19 @@ class Origins:
                 self.dirty += 1
             if self.dirty and (self.dirty > 20 or time.time() - self.saved > 60 or not os.path.exists(self.path)):
                 self.save()
+
+    def peers(self):
+        with self.lock:
+            return set(self.map.values())
+
+    def drop_peer(self, peer):
+        """Forget every node that came from this hub; returns their ids."""
+        with self.lock:
+            gone = [n for n, p in self.map.items() if p == peer]
+            for n in gone:
+                del self.map[n]
+            self.save()
+        return gone
 
     def save(self):
         tmp = self.path + ".tmp"
@@ -1209,6 +1282,35 @@ radios = {}       # radio id -> Radio
 radio_queue: asyncio.Queue = None
 
 
+def forget_peer(peer, everything=False):
+    """A link ended (or the hub left the server): delete everything about that partner, as if the link never
+    existed — its rules, its pinned end-to-end key, its counters, and its nodes on our radio (their names and
+    keys; a node that was reset meanwhile is then learned fresh). `everything`: no link is left, so all remote
+    nodes go, also those whose origin is unknown."""
+    cfg.update(lambda d: (d["rules"].pop(peer, None), d["peer_keys"].pop(peer, None)))
+    with counters.lock:
+        counters.peer.pop(peer, None)
+    nodes = origins.drop_peer(peer)
+    r = mt_radio()
+    def radio_forget():
+        ids = set(nodes)
+        if r is not None and r.iface is not None and everything:
+            ids |= {n.get("user", {}).get("id") or f"!{num:08x}" for num, n in list((r.iface.nodesByNum or {}).items())
+                    if n.get("viaMqtt") and num != r.iface.myInfo.my_node_num}
+        known = set((r.iface.nodes or {}).keys()) if r is not None and r.iface is not None else set()
+        done = 0
+        for nid in ids:
+            if nid in known:
+                try:
+                    r.iface.localNode.removeNode(nid)
+                    done += 1
+                    time.sleep(0.3)
+                except Exception as e:
+                    log.warning("could not remove node %s from the radio: %s", nid, e)
+        log.info("link to %s ended: its rules, key and %d remote node(s) on the radio were deleted", peer, done)
+    threading.Thread(target=radio_forget, daemon=True).start()
+
+
 def mt_radio():
     for r in radios.values():
         return r
@@ -1337,6 +1439,11 @@ class Link:
         so a new link with that hub starts from the defaults."""
         self.links = links
         now_peers = {l["peer"] for l in links}
+        c = cfg.get()
+        # direct partners whose link is gone (a hub further away, known only as a node's origin, is not one)
+        ended = (set(c["rules"]) | set(c["peer_keys"])) - now_peers - {c["server"]["hub_id"]}
+        for peer in ended:
+            forget_peer(peer, everything=not now_peers)
         def upd(d):
             for peer in now_peers:
                 if peer not in d["rules"]:
@@ -1778,11 +1885,31 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.static(p)
             if p == "/api/session":
                 return self.reply({"setup_needed": not cfg.get()["web_password"], "logged_in": self.authed(), "version": VERSION,
+                                   "started": int(STARTED),
                                    "password_min": adv("password_min"), "page_refresh_s": adv("page_refresh_s")})
             if not self.authed():
                 return self.reply({"error": "login"}, 401)
             if p == "/api/status":
                 return self.reply(status_payload())
+            if p == "/api/logs":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                n = max(10, min(20000, int((q.get("lines") or ["500"])[0] or 500)))
+                return self.reply({"files": log_files(DATA_DIR), "started": int(STARTED), "version": VERSION,
+                                   "lines": log_tail(DATA_DIR, n, (q.get("level") or [""])[0], (q.get("q") or [""])[0])})
+            if p == "/api/logs/file":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                name = (q.get("name") or [""])[0]
+                if name not in [f["name"] for f in log_files(DATA_DIR)]:
+                    return self.reply({"error": "not_found"}, 404)
+                data = open(os.path.join(DATA_DIR, "logs", name), "rb").read()
+                self.send_response(200)
+                for k, v in SEC_HEADERS.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{name}.txt"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if p == "/api/test/radio" and os.environ.get("URA_TEST_INJECT") == "1":
                 r = mt_radio()
                 return self.reply(r.iface.record if r and r.iface is not None and hasattr(r.iface, "record") else {})
@@ -1857,6 +1984,15 @@ class Web(http.server.BaseHTTPRequestHandler):
                 cfg.update(lambda d: d["server"].update(web_port=port))
             link.kick()                       # e.g. node age / follow distance changed: report with the new values
             return self.reply({"ok": True})
+        if p == "/api/program":
+            act = b.get("action")
+            if act not in ("restart", "stop"):
+                return self.reply({"error": "bad_action"}, 400)
+            def release():
+                for r in list(radios.values()):
+                    r.close()
+            program_action(act, release)
+            return self.reply({"ok": True, "action": act})
         if p == "/api/password":
             if len(b.get("password") or "") < adv("password_min"):
                 return self.reply({"error": "password_short"}, 400)
@@ -1944,6 +2080,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 log.warning("could not tell the server that this hub leaves: %s", e)
             if not told and not b.get("force"):
                 return self.reply({"error": "leave_not_confirmed"}, 400)
+            for peer in set(cfg.get()["rules"]) | set(cfg.get()["peer_keys"]) | origins.peers():
+                forget_peer(peer, everything=True)      # no links left: every partner and remote node goes
             def clear(d):                      # a fresh start: no registration, no links -> no link rules, no partner keys
                 d["server"].update(hub_id="", key="", status="")
                 d["rules"], d["peer_keys"] = {}, {}
@@ -2185,6 +2323,7 @@ def run_web():
 async def main():
     global cfg, loop, link, radio_queue
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log_setup(DATA_DIR)
     os.makedirs(DATA_DIR, exist_ok=True)
     os.chmod(DATA_DIR, 0o700)
     import meshcrypto

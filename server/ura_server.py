@@ -54,6 +54,66 @@ ADV_SPEC = {
 
 log = logging.getLogger("ura-server")
 
+# ───────────────────────── logs + program control ─────────────────────────
+import logging.handlers, sys
+STARTED = time.time()
+LOG_NAME = "ura-server"
+
+
+def log_setup(data_dir):
+    """Besides the console (journal), keep the log in files in the data folder: 5 × 1 MB, newest first."""
+    d = os.path.join(data_dir, "logs")
+    os.makedirs(d, exist_ok=True)
+    h = logging.handlers.RotatingFileHandler(os.path.join(d, LOG_NAME + ".log"), maxBytes=1_000_000, backupCount=4, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(h)
+
+
+def log_files(data_dir):
+    d = os.path.join(data_dir, "logs")
+    names = [LOG_NAME + ".log"] + [f"{LOG_NAME}.log.{i}" for i in range(1, 5)]
+    return [{"name": n, "size": os.path.getsize(os.path.join(d, n)), "mtime": int(os.path.getmtime(os.path.join(d, n)))}
+            for n in names if os.path.exists(os.path.join(d, n))]
+
+
+def log_tail(data_dir, lines=500, level="", q=""):
+    """The newest `lines` log lines (across the rotated files), optionally only warnings/errors or matching text."""
+    d = os.path.join(data_dir, "logs")
+    want = {"warning": (" WARNING ", " ERROR ", " CRITICAL "), "error": (" ERROR ", " CRITICAL ")}.get(level)
+    q = (q or "").lower()
+    out = []
+    for f in log_files(data_dir):
+        try:
+            with open(os.path.join(d, f["name"]), encoding="utf-8", errors="replace") as fh:
+                chunk = fh.read().splitlines()
+        except OSError:
+            continue
+        sel = [l for l in chunk if (not want or any(w in l for w in want)) and (not q or q in l.lower())]
+        out = sel + out
+        if len(out) >= lines:
+            break
+    return out[-lines:]
+
+
+def program_action(action, before=None):
+    """restart: the program starts itself again (same process, new code); stop: it ends and stays stopped
+    (exit status 64 — the systemd unit has RestartPreventExitStatus=64). The computer is not touched."""
+    def go():
+        time.sleep(1)
+        try:
+            if before:
+                before()
+        except Exception:
+            pass
+        logging.getLogger().info("program %s by the operator", "restarting" if action == "restart" else "stopped")
+        for h in logging.getLogger().handlers:
+            h.flush()
+        if action == "restart":
+            os.execv(sys.executable, sys.orig_argv)
+        os._exit(64)
+    threading.Thread(target=go, daemon=True).start()
+
+
 
 # ───────────────────────── database ─────────────────────────
 
@@ -483,6 +543,7 @@ async def hub_leave(hub):
     db.x("DELETE FROM nodes WHERE hub=?", (hub,))
     for r in db.q("SELECT id FROM links WHERE state!='removed' AND (a=? OR b=?)", (hub, hub)):
         await link_remove(hub, r["id"])
+    db.x("DELETE FROM stats WHERE src=? OR dst=?", (hub, hub))
     log.info("hub %s left the network (registration forgotten by its operator)", hub)
     await push_directory()
 
@@ -517,8 +578,9 @@ async def link_remove(hub, link_id):
     r = db.one("SELECT * FROM links WHERE id=?", (link_id,))
     if not r or (hub is not None and hub not in (r["a"], r["b"])):
         return
-    db.x("UPDATE links SET state='removed' WHERE id=?", (link_id,))
-    log.info("link %d removed by %s", link_id, hub or "admin")
+    db.x("DELETE FROM links WHERE id=?", (link_id,))   # as if it never existed: the link and its statistics
+    db.x("DELETE FROM stats WHERE (src=? AND dst=?) OR (src=? AND dst=?)", (r["a"], r["b"], r["b"], r["a"]))
+    log.info("link %d removed by %s (link and its statistics deleted)", link_id, hub or "admin")
     await push_links(r["a"], r["b"])
 
 
@@ -654,6 +716,25 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/public/complaints":
                 return self.reply(db.q("""SELECT id,created,subject_type,subject_id,text,status,resolution,updated
                                           FROM complaints ORDER BY id DESC LIMIT 500"""))
+            if p in ("/api/admin/logs", "/api/admin/logs/file") and not self.is_admin():
+                return self.reply({"error": "login"}, 401)
+            if p == "/api/admin/logs":
+                n = max(10, min(20000, int((qs.get("lines") or ["500"])[0] or 500)))
+                return self.reply({"files": log_files(DATA_DIR), "started": int(STARTED), "version": VERSION,
+                                   "lines": log_tail(DATA_DIR, n, (qs.get("level") or [""])[0], (qs.get("q") or [""])[0])})
+            if p == "/api/admin/logs/file":
+                name = (qs.get("name") or [""])[0]
+                if name not in [f["name"] for f in log_files(DATA_DIR)]:
+                    return self.reply({"error": "not_found"}, 404)
+                data = open(os.path.join(DATA_DIR, "logs", name), "rb").read()
+                self.send_response(200)
+                for k, v in SEC_HEADERS.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{name}.txt"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if p == "/api/admin/state":
                 if not self.is_admin():
                     return self.reply({"error": "login"}, 401)
@@ -662,7 +743,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                              email_verified=bool(h["email_verified"]), created=h["created"])
                         for h in db.q("SELECT * FROM hubs WHERE status!='removed' ORDER BY created DESC")]
                 d = (adv("acme_domain") or "").lower()
-                return self.reply({"acme": dict(acme.status, cert=acme.cert_info(d) if d else None),
+                return self.reply({"started": int(STARTED), "version": VERSION,
+                                   "acme": dict(acme.status, cert=acme.cert_info(d) if d else None),
                                    "advanced": {k: adv(k) for k in ADV_SPEC},
                                    "advanced_spec": {k: {"default": v[0], "min": v[1], "max": v[2]} for k, v in ADV_SPEC.items()},
                                    "hubs": hubs, "links": db.q("SELECT * FROM links WHERE state!='removed'"),
@@ -728,6 +810,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                     db.x("DELETE FROM nodes WHERE hub=?", (hub,))
                     for r in db.q("SELECT id FROM links WHERE state!='removed' AND (a=? OR b=?)", (hub, hub)):
                         from_thread(link_remove(None, r["id"]))
+                    db.x("DELETE FROM stats WHERE src=? OR dst=?", (hub, hub))
                     from_thread(tell_and_close(hub, {"t": "status", "status": "removed"}))
                 from_thread(push_directory())
                 return self.reply({"ok": True})
@@ -739,6 +822,12 @@ class Web(http.server.BaseHTTPRequestHandler):
                 db.x("UPDATE complaints SET status=?, resolution=?, updated=? WHERE id=?",
                      (st, clean(b.get("resolution"), 2000), now(), int(m.group(1))))
                 return self.reply({"ok": True})
+            if p == "/api/admin/program":
+                act = b.get("action")
+                if act not in ("restart", "stop"):
+                    return self.reply({"error": "bad_action"}, 400)
+                program_action(act)
+                return self.reply({"ok": True, "action": act})
             if p == "/api/admin/acme/run":
                 acme_kick.set()
                 return self.reply({"ok": True})
@@ -875,6 +964,7 @@ def cleanup_loop():
 async def main():
     global db, loop, FINGERPRINT
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log_setup(DATA_DIR)
     os.makedirs(DATA_DIR, exist_ok=True)
     db = DB(os.path.join(DATA_DIR, "ura.db"))
     loop = asyncio.get_running_loop()

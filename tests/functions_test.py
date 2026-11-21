@@ -413,12 +413,26 @@ check("after a restart: rules only for linked hubs (welcome list applied)", set(
 check("A notices C's key changed", wait(lambda: link_with("A", "C")["e2e"]["state"] == "changed", 20), link_with("A", "C")["e2e"])
 check("nothing sent to C while key unconfirmed", not arrives("A", "C", "LongFast", expect=False) or blocked("A", "C", "send", "key_changed") > 0)
 h["A"]("/api/links/trust_key", {"peer": ids["C"]})
+wait(lambda: link_with("B", "C")["e2e"]["state"] == "changed", 10); h["B"]("/api/links/trust_key", {"peer": ids["C"]})
 check("after 'trust new key' traffic flows", link_with("A", "C")["e2e"]["state"] == "ok" and arrives("A", "C", "LongFast"))
 
 # ── ending things ──────────────────────────────────────────────────────────
 sec("ending links, removing, leaving")
+sa2, sb2 = send("A", "LongFast"), send("B", "LongFast")
+check("before ending: C has a node from A and one from B", wait(lambda: {f"!{sa2:08x}", f"!{sb2:08x}"} <= {x["id"] for x in h["C"]("/api/nodes")}, 8))
 h["A"]("/api/links/remove", {"link": link_with("A", "C")["id"]})
 check("ending a link: gone on both sides", wait(lambda: not link_with("A", "C") and not link_with("C", "A")))
+cA, cC = h["A"]("/api/config"), h["C"]("/api/config")
+check("... A forgot C's rules and pinned key", ids["C"] not in cA["rules"] and ids["C"] not in cA["peer_keys"], (list(cA["rules"]), list(cA["peer_keys"])))
+check("... C forgot A's rules and pinned key", ids["A"] not in cC["rules"] and ids["A"] not in cC["peer_keys"])
+check("... C's radio forgot the nodes that came from A", wait(lambda: f"!{sa2:08x}" not in [x["id"] for x in h["C"]("/api/nodes")], 8),
+      [x["id"] for x in h["C"]("/api/nodes") if x.get("remote")])
+check("... nodes from B (still linked) stay on C's radio", f"!{sb2:08x}" in [x["id"] for x in h["C"]("/api/nodes")])
+import sqlite3 as _sq
+_db = _sq.connect(f"{T}/srv/ura.db")
+check("... server: link and its statistics deleted", _db.execute("SELECT COUNT(*) FROM links WHERE (a=? AND b=?) OR (a=? AND b=?)", (ids["A"], ids["C"], ids["C"], ids["A"])).fetchone()[0] == 0
+      and _db.execute("SELECT COUNT(*) FROM stats WHERE (src=? AND dst=?) OR (src=? AND dst=?)", (ids["A"], ids["C"], ids["C"], ids["A"])).fetchone()[0] == 0)
+_db.close()
 check("... other links untouched", link_with("A", "B")["state"] == "active" and link_with("B", "C")["state"] == "active")
 check("... server agrees", not any({l["a"], l["b"]} == {ids["A"], ids["C"]} for l in S("/api/admin/state")["links"]))
 S(f"/api/admin/hub/{ids['C']}/remove", {})
@@ -707,6 +721,44 @@ sd = send_dup("A")
 check("group 'LongFast' (private) ticked on both -> crosses", wait(lambda: sd in senders_on_air("B"), 5))
 for n in ("A", "B"):
     h[n]("/api/radio/channel", {"channel": {"index": 2, "role": "DISABLED"}})
+
+sec("logs and program control")
+def raw(base, path, pw):
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.HTTPSHandler(context=ctx))
+    op.open(urllib.request.Request(base + "/api/login", data=json.dumps({"password": pw}).encode(), headers={"Content-Type": "application/json"}), timeout=30)
+    r = op.open(base + path, timeout=30)
+    return r.headers, r.read().decode()
+lg = h["A"]("/api/logs?lines=300")
+check("hub log: newest lines shown", lg.get("lines") and any("ura-hub" in l and "started" in l for l in lg["lines"]), (lg.get("lines") or [])[-3:])
+check("hub log: files listed", lg.get("files") and lg["files"][0]["name"] == "ura-hub.log")
+er = h["A"]("/api/logs?lines=300&level=warning")["lines"]
+check("hub log: 'warnings and errors' shows only those", er and all((" WARNING " in l or " ERROR " in l or " CRITICAL " in l) for l in er), er[:2])
+check("hub log: search", all("radio" in l.lower() for l in h["A"]("/api/logs?lines=300&q=radio")["lines"]))
+hd, body = raw(f"https://127.0.0.1:{HUBS['A'][0]}", "/api/logs/file?name=ura-hub.log", PW)
+check("hub log: download as a text file", "attachment" in hd.get("Content-Disposition", "") and "ura-hub" in body)
+check("hub log: other file names refused", h["A"]("/api/logs/file?name=../config.json").get("_status") == 404)
+check("server log: only for the admin", client(f"https://127.0.0.1:{SRV_WEB}")("/api/admin/logs").get("_status") == 401)
+slg = S("/api/admin/logs?lines=200")
+check("server log: newest lines shown", slg.get("lines") and any("ura-server" in l for l in slg["lines"]))
+hd, body = raw(f"https://127.0.0.1:{SRV_WEB}", "/api/admin/logs/file?name=ura-server.log", PW + "S")
+check("server log: download", "attachment" in hd.get("Content-Disposition", "") and "hubs connect" in body)
+st0 = h["B"]("/api/session")["started"]
+h["B"]("/api/program", {"action": "restart"})
+check("hub 'Restart program' -> runs again (new start time)", wait(lambda: client(f"https://127.0.0.1:{HUBS['B'][0]}")("/api/session").get("started", st0) > st0, 30))
+h["B"] = client(f"https://127.0.0.1:{HUBS['B'][0]}"); h["B"]("/api/login", {"password": PW})
+check("... back on the server, link to A active, radio connected", wait(lambda: status("B")["link_state"] == "connected" and (link_with("B", "A") or {}).get("state") == "active" and status("B")["radio"]["connected"], 30))
+check("... traffic flows", arrives("A", "B", "LongFast"))
+h["D"]("/api/program", {"action": "stop"}); time.sleep(4)
+port_open = lambda p_: subprocess.run(f"ss -ltn 'sport = :{p_}' | grep -c LISTEN", shell=True, capture_output=True, text=True).stdout.strip() != "0"
+check("hub 'Stop program' -> program ended, page off", not port_open(HUBS["D"][0]))
+time.sleep(6)
+check("... stays stopped", not port_open(HUBS["D"][0]))
+s_st0 = S("/api/admin/state")["started"]
+S("/api/admin/program", {"action": "restart"})
+check("server 'Restart program' -> runs again", wait(lambda: (lambda c_: (c_("/api/login", {"password": PW + "S"}), c_("/api/admin/state").get("started", s_st0))[1])(client(f"https://127.0.0.1:{SRV_WEB}")) > s_st0, 30))
+S = client(f"https://127.0.0.1:{SRV_WEB}"); S("/api/login", {"password": PW + "S"})
+check("... hubs reconnect by themselves", wait(lambda: status("A")["link_state"] == "connected" and status("B")["link_state"] == "connected", 30))
+check("... link A - B still active", (link_with("A", "B") or {}).get("state") == "active")
 
 # ── report ─────────────────────────────────────────────────────────────────
 kill_ports()

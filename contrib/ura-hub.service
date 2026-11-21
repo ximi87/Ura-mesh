@@ -13,6 +13,8 @@ Environment=URA_WEB_PORT=8091
 ExecStart=/opt/ura/venv/bin/python -u /opt/ura/hub/ura_hub.py
 Restart=always
 RestartSec=5
+# exit status 64 = stopped by the operator on the website: stay stopped
+RestartPreventExitStatus=64
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
