@@ -425,7 +425,7 @@ check("ending a link: gone on both sides", wait(lambda: not link_with("A", "C") 
 cA, cC = h["A"]("/api/config"), h["C"]("/api/config")
 check("... A forgot C's rules and pinned key", ids["C"] not in cA["rules"] and ids["C"] not in cA["peer_keys"], (list(cA["rules"]), list(cA["peer_keys"])))
 check("... C forgot A's rules and pinned key", ids["A"] not in cC["rules"] and ids["A"] not in cC["peer_keys"])
-check("... C's radio forgot the nodes that came from A", wait(lambda: f"!{sa2:08x}" not in [x["id"] for x in h["C"]("/api/nodes")], 8),
+check("... C's radio forgot the nodes that came from A (checked by re-reading the radio)", wait(lambda: "checked on the radio" in open(f"{T}/hubC.log").read() and f"!{sa2:08x}" not in [x["id"] for x in h["C"]("/api/nodes")], 40),
       [x["id"] for x in h["C"]("/api/nodes") if x.get("remote")])
 check("... nodes from B (still linked) stay on C's radio", f"!{sb2:08x}" in [x["id"] for x in h["C"]("/api/nodes")])
 import sqlite3 as _sq
@@ -547,9 +547,9 @@ check("node age 2 days -> the 3-day-old node leaves the server map", wait(lambda
       [x["name"] for x in pub("A")["nodes"]])
 h["A"]("/api/advanced", {"advanced": {"node_max_age_days": 7}})
 check("node age 7 days -> it is back", wait(lambda: "Three days" in [x["name"] for x in pub("A")["nodes"]], 15))
-lat0 = pub("A")["hub"]["lat"]
+lat0, lon0 = pub("A")["hub"]["lat"], pub("A")["hub"]["lon"]
 h["A"]("/api/advanced", {"advanced": {"location_follow_m": 50}})
-h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": lat0 + 0.00018, "lon": 19.6, "alt": 10}})
+h["A"]("/api/radio/fixed", {"fixed": {"enabled": True, "lat": lat0 + 0.00018, "lon": lon0, "alt": 10}})
 time.sleep(4)
 check("radio moved ~20 m, follow distance 50 m -> hub position unchanged", abs(pub("A")["hub"]["lat"] - lat0) < 1e-6, pub("A")["hub"]["lat"])
 h["A"]("/api/advanced", {"advanced": {"location_follow_m": 10}})
@@ -702,6 +702,9 @@ nid = f"!{me('A') + 1:08x}"
 r = h["A"]("/api/radio/forget_node", {"node": nid})
 check("forget a node -> removed from the radio's node list", r.get("ok") and not any(x["id"] == nid for x in h["A"]("/api/nodes")), r)
 check("forget: bad node id refused", h["A"]("/api/radio/forget_node", {"node": "abc"}).get("error") == "bad_node")
+n_sent = len(h["A"]("/api/test/radio")["sent"])
+check("clear the radio's node list -> only the radio itself left", h["A"]("/api/radio/reset_nodes", {}).get("ok") and [x["own"] for x in h["A"]("/api/nodes")] == [True], h["A"]("/api/nodes"))
+check("... and the neighbours are asked to answer", wait(lambda: any(x.get("want_response") for x in h["A"]("/api/test/radio")["sent"][n_sent:]), 10))
 
 sec("two channels with the same name (a channel without a name = the preset name)")
 dup_key = os.urandom(32)

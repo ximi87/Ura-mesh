@@ -10,6 +10,7 @@ import base64, hashlib, os, random, threading, time, types
 from meshtastic.protobuf import channel_pb2, config_pb2, localonly_pb2, mesh_pb2
 
 TEAM_PSK = hashlib.sha256(b"ura test team channel").digest()[:16]
+RADIO = {}   # what the radio itself keeps across reconnects (its node database, its settings), per node number
 
 
 class FakeNode:
@@ -44,9 +45,20 @@ class FakeNode:
                                                            role=int(self.channels[index].role))
     def deleteChannel(self, index): self.channels[index].role = 0; self._rec("deleteChannel", index=index)
     def getURL(self, includeAll=True): return "https://meshtastic.org/e/#TEST"
+    # like the real library: these only tell the radio; the library's own node list (nodesByNum / nodes) is NOT
+    # changed by them — the hub has to update that copy itself
+    def resetNodeDb(self):
+        me = self.iface.myInfo.my_node_num
+        for num in [k for k in self.iface.radio_db if k != me]:
+            self.iface.radio_db.pop(num)
+        self._rec("resetNodeDb")
+
     def removeNode(self, node_id):
         num = int(str(node_id).lstrip("!"), 16)
-        self.iface.nodesByNum.pop(num, None); self.iface.nodes.pop(f"!{num:08x}", None)
+        # like a real radio (seen live): delete commands closer than ~1 s to the previous one are silently skipped
+        if time.time() - getattr(self, "_last_remove", 0) >= 1.0:
+            self.iface.radio_db.pop(num, None)        # the radio forgets it; the library's copy stays as it was
+        self._last_remove = time.time()
         self._rec("removeNode", node=f"!{num:08x}")
 
     def writeConfig(self, name):
@@ -58,11 +70,13 @@ class FakeNode:
         u = self.iface.nodesByNum[self.iface.myInfo.my_node_num]["user"]
         if long_name: u["longName"] = long_name
         if short_name: u["shortName"] = short_name
+        self.iface.radio_db[self.iface.myInfo.my_node_num] = dict(self.iface.nodesByNum[self.iface.myInfo.my_node_num])
         self._rec("setOwner", long_name=long_name, short_name=short_name)
 
     def setFixedPosition(self, lat, lon, alt=0):
         self.localConfig.position.fixed_position = True
         self.iface.nodesByNum[self.iface.myInfo.my_node_num]["position"] = {"latitude": lat, "longitude": lon, "altitude": alt}
+        self.iface.radio_db[self.iface.myInfo.my_node_num] = dict(self.iface.nodesByNum[self.iface.myInfo.my_node_num])
         self._rec("setFixedPosition", lat=lat, lon=lon, alt=alt)
 
     def removeFixedPosition(self):
@@ -82,15 +96,22 @@ class FakeInterface:
         def node(num, name, dlat, dlon, heard):
             return {"num": num, "user": {"id": f"!{num:08x}", "longName": name, "shortName": name[:4], "hwModel": "HELTEC_V3"},
                     "position": {"latitude": lat + dlat, "longitude": lon + dlon, "altitude": 100}, "lastHeard": heard, "hopsAway": 0}
-        self.nodesByNum = {me: node(me, "Test radio " + seed, 0, 0, now),
-                           me + 1: node(me + 1, "Neighbour one", .01, .01, now - 60),
-                           me + 2: node(me + 2, "Neighbour two", -.01, .02, now - 3600),
-                           me + 3: node(me + 3, "Three days", .03, -.02, now - 3 * 86400),
-                           me + 4: node(me + 4, "Old node", .05, .05, now - 30 * 86400)}
+        db = {me: node(me, "Test radio " + seed, 0, 0, now),
+              me + 1: node(me + 1, "Neighbour one", .01, .01, now - 60),
+              me + 2: node(me + 2, "Neighbour two", -.01, .02, now - 3600),
+              me + 3: node(me + 3, "Three days", .03, -.02, now - 3 * 86400),
+              me + 4: node(me + 4, "Old node", .05, .05, now - 30 * 86400)}
         for i in range(int(os.environ.get("URA_TEST_EXTRA_NODES", "0"))):
-            self.nodesByNum[me + 100 + i] = node(me + 100 + i, f"Extra {i}", .001 * i, .001 * i, now - 120)
+            db[me + 100 + i] = node(me + 100 + i, f"Extra {i}", .001 * i, .001 * i, now - 120)
+        st = RADIO.setdefault(me, {"db": db, "node": None})
+        self.radio_db = st["db"]                  # the radio's own memory (survives reconnects)
+        # the library's copy, read from the radio at connect (like meshtastic's nodesByNum / nodes)
+        self.nodesByNum = {k: dict(v) for k, v in self.radio_db.items()}
         self.nodes = {n["user"]["id"]: n for n in self.nodesByNum.values()}
-        self.localNode = FakeNode(self)
+        if st["node"] is None:
+            st["node"] = FakeNode(self)
+        self.localNode = st["node"]
+        self.localNode.iface = self
         self.isConnected = threading.Event(); self.isConnected.set()
 
     # tests only (POST /api/test/fake): things that happen to a real radio outside the hub's control
@@ -117,6 +138,7 @@ class FakeInterface:
         num = getattr(env.packet, "from")
         n = self.nodesByNum.setdefault(num, {"num": num, "user": {"id": f"!{num:08x}", "longName": f"Remote {num:08x}"}})
         n.update(viaMqtt=True, lastHeard=int(time.time()))
+        self.radio_db[num] = dict(n)                  # the radio learns the node (its own memory)
         self.nodes[f"!{num:08x}"] = n                 # like meshtastic: the same node also in the by-id list
 
     def sendData(self, data, destinationId="^all", portNum=0, wantResponse=False, wantAck=False, **kw):

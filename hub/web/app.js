@@ -138,6 +138,8 @@ Ura.add({
   "r.transport": { en: "Connection", sq: "Lidhja" }, "r.serial": { en: "USB (serial)", sq: "USB (serial)" },
   "r.tcp": { en: "Wi-Fi / IP", sq: "Wi-Fi / IP" }, "r.ble": { en: "Bluetooth (not supported yet)", sq: "Bluetooth (ende e pambështetur)" },
   "r.port": { en: "USB port", sq: "Porta USB" }, "r.host": { en: "Address (IP or host[:port])", sq: "Adresa (IP ose host[:portë])" },
+  "r.unplugged": { en: "no radio plugged in", sq: "asnjë radio e lidhur" },
+  "r.saved_missing": { en: "saved, but not plugged in", sq: "e ruajtur, por jo e lidhur" },
   "r.detected": { en: "Detected ports", sq: "Portat e gjetura" }, "r.none_detected": { en: "No USB radio found.", sq: "Nuk u gjet asnjë radio USB." },
   "r.mc_soon": { en: "MeshCore support comes next.", sq: "Mbështetja për MeshCore vjen së shpejti." },
   "r.state": { en: "Radio status", sq: "Gjendja e radios" }, "r.connected": { en: "connected", sq: "e lidhur" },
@@ -158,6 +160,13 @@ Ura.add({
   "dg.forget": { en: "Forget this node", sq: "Harroje këtë nyje" },
   "dg.forget.hint": { en: "For a node that was reset: it has a new key, and this radio still holds the old one (its private messages fail with a key/channel error). After forgetting, press “Ask neighbours to answer” on the hub where that node is — its new key arrives in seconds.",
                       sq: "Për një nyje që u rivendos: ka çelës të ri dhe kjo radio mban ende të vjetrin (mesazhet e saj private dështojnë me gabim çelësi/kanali). Pas harrimit, shtypni “Kërkoju fqinjëve të përgjigjen” te hub-i ku është ajo nyje — çelësi i ri vjen brenda sekondave." },
+  "nd.title": { en: "Node list on the radio", sq: "Lista e nyjeve në radio" }, "nd.local": { en: "local", sq: "lokale" },
+  "nd.forget": { en: "Forget one node", sq: "Harro një nyje" },
+  "nd.reset": { en: "Clear the radio's node list", sq: "Pastro listën e nyjeve të radios" },
+  "nd.reset.hint": { en: "The radio forgets all other nodes (names, positions, keys) and keeps itself. The hub then asks the neighbours to answer, so the list fills up again with current names and keys — useful after nodes were reset. Remote nodes come back when they send something.",
+                     sq: "Radio harron të gjitha nyjet e tjera (emrat, pozicionet, çelësat) dhe mban veten. Hub-i pastaj u kërkon fqinjëve të përgjigjen, që lista të mbushet përsëri me emra dhe çelësa aktualë — e dobishme pasi nyjet u rivendosën. Nyjet e largëta kthehen kur dërgojnë diçka." },
+  "nd.reset_q": { en: "Clear the radio's whole node list now?", sq: "Të pastrohet tani e gjithë lista e nyjeve të radios?" },
+  "nd.reset_done": { en: "Cleared. Neighbours are being asked to answer; the list fills up again in the next minutes.", sq: "U pastrua. Fqinjëve po u kërkohet të përgjigjen; lista mbushet përsëri në minutat e ardhshme." },
   "dg.forgotten": { en: "Forgotten. It will be learned again with its current key.", sq: "U harrua. Do të mësohet përsëri me çelësin aktual." },
   "chk.debug_log_off": { en: "Radio debug log off", sq: "Regjistri i debug-ut joaktiv" },
   "s.hub": { en: "Hub details", sq: "Të dhënat e hub-it" },
@@ -432,7 +441,7 @@ async function pageStatus() {
   const lim = (used, win, l) => `<b>${pct(used, win)}</b> <span class="muted small">${l ? "/ " + l + " %" : ""}</span>`;
   const active = s.links.filter(l => l.state === "active");
   const radioBody = r ? `<dl class="kv">
-        <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", t("r.not_connected"))} <span class="muted small">${esc(r.error || "")}</span>`}</dd>
+        <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))} <span class="muted small">${r.error === "port not present" ? "" : esc(r.error || "")}</span>`}</dd>
         <dt>${t("name")}</dt><dd>${esc(r.name || "–")} <span class="muted">${esc(r.short || "")}</span></dd>
         <dt>${t("r.firmware")}</dt><dd>${esc(r.firmware || "–")}</dd>
         <dt>${t("r.ready")}</dt><dd>${r.connected ? (r.ready ? B("ok", t("yes")) : `<a href="#/radio" class="badge warn">${t("r.not_ready")}</a>`) : "–"}</dd>
@@ -453,7 +462,7 @@ async function pageStatus() {
         <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
         <dt>${t("links")}</dt><dd>${active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")} · <a href="#/links">${t("nav.links")} →</a></dd></dl>`),
     secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
-        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", t("r.not_connected"))], [t("name"), esc(r.name || "–")],
+        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
         [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
         [t("wd.last"), r.connected ? ago(now - r.silent_s) : "–"],
         ...(unk.length ? [["", B("warn", t("uc.short"))]] : []),
@@ -687,12 +696,12 @@ async function pageRadio() {
       <label>${t("r.type")}</label><select id="rtype"><option value="mt">Meshtastic</option><option value="mc" disabled>MeshCore – ${t("r.mc_soon")}</option></select>
       <label>${t("r.transport")}</label><select id="rtr"><option value="serial">${t("r.serial")}</option><option value="tcp">${t("r.tcp")}</option><option value="ble" disabled>${t("r.ble")}</option></select>
       <div id="rser"><label>${t("r.port")}</label><select id="rport">${ports.map(p => `<option ${p === rc.address ? "selected" : ""}>${esc(p)}</option>`).join("")}
-        ${rc.transport === "serial" && rc.address && !ports.includes(rc.address) ? `<option selected>${esc(rc.address)}</option>` : ""}</select>
-        <div class="hint">${ports.length ? "" : t("r.none_detected")}</div></div>
+        ${rc.transport === "serial" && rc.address && !ports.includes(rc.address) ? `<option value="${esc(rc.address)}" selected>${esc(t("r.saved_missing"))}: ${esc(rc.address.replace(/^.*\//, ""))}</option>` : ""}</select>
+        <div class="hint">${ports.length ? "" : `<span class="badge bad">${t("r.none_detected")}</span>`}</div></div>
       <div id="rtcp"><label>${t("r.host")}</label><input type="text" id="rhost" value="${rc.transport === "tcp" ? esc(rc.address) : ""}"></div>
       <div id="rmsg"></div><button class="primary" id="rsave">${t("save")}</button>`;
   const stateBody = r ? `<dl class="kv">
-      <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", t("r.not_connected"))} <span class="muted small">${esc(r.error || "")}</span>`}</dd>
+      <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))} <span class="muted small">${r.error === "port not present" ? "" : esc(r.error || "")}</span>`}</dd>
       ${r.connected ? `<dt>${t("name")}</dt><dd>${esc(r.name)} <span class="muted">${esc(r.short)} · ${esc(r.node_id)}</span></dd>
       <dt>${t("hardware")}</dt><dd>${esc(r.hw)}</dd><dt>${t("r.firmware")}</dt><dd>${esc(r.firmware)}</dd>
       <dt>${t("role")}</dt><dd>${esc(r.role)}</dd><dt>${t("r.region")}</dt><dd>${esc(r.region)} · ${esc(r.preset)}</dd>
@@ -710,26 +719,42 @@ async function pageRadio() {
         <button data-dg="telemetry">${t("dg.telemetry")}</button><button data-dg="position">${t("dg.position")}</button></div>
       <div class="row" style="margin-top:.8rem"><select id="dgch" style="max-width:260px">${((r && r.channels) || []).map(ch => `<option value="${ch.index}">${esc(ch.name)}${ch.public ? " (" + t("r.public") + ")" : ""}</option>`).join("")}</select>
         <button data-dg="broadcast">${t("dg.broadcast")}</button></div><div class="hint">${t("dg.broadcast.hint")}</div>
-      <div class="row" style="margin-top:.8rem"><button class="danger small" id="dgforget">${t("dg.forget")}</button></div><div class="hint">${t("dg.forget.hint")}</div>
       <div id="dgout"></div>`;
+  const others = nodes.filter(n => !n.own).sort((a, b) => (b.last_heard || 0) - (a.last_heard || 0));
+  const hubCode = id => { const h = (s.directory || []).find(x => x.id === id); return h ? h.code : null; };
+  const nodesBody = `
+      <h3>${t("nd.forget")}</h3><p class="muted small">${t("dg.forget.hint")}</p>
+      <div class="row"><select id="fgnode" style="max-width:520px">${others.map(n => `<option value="${esc(n.id)}">${esc(n.name || "?")} (${esc(n.id)}) — ${n.remote ? t("remote") + (hubCode(n.origin) ? " " + esc(hubCode(n.origin)) : "") : t("nd.local")} — ${ago(n.last_heard)}</option>`).join("")}</select>
+        <button class="danger small" id="fgbtn" ${others.length ? "" : "disabled"}>${t("dg.forget")}</button></div>
+      <h3>${t("nd.reset")}</h3><p class="muted small">${t("nd.reset.hint")}</p>
+      <button class="danger" id="ndreset">${t("nd.reset")}</button>
+      <div id="ndout"></div>`;
   const lines = [
     secBox("radio", "conn", `<b>${t("r.title")}</b>`,
       [[t("r.type"), "Meshtastic"], [t("r.transport"), rc.transport === "tcp" ? t("r.tcp") : t("r.serial")],
-       [t("r.port"), `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`]], connBody),
+       [t("r.port"), rc.transport === "tcp" ? `<span class="mono small">${esc(rc.address || "–")}</span>`
+         : ports.includes(rc.address) ? `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`
+         : B("bad", t(rc.address ? "r.unplugged" : "r.none_detected"))]], connBody),
     secBox("radio", "state", `<b>${t("r.state")}</b>`, r ? [
-        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", t("r.not_connected"))],
+        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
         ...(r.connected ? [[t("name"), `${esc(r.name)} <span class="muted small">${esc(r.node_id)}</span>`], [t("r.firmware"), esc(r.firmware)],
-                           [t("r.ready"), r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))]] : [["", `<span class="muted small">${esc(r.error || "")}</span>`]])]
+                           [t("r.ready"), r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))]] : [["", `<span class="muted small">${r.error === "port not present" ? "" : esc(r.error || "")}</span>`]])]
       : [["", B("bad", t("err.no_radio"))]], stateBody),
-    ...(r && r.connected ? [secBox("radio", "diag", `<b>${t("dg.title")}</b>`, [["", `<span class="muted small">${t("dg.short")}</span>`]], diagBody)] : [])];
+    ...(r && r.connected ? [secBox("radio", "diag", `<b>${t("dg.title")}</b>`, [["", `<span class="muted small">${t("dg.short")}</span>`]], diagBody),
+                            secBox("radio", "nodes", `<b>${t("nd.title")}</b>`, [[t("nd.local"), others.filter(n => !n.remote).length], [t("remote"), others.filter(n => n.remote).length]], nodesBody)] : [])];
   app().innerHTML = secCard(t("nav.radio"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
   if (r && r.connected) {
-    $("#dgforget").onclick = async () => {
-      const node = $("#dgnode").value.trim();
-      if (!confirm(t("dg.forget") + ": " + node + "?")) return;
-      try { await api("POST", "/api/radio/forget_node", { node }); $("#dgout").innerHTML = `<div class="msg ok">${t("dg.forgotten")}</div>`; }
-      catch (e) { $("#dgout").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+    $("#fgbtn").onclick = async () => {
+      const sel = $("#fgnode"), node = sel.value;
+      if (!node || !confirm(t("dg.forget") + ": " + sel.options[sel.selectedIndex].text + "?")) return;
+      try { await api("POST", "/api/radio/forget_node", { node }); $("#ndout").innerHTML = `<div class="msg ok">${t("dg.forgotten")}</div>`; setTimeout(pageRadio, 1500); }
+      catch (e) { $("#ndout").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+    };
+    $("#ndreset").onclick = async () => {
+      if (!confirm(t("nd.reset_q"))) return;
+      try { await api("POST", "/api/radio/reset_nodes", {}); $("#ndout").innerHTML = `<div class="msg ok">${t("nd.reset_done")}</div>`; setTimeout(pageRadio, 6000); }
+      catch (e) { $("#ndout").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
     };
     $$("button[data-dg]").forEach(b => b.onclick = async () => {
       const node = $("#dgnode").value.trim();

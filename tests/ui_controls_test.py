@@ -282,6 +282,17 @@ with sync_playwright() as pw:
     url = "https://meshtastic.org/e/#" + base64.urlsafe_b64encode(ln_(1, ln_(2, b"c" * 32) + ln_(3, b"Club"))).decode().rstrip("=")
     open_sec(a, "chimport"); a.fill("#chlink", url); a.click("#chimp"); a.wait_for_selector("#chimpmsg .msg")
     check("Device: 'Add channels from a link' click -> channel added", any(c["name"] == "Club" for c in h["A"]("/api/status")["radio"]["channels"]), a.locator("#chimpmsg").inner_text())
+    # ── node list on the radio: forget one by picking it, clear all ──
+    go(a, "A", "radio", "details.secline"); open_sec(a, "nodes")
+    opts = a.locator("#fgnode option").all_inner_texts()
+    if check("Radio: nodes offered by name in a list (no typing ids)", opts and "(!" in opts[0], opts[:2]):
+        pick = a.locator("#fgnode option").first.get_attribute("value")
+        a.click("#fgbtn"); a.wait_for_selector("#ndout .msg")
+        check("Radio: 'Forget' on the picked node -> removed from the radio", any(x["call"] == "removeNode" and x["node"] == pick for x in h["A"]("/api/test/radio")["calls"]))
+    go(a, "A", "radio", "details.secline"); open_sec(a, "nodes")
+    a.click("#ndreset"); a.wait_for_selector("#ndout .msg")
+    check("Radio: 'Clear the radio's node list' click -> cleared", any(x["call"] == "resetNodeDb" for x in h["A"]("/api/test/radio")["calls"]))
+
     # ── logs + program control ──
     go(a, "A", "logs", "#lgbox"); a.wait_for_timeout(1500)
     check("Logs page: the hub's log lines shown", "ura-hub" in a.locator("#lgbox").inner_text())

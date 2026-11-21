@@ -593,10 +593,13 @@ class Radio:
     def _open(self):
         c = self.conf
         if os.environ.get("URA_TEST_RADIO"):           # tests only: a simulated radio (tests/fake_radio.py)
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("fake_radio", os.environ["URA_TEST_RADIO"])
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            import importlib.util, sys as _sys
+            mod = _sys.modules.get("ura_fake_radio")    # loaded once: the simulated radio keeps its memory across reconnects
+            if mod is None:
+                spec = importlib.util.spec_from_file_location("ura_fake_radio", os.environ["URA_TEST_RADIO"])
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _sys.modules["ura_fake_radio"] = mod
             return mod.FakeInterface(c)
         if c.get("transport") == "tcp":
             host, _, port = c["address"].partition(":")
@@ -1282,6 +1285,18 @@ radios = {}       # radio id -> Radio
 radio_queue: asyncio.Queue = None
 
 
+def drop_from_cache(iface, node_id=None):
+    """The meshtastic library keeps its own copy of the radio's node list; after the radio forgets a node (or
+    all), remove it there too — otherwise the pages keep showing it until the next reconnect."""
+    me = iface.myInfo.my_node_num
+    for num in list((iface.nodesByNum or {}).keys()):
+        nid = (iface.nodesByNum[num].get("user") or {}).get("id") or f"!{num:08x}"
+        if num != me and (node_id is None or nid == node_id or num == int(node_id.lstrip("!"), 16)):
+            iface.nodesByNum.pop(num, None)
+            if iface.nodes:
+                iface.nodes.pop(nid, None)
+
+
 def forget_peer(peer, everything=False):
     """A link ended (or the hub left the server): delete everything about that partner, as if the link never
     existed — its rules, its pinned end-to-end key, its counters, and its nodes on our radio (their names and
@@ -1293,21 +1308,41 @@ def forget_peer(peer, everything=False):
     nodes = origins.drop_peer(peer)
     r = mt_radio()
     def radio_forget():
+        # The radio silently skips delete commands that come too fast (seen live: 31 of 51 at 0.3 s): send them
+        # 2 s apart, then re-read the node list from the radio (fresh USB session) and repeat what is left.
         ids = set(nodes)
         if r is not None and r.iface is not None and everything:
             ids |= {n.get("user", {}).get("id") or f"!{num:08x}" for num, n in list((r.iface.nodesByNum or {}).items())
                     if n.get("viaMqtt") and num != r.iface.myInfo.my_node_num}
-        known = set((r.iface.nodes or {}).keys()) if r is not None and r.iface is not None else set()
-        done = 0
-        for nid in ids:
-            if nid in known:
+        total = left = 0
+        for round_ in range(3):
+            if r is None or r.iface is None:
+                break
+            known = set((r.iface.nodes or {}).keys())
+            pending = [nid for nid in ids if nid in known]
+            if round_ == 0:
+                total = len(pending)
+            left = len(pending)
+            if not pending:
+                break
+            for nid in pending:
                 try:
                     r.iface.localNode.removeNode(nid)
-                    done += 1
-                    time.sleep(0.3)
+                    drop_from_cache(r.iface, nid)
                 except Exception as e:
                     log.warning("could not remove node %s from the radio: %s", nid, e)
-        log.info("link to %s ended: its rules, key and %d remote node(s) on the radio were deleted", peer, done)
+                time.sleep(2)
+            iface = r.iface                       # check: read the node list again from the radio
+            r._drop(iface, "re-reading the node list after deleting nodes", False)
+            for _ in range(60):
+                time.sleep(1)
+                if r.iface is not None and r.iface is not iface:
+                    break
+            time.sleep(2)
+        if r is not None and r.iface is not None:
+            left = len([nid for nid in ids if nid in set((r.iface.nodes or {}).keys())])
+        log.info("link to %s ended: its rules, key and %d remote node(s) on the radio were deleted%s", peer, total - left,
+                 f" ({left} could not be deleted)" if left else " (checked on the radio)")
     threading.Thread(target=radio_forget, daemon=True).start()
 
 
@@ -2193,6 +2228,23 @@ class Web(http.server.BaseHTTPRequestHandler):
             else:
                 node = "!" + node.lstrip("!").lower()
             return self.reply(r.diagnose(node, str(b.get("kind")), str(b.get("text") or "")))
+        if p == "/api/radio/reset_nodes":            # clear the radio's node list, then let it fill up again
+            r = mt_radio()
+            if not r or r.iface is None:
+                return self.reply({"error": "no_radio"}, 400)
+            r.iface.localNode.resetNodeDb()
+            drop_from_cache(r.iface)
+            with origins.lock:
+                origins.map.clear()
+                origins.save()
+            log.info("radio node list cleared by the operator; asking neighbours to answer")
+            def refill():
+                time.sleep(5)
+                rr = mt_radio()
+                if rr:
+                    rr.announce(True)
+            threading.Thread(target=refill, daemon=True).start()
+            return self.reply({"ok": True})
         if p == "/api/radio/forget_node":            # e.g. a node that was reset and has a new key
             r = mt_radio()
             node = str(b.get("node") or "")
@@ -2202,6 +2254,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply({"error": "bad_node"}, 400)
             node = "!" + node.lstrip("!").lower()
             r.iface.localNode.removeNode(node)
+            drop_from_cache(r.iface, node)
+            origins.map.pop(node, None)
             log.info("radio forgot node %s (it will be learned again with its current key)", node)
             return self.reply({"ok": True})
         if p == "/api/radio/announce":
