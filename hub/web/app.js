@@ -154,6 +154,11 @@ Ura.add({
   "chk.mqtt_enabled": { en: "MQTT on", sq: "MQTT aktiv" }, "chk.proxy_to_client": { en: "MQTT through the hub (client proxy)", sq: "MQTT përmes hub-it (client proxy)" },
   "chk.private_address": { en: "MQTT address private", sq: "Adresa MQTT private" }, "chk.encryption": { en: "Packets stay encrypted", sq: "Paketat mbeten të enkriptuara" },
   "chk.ignore_mqtt_off": { en: "“Ignore MQTT” off", sq: "“Ignore MQTT” joaktiv" }, "chk.channels_linked": { en: "Channels: uplink + downlink on", sq: "Kanalet: uplink + downlink aktiv" },
+  "chk.region_set": { en: "LoRa region set (Device settings → LoRa) — without it the radio does not transmit", sq: "Rajoni LoRa i caktuar (Cilësimet e pajisjes → LoRa) — pa të radio nuk transmeton" },
+  "dg.forget": { en: "Forget this node", sq: "Harroje këtë nyje" },
+  "dg.forget.hint": { en: "For a node that was reset: it has a new key, and this radio still holds the old one (its private messages fail with a key/channel error). After forgetting, press “Ask neighbours to answer” on the hub where that node is — its new key arrives in seconds.",
+                      sq: "Për një nyje që u rivendos: ka çelës të ri dhe kjo radio mban ende të vjetrin (mesazhet e saj private dështojnë me gabim çelësi/kanali). Pas harrimit, shtypni “Kërkoju fqinjëve të përgjigjen” te hub-i ku është ajo nyje — çelësi i ri vjen brenda sekondave." },
+  "dg.forgotten": { en: "Forgotten. It will be learned again with its current key.", sq: "U harrua. Do të mësohet përsëri me çelësin aktual." },
   "chk.debug_log_off": { en: "Radio debug log off", sq: "Regjistri i debug-ut joaktiv" },
   "s.hub": { en: "Hub details", sq: "Të dhënat e hub-it" },
   "s.name": { en: "Hub name", sq: "Emri i hub-it" }, "s.email": { en: "Your e-mail address", sq: "Adresa juaj e e-mail-it" },
@@ -705,6 +710,7 @@ async function pageRadio() {
         <button data-dg="telemetry">${t("dg.telemetry")}</button><button data-dg="position">${t("dg.position")}</button></div>
       <div class="row" style="margin-top:.8rem"><select id="dgch" style="max-width:260px">${((r && r.channels) || []).map(ch => `<option value="${ch.index}">${esc(ch.name)}${ch.public ? " (" + t("r.public") + ")" : ""}</option>`).join("")}</select>
         <button data-dg="broadcast">${t("dg.broadcast")}</button></div><div class="hint">${t("dg.broadcast.hint")}</div>
+      <div class="row" style="margin-top:.8rem"><button class="danger small" id="dgforget">${t("dg.forget")}</button></div><div class="hint">${t("dg.forget.hint")}</div>
       <div id="dgout"></div>`;
   const lines = [
     secBox("radio", "conn", `<b>${t("r.title")}</b>`,
@@ -719,6 +725,12 @@ async function pageRadio() {
   app().innerHTML = secCard(t("nav.radio"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
   if (r && r.connected) {
+    $("#dgforget").onclick = async () => {
+      const node = $("#dgnode").value.trim();
+      if (!confirm(t("dg.forget") + ": " + node + "?")) return;
+      try { await api("POST", "/api/radio/forget_node", { node }); $("#dgout").innerHTML = `<div class="msg ok">${t("dg.forgotten")}</div>`; }
+      catch (e) { $("#dgout").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+    };
     $$("button[data-dg]").forEach(b => b.onclick = async () => {
       const node = $("#dgnode").value.trim();
       $$("button[data-dg]").forEach(x => x.disabled = true);

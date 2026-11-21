@@ -44,6 +44,10 @@ class FakeNode:
                                                            role=int(self.channels[index].role))
     def deleteChannel(self, index): self.channels[index].role = 0; self._rec("deleteChannel", index=index)
     def getURL(self, includeAll=True): return "https://meshtastic.org/e/#TEST"
+    def removeNode(self, node_id):
+        num = int(str(node_id).lstrip("!"), 16)
+        self.iface.nodesByNum.pop(num, None); self.iface.nodes.pop(f"!{num:08x}", None)
+        self._rec("removeNode", node=f"!{num:08x}")
 
     def writeConfig(self, name):
         sec = getattr(self.localConfig, name, None) if self.localConfig.DESCRIPTOR.fields_by_name.get(name) else getattr(self.moduleConfig, name)

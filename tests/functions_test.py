@@ -679,6 +679,16 @@ h["B"]("/api/radio/channel", {"channel": {"index": 1, "role": "SECONDARY", "name
 time.sleep(1)
 check("same key again -> Team passes", arrives("A", "B", "Team"))
 
+sec("region check, forget a node")
+h["A"]("/api/radio/section", {"kind": "config", "section": "lora", "values": {"region": "UNSET"}})
+check("radio without a LoRa region -> not ready, 'region set' red", status("A")["radio"]["checks"].get("region_set") is False and not status("A")["radio"]["ready"], status("A")["radio"]["checks"])
+h["A"]("/api/radio/section", {"kind": "config", "section": "lora", "values": {"region": "EU_868"}})
+check("region set again -> ready", status("A")["radio"]["checks"].get("region_set") and status("A")["radio"]["ready"])
+nid = f"!{me('A') + 1:08x}"
+r = h["A"]("/api/radio/forget_node", {"node": nid})
+check("forget a node -> removed from the radio's node list", r.get("ok") and not any(x["id"] == nid for x in h["A"]("/api/nodes")), r)
+check("forget: bad node id refused", h["A"]("/api/radio/forget_node", {"node": "abc"}).get("error") == "bad_node")
+
 sec("two channels with the same name (a channel without a name = the preset name)")
 dup_key = os.urandom(32)
 for n in ("A", "B"):

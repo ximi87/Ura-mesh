@@ -678,7 +678,8 @@ class Radio:
                 "private_address": mc.mqtt.address == adv("mqtt_address") or bool(re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.", mc.mqtt.address or "")),
                 "encryption": mc.mqtt.encryption_enabled, "ignore_mqtt_off": not lc.lora.ignore_mqtt,
                 "channels_linked": all(c["uplink"] and c["downlink"] for c in chans) if chans else False,
-                "debug_log_off": not lc.security.debug_log_api_enabled}
+                "debug_log_off": not lc.security.debug_log_api_enabled,
+                "region_set": lc.lora.region != 0}     # a radio without a region (e.g. after a reset) does not transmit
             base.update({"name": me.get("user", {}).get("longName"), "short": me.get("user", {}).get("shortName"),
                          "node_id": me.get("user", {}).get("id"), "hw": me.get("user", {}).get("hwModel"),
                          "firmware": getattr(md, "firmware_version", "") if md else "",
@@ -2054,6 +2055,17 @@ class Web(http.server.BaseHTTPRequestHandler):
             else:
                 node = "!" + node.lstrip("!").lower()
             return self.reply(r.diagnose(node, str(b.get("kind")), str(b.get("text") or "")))
+        if p == "/api/radio/forget_node":            # e.g. a node that was reset and has a new key
+            r = mt_radio()
+            node = str(b.get("node") or "")
+            if not r or r.iface is None:
+                return self.reply({"error": "no_radio"}, 400)
+            if not re.match(r"^!?[0-9a-fA-F]{8}$", node):
+                return self.reply({"error": "bad_node"}, 400)
+            node = "!" + node.lstrip("!").lower()
+            r.iface.localNode.removeNode(node)
+            log.info("radio forgot node %s (it will be learned again with its current key)", node)
+            return self.reply({"ok": True})
         if p == "/api/radio/announce":
             r = mt_radio()
             if not r or not r.announce(bool(b.get("ask"))):
