@@ -692,10 +692,10 @@ async function pageLinks() {
           ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
           ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
           ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
-        <h3>Meshtastic — ${t("l.rules")}</h3><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
-        <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div>
-        <h3 style="margin-top:1rem">MeshCore — ${t("l.rules")}</h3><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
-        <div class="grid g2" data-mcbox>${mcCol("send", mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcGroups)}${mcCol("receive", mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div>
+        <div class="netbox mt"><div class="nb-head">Meshtastic — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
+          <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div></div></div>
+        <div class="netbox mc"><div class="nb-head">MeshCore — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
+          <div class="grid g2" data-mcbox>${mcCol("send", mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcGroups)}${mcCol("receive", mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div></div></div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
           <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
         <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l), esc(l.peer_code))}</div>
@@ -1071,8 +1071,8 @@ async function pageSettings(want, opts) {
       <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
       <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
       <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
-      <h3>${t("s.defaults")} — Meshtastic</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
-      <h3>${t("s.defaults")} — MeshCore</h3><div class="grid g2" id="defsmc">${mcCol("send", mcRuleOf(c.defaults, "send"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}${mcCol("receive", mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}</div>
+      <div class="netbox mt"><div class="nb-head">${t("s.defaults")} — Meshtastic</div><div class="nb-body"><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div></div></div>
+      <div class="netbox mc"><div class="nb-head">${t("s.defaults")} — MeshCore</div><div class="nb-body"><div class="grid g2" id="defsmc">${mcCol("send", mcRuleOf(c.defaults, "send"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}${mcCol("receive", mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}</div></div></div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button>`),
     secBox("settings", "pw", `<b>${t("s.password")}</b>`, [["", `<span class="muted small">${t("s.pw_short")}</span>`], ["", `<button class="small" id="logout">${t("logout")}</button>`]],
       `<input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>

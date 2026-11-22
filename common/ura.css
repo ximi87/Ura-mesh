@@ -282,3 +282,12 @@ nav.menu .ddm a { white-space: nowrap; }
 /* map legend markers per network */
 .mkr { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; vertical-align: -.1rem; background: #888; }
 .mkr.mt { border: 2px solid #fff; box-shadow: 0 0 0 1px #888; } .mkr.mc { border: 3px solid #b45309; }
+
+/* one sub-box per network (link rules, defaults): coloured edge + header bar */
+.netbox { border: 1px solid var(--line); border-left-width: 5px; border-radius: 10px; margin: .9rem 0; overflow: hidden; background: var(--card); }
+.netbox .nb-head { padding: .45rem .8rem; font-weight: 700; font-size: .95rem; }
+.netbox .nb-body { padding: .3rem .8rem .7rem; }
+.netbox.mt { border-left-color: #0f7b6c; } .netbox.mt .nb-head { background: rgba(15,123,108,.12); color: #0b5e53; }
+.netbox.mc { border-left-color: #b45309; } .netbox.mc .nb-head { background: rgba(180,83,9,.12); color: #8a3f06; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .netbox.mt .nb-head { color: #5fd3c1; } :root:not([data-theme="light"]) .netbox.mc .nb-head { color: #f0a35e; } }
+:root[data-theme="dark"] .netbox.mt .nb-head { color: #5fd3c1; } :root[data-theme="dark"] .netbox.mc .nb-head { color: #f0a35e; }
