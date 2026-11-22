@@ -291,3 +291,9 @@ nav.menu .ddm a { white-space: nowrap; }
 .netbox.mc { border-left-color: #b45309; } .netbox.mc .nb-head { background: rgba(180,83,9,.12); color: #8a3f06; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .netbox.mt .nb-head { color: #5fd3c1; } :root:not([data-theme="light"]) .netbox.mc .nb-head { color: #f0a35e; } }
 :root[data-theme="dark"] .netbox.mt .nb-head { color: #5fd3c1; } :root[data-theme="dark"] .netbox.mc .nb-head { color: #f0a35e; }
+
+/* switch: network over a link */
+.netsw { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .55rem; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-weight: 600; white-space: nowrap; }
+.netsw input { width: 1.05rem; height: 1.05rem; margin: 0; }
+.netsw.mt { border-color: #0f7b6c; } .netsw.mc { border-color: #b45309; }
+.netsw.mt:has(input:checked) { background: rgba(15,123,108,.14); } .netsw.mc:has(input:checked) { background: rgba(180,83,9,.14); }

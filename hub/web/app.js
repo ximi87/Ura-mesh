@@ -457,6 +457,33 @@ function mcRead(box) {
   return out;
 }
 
+
+/* Which network goes over which link: one switch per network and link (both directions), saved at once. */
+function netOn(c, peer, net) {
+  const r = c.rules[peer] || c.defaults;
+  if (net === "mc") { const a = mcRuleOf(r, "send"), b = mcRuleOf(r, "receive"); return a.on && b.on ? true : (!a.on && !b.on ? false : null); }
+  const a = (r.send || {}).on !== false, b = (r.receive || {}).on !== false;
+  return a && b ? true : (!a && !b ? false : null);           // null = only one direction
+}
+function netSwitch(c, peer, net) {
+  const v = netOn(c, peer, net);
+  return `<label class="netsw ${net}"><input type="checkbox" data-netsw="${net}" data-peer="${esc(peer)}" ${v ? "checked" : ""}>
+    <span>${net === "mc" ? "MeshCore" : "Meshtastic"}</span>${v === null ? ` <span class="muted small">(${t("ns.one_dir")})</span>` : ""}</label>`;
+}
+function bindNetSwitches(c, after) {
+  $$("input[data-netsw]").forEach(i => i.onchange = async () => {
+    const peer = i.dataset.peer, net = i.dataset.netsw, on = i.checked;
+    const r = JSON.parse(JSON.stringify(c.rules[peer] || c.defaults));
+    if (net === "mc") { r.mc = { send: Object.assign(mcRuleOf(r, "send"), { on }), receive: Object.assign(mcRuleOf(r, "receive"), { on }) }; }
+    else { r.send = Object.assign({}, r.send, { on }); r.receive = Object.assign({}, r.receive, { on }); }
+    i.disabled = true;
+    try { await api("POST", "/api/rules", { peer, rules: r }); c.rules[peer] = r; }
+    catch (e) { i.checked = !on; alert(errText(e)); }
+    i.disabled = false;
+    if (after) after();
+  });
+}
+
 /* ───────── status ───────── */
 const LOCAL_COLOR = "#0f7b6c";
 const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
@@ -474,7 +501,7 @@ function receptionHtml(st) {
 }
 
 async function pageStatus() {
-  const s = await api("GET", "/api/status");
+  const s = await api("GET", "/api/status"), cfgS = await api("GET", "/api/config");
   const nodes = await api("GET", "/api/nodes");
   const g = s.counters.global, r = s.radio, a = s.airtime;
   const pct = (used, win) => (100 * used / win).toFixed(2) + " %";
@@ -512,9 +539,9 @@ async function pageStatus() {
       : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`;
   const lines = [
     secBox("status", "mtlinks", `<b>${t("mtov.links")}</b>`, [["", `${active.length}`], [t("status"), B(s.link_state === "connected" ? "ok" : "bad", t(srvState(s)))]],
-      active.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+      active.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("ns.carried")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
         ${active.map(l => { const p = (s.counters.peers || {})[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
-          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${l.e2e && l.e2e.state === "ok" ? "🔒" : "⚠️"}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${l.e2e && l.e2e.state === "ok" ? "🔒" : "⚠️"}</td><td>${netSwitch(cfgS, l.peer, "mt")}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
         <p class="small muted">${t("mtov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p> <a href="#/links">${t("nav.links")} →</a>`),
     secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
@@ -567,6 +594,7 @@ async function pageStatus() {
         <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
     ${secCard("Meshtastic — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
   bindSecs();
+  bindNetSwitches(cfgS);
   const cols = [
     { key: "name", label: t("name"), render: n => `${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
     { key: "id", label: t("id"), render: n => `<span class="mono small">${esc(n.id)}</span>` },
@@ -681,6 +709,7 @@ async function pageLinks() {
     return `<div class="linkrow">
       <div class="lr-peer"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</div>
       <div class="lr-e2e">${lock(l)}</div>
+      <div class="lr-dir"><span class="lr-k">${t("ns.nets")}</span>${["mt", "mc"].map(n => { const v = netOn(c, l.peer, n); return `<span class="badge ${v ? "ok" : v === null ? "warn" : ""}">${n === "mc" ? "MeshCore" : "Meshtastic"} ${v ? "✓" : v === null ? "½" : "✗"}</span>`; }).join(" ")}</div>
       <div class="lr-dir"><span class="lr-k">${t("rule.send")}</span>${chips(r.send)}</div>
       <div class="lr-dir"><span class="lr-k">${t("rule.receive")}</span>${chips(r.receive)}</div>
       <div class="lr-reach"><span class="lr-k">${t("ls.reach")}</span>${r.send.on ? (reachOf(r.send) === 0 ? t("ls.stop", { x: esc(l.peer_code) }) : reachText(reachOf(r.send), "")) : "–"}</div>
@@ -705,6 +734,10 @@ async function pageLinks() {
       <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}">${t("l.accept")}</button>`}
       <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`;
   app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
+    ${active.length ? `<div class="card"><h2>${t("ns.title")}</h2><p class="muted small">${t("ns.hint")}</p>
+      <div class="tablewrap"><table><tr><th>${t("links")}</th><th>Meshtastic</th><th>MeshCore</th></tr>
+      ${active.map(l => `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${netSwitch(c, l.peer, "mt")}</td><td>${netSwitch(c, l.peer, "mc")}</td></tr>`).join("")}
+      </table></div></div>` : ""}
     ${incoming.length ? `<div class="card attention"><h2>${t("ls.incoming")} (${incoming.length})</h2>${incoming.map(l => reqRow(l, false)).join("")}</div>` : ""}
     <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${active.length})</h2>
       ${active.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("adv.open_all")}</button><button class="small" data-lall="0">${t("adv.close_all")}</button></div>` : ""}</div>
@@ -728,6 +761,7 @@ async function pageLinks() {
   const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { const k = "err." + e.message; alert(t(k) !== k ? t(k) : e.message); } setTimeout(pageLinks, 800); };
   $("#hubdir").addEventListener("click", e => { const b = e.target.closest("button[data-ask]"); if (b) act("/api/links/request", { to: b.dataset.ask }, b); });
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
+  bindNetSwitches(c, () => setTimeout(route, 300));
   $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
   $$("button[data-trust]").forEach(b => b.onclick = () => act("/api/links/trust_key", { peer: b.dataset.trust }, b));
   $$("[data-reachbox]").forEach(box => { syncReach(box); box.addEventListener("change", () => syncReach(box)); });
@@ -1717,6 +1751,10 @@ Ura.add({
   "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
   "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
   "rule.mc.title": { en: "MeshCore", sq: "MeshCore" },
+  "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
+  "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
+  "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
+  "ns.one_dir": { en: "only one direction", sq: "vetëm një drejtim" },
   "mcr.hint": { en: "What MeshCore traffic goes to {x} and what you accept from it — separate from Meshtastic. Only if both hubs have a MeshCore radio.", sq: "Çfarë trafiku MeshCore shkon te {x} dhe çfarë pranoni prej tij — e ndarë nga Meshtastic. Vetëm nëse të dy hub-et kanë radio MeshCore." },
   "mcr.on": { en: "MeshCore on this link", sq: "MeshCore në këtë lidhje" },
   "mcr.adverts": { en: "Adverts", sq: "Reklamat" }, "mcr.adverts.hint": { en: "nodes become known on the other side", sq: "nyjet bëhen të njohura në anën tjetër" },
@@ -1771,7 +1809,7 @@ async function airtimeCard(net) {
 
 /* ───────── MeshCore overview ───────── */
 async function pageMcOverview() {
-  const [st, s, contacts] = await Promise.all([api("GET", "/api/mc/status"), api("GET", "/api/status"), api("GET", "/api/mc/contacts").catch(() => [])]);
+  const [st, s, contacts, cfgS] = await Promise.all([api("GET", "/api/mc/status"), api("GET", "/api/status"), api("GET", "/api/mc/contacts").catch(() => []), api("GET", "/api/config")]);
   const r = st.radio, pc = (s.mc_counters || {}).peers || {}, act = (s.links || []).filter(l => l.state === "active");
   const mcOn = l => { const rr = (s.rules || {})[l.peer]; return true; };
   secs("mcov", ["radio", "links"]);
@@ -1782,15 +1820,16 @@ async function pageMcOverview() {
         [t("mc.contacts"), r.connected ? r.contacts : "–"], [t("mc.last_hour"), r.connected ? r.rx_hour : "–"]] : [["", B("", t("mc.none"))]],
       r ? `<p class="small">${t("mc.stage")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>` : `<p>${t("mc.none")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>`),
     secBox("mcov", "links", `<b>${t("mcov.links")}</b>`, [["", `${act.length}`]],
-      act.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+      act.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("ns.carried")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
         ${act.map(l => { const p = pc[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
-          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${netSwitch(cfgS, l.peer, "mc")}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
         <p class="small muted">${t("mcov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p>`),
     secBox("mcov", "air", `<b>${t("air.title")}</b>`, [[t("st.hour"), `${((s.mc_airtime || {}).used_hour || 0).toFixed(1)} s`], [t("st.day"), `${((s.mc_airtime || {}).used_day || 0).toFixed(1)} s`]],
       `<p class="small">${t("air.hint_mc")}</p><a href="#/mc/device">${t("nav.mc")} → ${t("nav.sub.device")}</a>`),
     secBox("mcov", "map", `<b>${t("mcov.map")}</b>`, [["", `${contacts.filter(x => x.lat != null && x.lon != null).length}`]], `<div id="mcmap" style="height:420px;border-radius:8px"></div>`)];
   app().innerHTML = secCard("MeshCore — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
+  bindNetSwitches(cfgS);
   const drawMap = () => {
     if (!$("#mcmap") || $("#mcmap")._done) return;
     const d = $("details.secline[data-sec=map]"); if (!d || !d.open) return;
