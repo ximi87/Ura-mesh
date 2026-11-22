@@ -311,7 +311,7 @@ nav.menu .ddm a { white-space: nowrap; }
 /* Links page: one line per link, the network switches beside it (not inside the clickable line) */
 .linkwrap { position: relative; }
 .linkwrap > .netsws { position: absolute; top: .15rem; right: 2.6rem; z-index: 2; display: flex; gap: .4rem; }
-.lrow2 { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding-right: 17rem; }
+.lrow2 { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .lrow2 .lr-trf { display: flex; gap: .6rem; flex-wrap: wrap; font-size: .85rem; }
 .trf { padding: .1rem .5rem; border-radius: 6px; border-left: 3px solid #0f7b6c; background: var(--bg); }
 .trf.mc { border-left-color: #b45309; }
@@ -323,3 +323,6 @@ details.about > summary { cursor: pointer; }
   .linkwrap > .netsws { position: static; padding: .4rem .6rem 0; }
   .lrow2 { padding-right: 0; }
 }
+
+.trf.off { opacity: .6; }
+.nstable td, .nstable th { vertical-align: middle; } .nstable .netsw { font-size: 1rem; padding: .3rem .8rem; }
