@@ -297,3 +297,13 @@ nav.menu .ddm a { white-space: nowrap; }
 .netsw input { width: 1.05rem; height: 1.05rem; margin: 0; }
 .netsw.mt { border-color: #0f7b6c; } .netsw.mc { border-color: #b45309; }
 .netsw.mt:has(input:checked) { background: rgba(15,123,108,.14); } .netsw.mc:has(input:checked) { background: rgba(180,83,9,.14); }
+
+/* link rules table: Send and Receive side by side, sections with a heading line */
+.rtable { width: 100%; border-collapse: collapse; margin: .4rem 0; }
+.rtable th { text-align: center; font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding: .35rem .5rem; width: 26%; }
+.rtable th:first-child { width: auto; }
+.rtable td { padding: .4rem .5rem; border-top: 1px solid var(--line); vertical-align: middle; }
+.rtable td.rt-c { text-align: center; } .rtable td.rt-c select { width: 100%; max-width: 260px; } .rtable td.rt-c .reachbox { text-align: left; }
+.rtable td.rt-na { text-align: center; color: var(--muted); }
+.rtable td.rt-c input[type=checkbox] { width: 1.15rem; height: 1.15rem; }
+.rtable tr.rt-sec td { border-top: 2px solid var(--line); background: var(--bg); font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: .3rem .5rem; }

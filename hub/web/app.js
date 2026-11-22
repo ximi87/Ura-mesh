@@ -370,7 +370,7 @@ Ura.add({
   "rule.onward_to": { en: "{x} offers to pass your packets on to these hubs — tick where your packets may go (multi-hop):", sq: "{x} ofron t'i kalojë paketat tuaja te këto hub-e — shënoni ku mund të shkojnë paketat tuaja (shumë-hop):" },
   "rule.onward_to.none": { en: "{x} offers no further hubs (it has no other links, or multi-hop is off there). Your packets stop at {x}.", sq: "{x} nuk ofron hub-e të tjera (nuk ka lidhje të tjera, ose shumë-hop është joaktiv atje). Paketat tuaja ndalojnë te {x}." },
   "rule.transit": { en: "Pass other hubs' packets to this hub", sq: "Kalo paketat e hub-eve të tjerë te ky hub" },
-  "rule.transit.hint": { en: "only if multi-hop is on in Settings", sq: "vetëm nëse shumë-hop është aktiv te Cilësimet" },
+  "rule.transit.hint": { en: "only if Meshtastic multi-hop is on (link settings below)", sq: "vetëm nëse shumë-hop Meshtastic është i ndezur (cilësimet e lidhjeve më poshtë)" },
   "rule.from_beyond": { en: "Accept packets from hubs beyond this one", sq: "Prano paketa nga hub-et përtej këtij" },
   "rule.from_beyond.hint": { en: "traffic that started at a hub further away and was passed on by this hub", sq: "trafik që nisi te një hub më larg dhe u kalua nga ky hub" },
   "why.transit_off": { en: "transit not allowed on this link", sq: "tranziti i palejuar në këtë lidhje" },
@@ -486,6 +486,35 @@ function bindNetSwitches(c, after) {
     i.disabled = false;
     if (after) after();
   });
+}
+
+
+/* Link rules as a table: one row per rule, "Send" and "Receive" side by side, sections separated by a heading line:
+   basic rules · groups · other · multi-hop (last). A rule that exists for one direction only shows "—" in the other. */
+const rcb = (attrs, on) => `<input type="checkbox" ${attrs} ${on ? "checked" : ""}>`;
+function rulesTable(x, sections, hidden) {
+  const cell = h => h == null ? `<td class="rt-na">—</td>` : `<td class="rt-c">${h}</td>`;
+  return `<table class="rtable"><thead><tr><th></th><th>${t("rt.send", { x })}</th><th>${t("rt.recv", { x })}</th></tr></thead>
+    ${sections.filter(sec => sec.rows.length).map(sec => `<tbody><tr class="rt-sec"><td colspan="3">${sec.title}</td></tr>
+      ${sec.rows.map(r => `<tr><td class="rt-l">${r.label}${r.hint ? `<div class="muted small">${r.hint}</div>` : ""}</td>${cell(r.send)}${cell(r.recv)}</tr>`).join("")}</tbody>`).join("")}
+  </table>${hidden || ""}`;
+}
+/* the on/off of a network over a link is the switch at the top of the Links page; kept here unchanged on save */
+const keepOn = (attr, rs, rr) => rcb(`data-dir="send" ${attr}="on" hidden`, rs.on !== false) + rcb(`data-dir="receive" ${attr}="on" hidden`, rr.on !== false);
+function mcTable(x, rs, rr, groups, defaults) {
+  const ck = (dir, k, rule) => rcb(`data-dir="${dir}" data-mck="${k}"`, rule[k]);
+  const both = (k, label, hint) => ({ label: t(label), hint: hint ? t(hint) : "", send: ck("send", k, rs), recv: ck("receive", k, rr) });
+  return rulesTable(x, [
+    { title: t("rt.basic"), rows: [both("adverts", "mcr.adverts", "mcr.adverts.hint"), both("public", "mcr.public"), both("private", "mcr.private", "mcr.private.hint")] },
+    { title: t("rule.groups"), rows: groups.length
+        ? groups.map(g => ({ label: esc(g), send: rcb(`data-dir="send" data-mcg="${esc(g)}"`, (rs.groups || []).includes(g)), recv: rcb(`data-dir="receive" data-mcg="${esc(g)}"`, (rr.groups || []).includes(g)) }))
+        : [{ label: `<span class="muted small">${t("mcr.nogroups")}</span>`, send: "", recv: "" }] },
+    { title: t("rt.other"), rows: [both("other_groups", "mcr.other_groups", "mcr.other_groups.hint"), both("other", "mcr.other", "mcr.other.hint")] },
+    { title: t("rt.multihop"), rows: [
+        ...(defaults ? [] : [{ label: t("mcr.reach_x", { x }), send: `<select data-dir="send" data-mcreach>${[0, 1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${+rs.reach === n ? "selected" : ""}>${n === 0 ? t("mcr.reach0") : n === 7 ? t("reach.any") : t(n === 1 ? "reach.1" : "reach.n", { n })}</option>`).join("")}</select>`, recv: null }]),
+        { label: t("rt.transit", { x }), hint: t("mcr.transit.hint"), send: ck("send", "transit", rs), recv: null },
+        { label: t("rt.from_beyond", { x }), hint: t("mcr.from_beyond.hint"), send: null, recv: ck("receive", "from_beyond", rr) }] }],
+    keepOn("data-mck", rs, rr));
 }
 
 /* ───────── status ───────── */
@@ -640,6 +669,22 @@ async function pageLinks() {
   const peerCounts = s.counters.peers;
   const rulesOf = peer => { const x = c.rules[peer] || c.defaults; return { send: Object.assign({}, x.send), receive: Object.assign({}, x.receive) }; };
   const mcGroups = ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name);
+  const mtTable = (peer, rs, rr) => {
+    const h = s.directory.find(x => x.id === peer), pc = esc((h && h.code) || peer);
+    const ck = (dir, k, rule) => rcb(`data-dir="${dir}" data-k="${k}"`, rule[k]);
+    const both = (k, label, hint) => ({ label, hint, send: ck("send", k, rs), recv: ck("receive", k, rr) });
+    return rulesTable(pc, [
+      { title: t("rt.basic"), rows: [both("public", t("rule.public"), t("l.public.hint", { x: esc(pubName) })), both("private", t("rule.private")), both("positions", t("rule.positions"))] },
+      { title: t("rule.groups"), rows: groups.length
+          ? groups.map(g => ({ label: `${esc(g)} <span class="muted small">(${t("ch.code")} ${gcodes(g)})</span>`,
+                               send: rcb(`data-dir="send" data-g="${esc(g)}"`, (rs.groups || []).includes(g)), recv: rcb(`data-dir="receive" data-g="${esc(g)}"`, (rr.groups || []).includes(g)) }))
+          : [{ label: `<span class="muted small">${t("l.nogroups")}</span>`, send: "", recv: "" }] },
+      { title: t("rt.multihop"), rows: [
+          { label: t("reach.title", { x: pc }), send: onwardBox(peer, rs, true), recv: null },
+          { label: t("rt.transit", { x: pc }), hint: t("rule.transit.hint"), send: ck("send", "transit", rs), recv: null },
+          { label: t("rt.from_beyond", { x: pc }), hint: t("rule.from_beyond.hint"), send: null, recv: ck("receive", "from_beyond", rr) }] }],
+      keepOn("data-k", rs, rr));
+  };
   const dirCol = (peer, dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}
       ${ruleRow(t("rule.public") + ` <span class="muted small">${t("l.public.hint", { x: esc(pubName) })}</span>`, dir, "public", rule)}
@@ -653,14 +698,14 @@ async function pageLinks() {
   const REACH_ANY = 7;
   const reachOf = rule => rule.reach != null ? +rule.reach : ((rule.onward_to || []).length ? Math.min(REACH_ANY, ((c.transit && c.transit.max_hops) || 2) - 1) : 0);
   const reachText = (n, pc) => n === 0 ? t("reach.0", { x: pc }) : n >= REACH_ANY ? t("reach.any") : t(n === 1 ? "reach.1" : "reach.n", { n });
-  const onwardBox = (peer, rule) => {
+  const onwardBox = (peer, rule, noTitle) => {
     const h = s.directory.find(x => x.id === peer), offered = ((h && h.rules && h.rules.transit_to) || []).filter(x => x !== s.server.hub_id);
     const pc = esc((h && h.code) || peer), r = reachOf(rule);
     const opts = Array.from({ length: REACH_ANY + 1 }, (_, n) => `<option value="${n}" ${n === r ? "selected" : ""}>${reachText(n, pc)}</option>`).join("");
     const ticks = offered.length
       ? offered.map(id => { const o = s.directory.find(x => x.id === id); return `<label class="check"><input type="checkbox" data-onward="${esc(id)}" ${(rule.onward_to || []).includes(id) ? "checked" : ""}> ${esc(o ? o.code + " · " + o.name : id)}</label>`; }).join("")
       : `<div class="muted small">${t("rule.onward_to.none", { x: pc })}</div>`;
-    return `<div class="reachbox" data-reachbox><div class="small" style="margin-top:.5rem"><b>${t("reach.title", { x: pc })}</b></div>
+    return `<div class="reachbox" data-reachbox>${noTitle ? "" : `<div class="small" style="margin-top:.5rem"><b>${t("reach.title", { x: pc })}</b></div>`}
       <select data-reach>${opts}</select>
       <div data-reach-ticks>${offered.length ? `<div class="small muted" style="margin-top:.4rem">${t("rule.onward_to", { x: pc })}</div>` : ""}${ticks}
         <div class="msg warn small" data-reach-none hidden>${t("reach.none_ticked", { x: pc })}</div></div>
@@ -726,9 +771,9 @@ async function pageLinks() {
           ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
           ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
         <div class="netbox mt"><div class="nb-head">Meshtastic — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
-          <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div></div></div>
+          ${mtTable(l.peer, rulesOf(l.peer).send, rulesOf(l.peer).receive)}</div></div>
         <div class="netbox mc"><div class="nb-head">MeshCore — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
-          <div class="grid g2" data-mcbox>${mcCol("send", mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcGroups)}${mcCol("receive", mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div></div></div>
+          <div data-mcbox>${mcTable(esc(l.peer_code), mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div></div></div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
           <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
         <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l), esc(l.peer_code))}</div>
@@ -1063,6 +1108,16 @@ async function pageSettings(want, opts) {
   opts = opts || {};
   const [s, c] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
   const reg = !!c.server.hub_id, h = c.hub;
+  const defTable = (rs, rr) => {
+    const ck = (dir, k, rule) => rcb(`data-dir="${dir}" data-k="${k}"`, rule[k]);
+    const both = (k, label) => ({ label, send: ck("send", k, rs), recv: ck("receive", k, rr) });
+    return rulesTable(t("rt.partner"), [
+      { title: t("rt.basic"), rows: [both("public", t("rule.public")), both("private", t("rule.private")), both("positions", t("rule.positions"))] },
+      { title: t("rt.multihop"), rows: [
+          { label: t("rt.transit", { x: t("rt.partner") }), hint: t("rule.transit.hint"), send: ck("send", "transit", rs), recv: null },
+          { label: t("rt.from_beyond", { x: t("rt.partner") }), hint: t("rule.from_beyond.hint"), send: null, recv: ck("receive", "from_beyond", rr) }] }],
+      keepOn("data-k", rs, rr));
+  };
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
       ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
@@ -1113,8 +1168,8 @@ async function pageSettings(want, opts) {
       <div class="netbox mc"><div class="nb-head">${t("tr.title")} — MeshCore</div><div class="nb-body"><p class="hint">${t("tr.hint_mc")}</p>
         <label class="check"><input type="checkbox" id="mctron" ${c.transit_mc && c.transit_mc.enabled ? "checked" : ""}> ${t("tr.on_mc")}</label>
         <label>${t("tr.hops")}</label><input type="number" id="mctrhops" min="2" max="8" value="${esc((c.transit_mc && c.transit_mc.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div></div></div>
-      <div class="netbox mt"><div class="nb-head">${t("s.defaults")} — Meshtastic</div><div class="nb-body"><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div></div></div>
-      <div class="netbox mc"><div class="nb-head">${t("s.defaults")} — MeshCore</div><div class="nb-body"><div class="grid g2" id="defsmc">${mcCol("send", mcRuleOf(c.defaults, "send"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}${mcCol("receive", mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}</div></div></div>
+      <div class="netbox mt"><div class="nb-head">${t("s.defaults")} — Meshtastic</div><div class="nb-body"><div id="defs">${defTable(c.defaults.send, c.defaults.receive)}</div></div></div>
+      <div class="netbox mc"><div class="nb-head">${t("s.defaults")} — MeshCore</div><div class="nb-body"><div id="defsmc">${mcTable(t("rt.partner"), mcRuleOf(c.defaults, "send"), mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name), true)}</div></div></div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button>`),
     secBox("settings", "pw", `<b>${t("s.password")}</b>`, [["", `<span class="muted small">${t("s.pw_short")}</span>`], ["", `<button class="small" id="logout">${t("logout")}</button>`]],
       `<input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
@@ -1771,6 +1826,12 @@ Ura.add({
   "tr.on_mc": { en: "This hub passes MeshCore traffic from one of its links to its other links", sq: "Ky hub kalon trafikun MeshCore nga një lidhje te lidhjet e tjera" },
   "tr.hint_mc": { en: "MeshCore packets that came from one linked hub are passed on to your other linked hubs — only as far as the hub where they started allows (“How far may my MeshCore packets go”), at most this many links in total, and only to links where “Pass other hubs' MeshCore packets” is ticked. Decided separately from Meshtastic.",
                   sq: "Paketat MeshCore që erdhën nga një hub i lidhur u kalohen hub-eve të tjera të lidhura — vetëm aq larg sa lejon hub-i ku nisën (“Sa larg mund të shkojnë paketat e mia MeshCore”), gjithsej jo më shumë se kaq lidhje, dhe vetëm te lidhjet ku është shënuar “Kaloji paketat MeshCore të hub-eve të tjera”. Vendoset veçmas nga Meshtastic." },
+  "rt.send": { en: "Send to {x}", sq: "Dërgo te {x}" }, "rt.recv": { en: "Receive from {x}", sq: "Merr nga {x}" },
+  "rt.basic": { en: "Basic rules", sq: "Rregullat bazë" }, "rt.other": { en: "Other", sq: "Të tjera" }, "rt.multihop": { en: "Multi-hop (other hubs beyond)", sq: "Shumë-hop (hub-e të tjera përtej)" },
+  "rt.transit": { en: "Pass other hubs' packets on to {x}", sq: "Kaloji paketat e hub-eve të tjera te {x}" },
+  "rt.from_beyond": { en: "Accept packets from hubs beyond {x}", sq: "Prano paketat nga hub-et përtej {x}" },
+  "rt.partner": { en: "the partner", sq: "partneri" },
+  "mcr.reach_x": { en: "How far may my MeshCore packets go through {x}?", sq: "Sa larg mund të shkojnë paketat e mia MeshCore përmes {x}?" },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
