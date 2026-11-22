@@ -2141,7 +2141,8 @@ class Link:
     def public_rules(self):
         c = cfg.get()
         peers = {h["id"]: h.get("code") for h in self.directory}
-        out = {"airtime": c["airtime"], "default": c["defaults"], "links": {}, "transit": c["transit"], "transit_to": []}
+        out = {"airtime": c["airtime"], "default": c["defaults"], "links": {}, "transit": c["transit"], "transit_to": [],
+               "transit_mc": c.get("transit_mc") or {"enabled": False, "max_hops": 2}}
         for l in self.links:
             if l["state"] == "active":
                 r = cfg.rules_for(l["peer"])

@@ -307,3 +307,19 @@ nav.menu .ddm a { white-space: nowrap; }
 .rtable td.rt-na { text-align: center; color: var(--muted); }
 .rtable td.rt-c input[type=checkbox] { width: 1.15rem; height: 1.15rem; }
 .rtable tr.rt-sec td { border-top: 2px solid var(--line); background: var(--bg); font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: .3rem .5rem; }
+
+/* Links page: one line per link, the network switches beside it (not inside the clickable line) */
+.linkwrap { position: relative; }
+.linkwrap > .netsws { position: absolute; top: .15rem; right: 2.6rem; z-index: 2; display: flex; gap: .4rem; }
+.lrow2 { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding-right: 17rem; }
+.lrow2 .lr-trf { display: flex; gap: .6rem; flex-wrap: wrap; font-size: .85rem; }
+.trf { padding: .1rem .5rem; border-radius: 6px; border-left: 3px solid #0f7b6c; background: var(--bg); }
+.trf.mc { border-left-color: #b45309; }
+details.about { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .6rem; }
+details.about > summary { cursor: pointer; }
+.about-grid { margin-top: .6rem; align-items: start; }
+.about-grid .netbox { margin: 0 0 .6rem; }
+@media (max-width: 760px) {
+  .linkwrap > .netsws { position: static; padding: .4rem .6rem 0; }
+  .lrow2 { padding-right: 0; }
+}

@@ -732,7 +732,7 @@ async function pageLinks() {
     const tr = hr.transit || {}, hubOn = !!tr.enabled;
     const offered = (hr.transit_to || []).filter(id => id !== s.server.hub_id).map(id => { const o = s.directory.find(x => x.id === id); return esc(o ? o.code : id); });
     return `<table class="small"><tr><th></th><th>${t("pr.sends")}</th><th>${t("pr.accepts")}</th></tr>
-     ${["on", "public", "private", "positions"].map(k => `<tr><td>${t(k === "on" ? "link" : "rule." + k)}</td><td>${yn(pr.send[k])}</td><td>${yn(pr.receive[k])}</td></tr>`).join("")}
+     ${["on", "public", "private", "positions"].map(k => `<tr><td>${t(k === "on" ? "ab.mt_on" : "rule." + k)}</td><td>${yn(pr.send[k])}</td><td>${yn(pr.receive[k])}</td></tr>`).join("")}
      <tr><td>${t("rule.groups")}</td><td>${esc((pr.send.groups || []).join(", ") || "–")}</td><td>${esc((pr.receive.groups || []).join(", ") || "–")}</td></tr></table>
      <h4 style="margin:.7rem 0 .3rem">${t("pr.multihop")}</h4>
      <table class="small">
@@ -753,47 +753,56 @@ async function pageLinks() {
         .filter(Boolean).map(x => `<span class="chip">${x}</span>`).join("") || `<span class="muted small">${t("ls.nothing")}</span>`;
   const blockedN = p => p ? Object.values(p.blocked_send).reduce((x, y) => x + y, 0) + Object.values(p.blocked_recv).reduce((x, y) => x + y, 0) : 0;
   const lock = l => l.e2e.state === "ok" ? `<span title="${esc(t("e2e.title"))}">🔒</span>` : `<span class="badge bad" title="${esc(t("e2e.title"))}">⚠</span>`;
-  const linkLine = l => {
-    const r = rulesOf(l.peer), p = peerCounts[l.peer] || { sent: 0, received: 0, blocked_send: {}, blocked_recv: {} }, nb = blockedN(p);
-    return `<div class="linkrow">
-      <div class="lr-peer"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</div>
-      <div class="lr-e2e">${lock(l)}</div>
-      <div class="lr-dir"><span class="lr-k">${t("ns.nets")}</span>${["mt", "mc"].map(n => { const v = netOn(c, l.peer, n); return `<span class="badge ${v ? "ok" : v === null ? "warn" : ""}">${n === "mc" ? "MeshCore" : "Meshtastic"} ${v ? "✓" : v === null ? "½" : "✗"}</span>`; }).join(" ")}</div>
-      <div class="lr-dir"><span class="lr-k">${t("rule.send")}</span>${chips(r.send)}</div>
-      <div class="lr-dir"><span class="lr-k">${t("rule.receive")}</span>${chips(r.receive)}</div>
-      <div class="lr-reach"><span class="lr-k">${t("ls.reach")}</span>${r.send.on ? (reachOf(r.send) === 0 ? t("ls.stop", { x: esc(l.peer_code) }) : reachText(reachOf(r.send), "")) : "–"}</div>
-      <div class="lr-tr"><span title="${esc(t("rule.send"))}">↑ ${p.sent}</span> <span title="${esc(t("rule.receive"))}">↓ ${p.received}</span>
-        ${nb ? `<span class="badge warn" title="${esc(t("l.blocked"))}">${nb}</span>` : ""}</div></div>`;
-  };
-  const linkBody = l => `
-        <div class="msg ${l.e2e.state === "ok" ? "ok" : "bad"}" style="margin-top:.5rem"><b>${t("e2e.title")}</b><br>
+  const mcCounts = (s.mc_counters || {}).peers || {};
+  const trf = (p, net) => { p = p || { sent: 0, received: 0, blocked_send: {}, blocked_recv: {} }; const nb = blockedN(p);
+    return `<span class="trf ${net}"><b>${net === "mc" ? "MeshCore" : "Meshtastic"}</b> ↑ ${p.sent || 0} ↓ ${p.received || 0}${nb ? ` <span class="badge warn" title="${esc(t("l.blocked"))}">${nb}</span>` : ""}</span>`; };
+  const linkLine = l => `<div class="linkrow lrow2">
+      <div class="lr-peer"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${lock(l)}</div>
+      <div class="lr-trf">${trf(peerCounts[l.peer], "mt")} ${trf(mcCounts[l.peer], "mc")}</div></div>`;
+  const e2eBox = l => `<div class="msg ${l.e2e.state === "ok" ? "ok" : "bad"} small"><b>${t("e2e.title")}</b><br>
           ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
-          ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
-          ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
+          ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
+          ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>`;
+  const mcPartner = l => { const pr = peerRules(l), m = pr && pr.link && pr.link.mc;
+    if (!m) return `<p class="muted small">${t("ab.mc_none", { x: esc(l.peer_code) })}</p>`;
+    const row = (k, lbl) => `<tr><td>${t(lbl)}</td><td>${yn(m.send && m.send.on !== false && m.send[k] !== false)}</td><td>${yn(m.receive && m.receive.on !== false && m.receive[k] !== false)}</td></tr>`;
+    const tm = pr.hub && pr.hub.transit_mc;
+    return `<div class="tablewrap"><table class="small"><tr><th></th><th>${t("pr.sends")}</th><th>${t("pr.accepts")}</th></tr>
+      ${row("on", "mcr.on")}${row("adverts", "mcr.adverts")}${row("public", "mcr.public")}${row("private", "mcr.private")}${row("other_groups", "mcr.other_groups")}</table></div>
+      <p class="small">${t("ab.mc_transit", { x: esc(l.peer_code) })}: ${tm ? yn(tm.enabled) + (tm.enabled ? ` <span class="muted">${t("tr.max_n", { n: tm.max_hops })}</span>` : "") : "–"}</p>`; };
+  const mcCountsHtml = peer => { const p = mcCounts[peer]; if (!p) return `<p class="muted small">–</p>`;
+    const bl = o => Object.entries(o).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
+    return `<p class="small">${p.transit ? `${t("st.transit")}: <b>${p.transit}</b><br>` : ""}${t("rule.send")}: <b>${p.sent}</b>${Object.keys(p.blocked_send).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_send)}` : ""}<br>
+      ${t("rule.receive")}: <b>${p.received}</b>${Object.keys(p.blocked_recv).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_recv)}` : ""}</p>`; };
+  const linkBody = l => `
+        ${l.e2e.state !== "ok" ? e2eBox(l) : ""}
         <div class="netbox mt"><div class="nb-head">Meshtastic — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
           ${mtTable(l.peer, rulesOf(l.peer).send, rulesOf(l.peer).receive)}</div></div>
         <div class="netbox mc"><div class="nb-head">MeshCore — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
           <div data-mcbox>${mcTable(esc(l.peer_code), mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div></div></div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
           <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
-        <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l), esc(l.peer_code))}</div>
-        <div><h3>${t("l.counts")}</h3>${countsHtml(l.peer)}</div></div>`;
+        <details class="about"><summary><b>${t("ab.title", { x: esc(l.peer_code) })}</b> <span class="muted small">${t("ab.sub")}</span></summary>
+          <div class="grid g3 about-grid">
+            <div class="netbox mt"><div class="nb-head">${t("ab.partner_rules", { x: esc(l.peer_code) })} — Meshtastic</div><div class="nb-body">${prHtml(peerRules(l), esc(l.peer_code))}</div></div>
+            <div class="netbox mc"><div class="nb-head">${t("ab.partner_rules", { x: esc(l.peer_code) })} — MeshCore</div><div class="nb-body">${mcPartner(l)}</div></div>
+            <div><div class="netbox mt"><div class="nb-head">${t("l.counts")} — Meshtastic</div><div class="nb-body">${countsHtml(l.peer)}</div></div>
+              <div class="netbox mc"><div class="nb-head">${t("l.counts")} — MeshCore</div><div class="nb-body">${mcCountsHtml(l.peer)}</div></div>
+              ${l.e2e.state === "ok" ? e2eBox(l) : ""}</div>
+          </div></details>`;
   const reqRow = (l, mine) => `<div class="spread reqrow"><div><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}
       <div class="muted small">${mine ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })}</div></div>
       <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}">${t("l.accept")}</button>`}
       <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`;
   app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
-    ${active.length ? `<div class="card"><h2>${t("ns.title")}</h2><p class="muted small">${t("ns.hint")}</p>
-      <div class="tablewrap"><table><tr><th>${t("links")}</th><th>Meshtastic</th><th>MeshCore</th></tr>
-      ${active.map(l => `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${netSwitch(c, l.peer, "mt")}</td><td>${netSwitch(c, l.peer, "mc")}</td></tr>`).join("")}
-      </table></div></div>` : ""}
     ${incoming.length ? `<div class="card attention"><h2>${t("ls.incoming")} (${incoming.length})</h2>${incoming.map(l => reqRow(l, false)).join("")}</div>` : ""}
     <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${active.length})</h2>
       ${active.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("adv.open_all")}</button><button class="small" data-lall="0">${t("adv.close_all")}</button></div>` : ""}</div>
       ${active.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
-      ${active.length ? `<p class="muted small">${t("ls.hint")}</p>` + active.map(l => `
+      ${active.length ? `<p class="muted small">${t("ls.hint2")}</p>` + active.map(l => `
+      <div class="linkwrap"><div class="netsws">${netSwitch(c, l.peer, "mt")}${netSwitch(c, l.peer, "mc")}</div>
       <details class="linkbox" data-link="${l.id}" data-peer="${l.peer}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openLinks.has(l.peer) ? "open" : ""}>
-        <summary>${linkLine(l)}</summary><div class="linkbody">${linkBody(l)}</div></details>`).join("") : `<p class="muted">${t("l.none")}</p>`}
+        <summary>${linkLine(l)}</summary><div class="linkbody">${linkBody(l)}</div></details></div>`).join("") : `<p class="muted">${t("l.none")}</p>`}
       ${outgoing.length ? `<h3>${t("ls.outgoing")} (${outgoing.length})</h3>${outgoing.map(l => reqRow(l, true)).join("")}` : ""}</div>
     <div class="card"><h2>${t("l.dir")} (${others.length})</h2><div id="hubdir"></div></div>`;
   dataTable($("#hubdir"), others, [
@@ -1832,6 +1841,14 @@ Ura.add({
   "rt.from_beyond": { en: "Accept packets from hubs beyond {x}", sq: "Prano paketat nga hub-et përtej {x}" },
   "rt.partner": { en: "the partner", sq: "partneri" },
   "mcr.reach_x": { en: "How far may my MeshCore packets go through {x}?", sq: "Sa larg mund të shkojnë paketat e mia MeshCore përmes {x}?" },
+  "ls.hint2": { en: "One line per link. The two switches decide whether Meshtastic and MeshCore go over this link (both directions, saved at once). Click the line for what exactly passes (the rules).",
+                sq: "Një rresht për çdo lidhje. Dy çelësat vendosin nëse Meshtastic dhe MeshCore kalojnë nëpër këtë lidhje (të dy drejtimet, ruhet menjëherë). Klikoni rreshtin për çfarë saktësisht kalon (rregullat)." },
+  "ab.mt_on": { en: "Meshtastic on this link", sq: "Meshtastic në këtë lidhje" },
+  "ab.title": { en: "About this link: the rules of {x}, traffic, encryption", sq: "Rreth kësaj lidhjeje: rregullat e {x}, trafiku, enkriptimi" },
+  "ab.sub": { en: "(click to show)", sq: "(klikoni për ta shfaqur)" },
+  "ab.partner_rules": { en: "Rules of {x}", sq: "Rregullat e {x}" },
+  "ab.mc_none": { en: "{x} has not published MeshCore rules (older version or no MeshCore radio).", sq: "{x} nuk ka publikuar rregulla MeshCore (version më i vjetër ose pa radio MeshCore)." },
+  "ab.mc_transit": { en: "{x} passes MeshCore traffic between its links", sq: "{x} kalon trafikun MeshCore ndërmjet lidhjeve të veta" },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
