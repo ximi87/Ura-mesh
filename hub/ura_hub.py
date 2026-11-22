@@ -2122,8 +2122,19 @@ def receive_from_peer(peer, topic, data, origin=None):
     `origin` = the hub whose radio heard it first (differs from `peer` for multi-hop traffic)."""
     counters.add("received")
     r = mt_radio()
-    if r is None:
-        counters.peer_add(peer, "blocked_recv", "no_radio")
+    if r is None or r.iface is None:
+        # no radio, or it is unplugged / reconnecting: the packet cannot be read without the radio's channels —
+        # wait up to 15 s for it, otherwise say plainly why it did not go on air
+        def later():
+            for _ in range(15):
+                time.sleep(1)
+                rr = mt_radio()
+                if rr is not None and rr.iface is not None:
+                    return receive_from_peer(peer, topic, data, origin)
+            counters.peer_add(peer, "blocked_recv", "no_radio")
+            frm_ = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
+            log.info("from %s: packet not put on air (no radio connected to this hub)", frm_)
+        threading.Thread(target=later, daemon=True).start()
         return
     c = classify(data, r.channel_keys())
     if c is None:
