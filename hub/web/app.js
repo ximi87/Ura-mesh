@@ -24,10 +24,12 @@ Ura.add({
                         sq: "Njoftimi dërgon emrin, telemetrinë dhe (nëse ka) pozicionin e kësaj radioje në rrjet dhe përmes lidhjeve. Kërkesa fqinjëve bën që nyjet afër të përgjigjen me të tyret." },
   "dg.no_data": { en: "The node received the request but sent nothing back (waited {s} s). Some nodes do not answer telemetry or position requests, or have nothing to report.",
                   sq: "Nyja e mori kërkesën por nuk ktheu asgjë (pritëm {s} s). Disa nyje nuk u përgjigjen kërkesave për telemetri ose pozicion, ose nuk kanë çfarë të raportojnë." },
+  "uc.summary": { en: "Other channels heard nearby in the last 24 h: {n} — private groups of other people; normal, they do not cross Ura (click for the list)",
+                  sq: "Kanale të tjera të dëgjuara afër në 24 orët e fundit: {n} — grupe private të të tjerëve; normale, nuk kalojnë Ura (kliko për listën)" },
   "uc.title": { en: "This radio hears packets it cannot read", sq: "Kjo radio dëgjon paketa që nuk mund t'i lexojë" },
   "uc.line": { en: "Channel code {code}: {n} packets, last {x}, from", sq: "Kodi i kanalit {code}: {n} paketa, e fundit {x}, nga" },
-  "uc.fix": { en: "These packets cannot cross Ura: their channel has another key or name than any channel of this radio ({codes}). Fix it on that node (for the public channel: the default key AQ==), or add the same channel (same name, same key) to this radio:",
-              sq: "Këto paketa nuk mund të kalojnë Ura: kanali i tyre ka çelës ose emër tjetër nga çdo kanal i kësaj radioje ({codes}). Rregullojeni te ajo nyje (për kanalin publik: çelësi i parazgjedhur AQ==), ose shtoni të njëjtin kanal (i njëjti emër, i njëjti çelës) në këtë radio:" },
+  "uc.fix": { en: "Their channels have another name or key than the channels of this radio ({codes}), so they stay where they are — usually that is wanted. Only if one of your own nodes should be on the public channel and shows up here: give it the default key AQ== on that node, or add the same channel (same name, same key) to this radio:",
+              sq: "Kanalet e tyre kanë emër ose çelës tjetër nga kanalet e kësaj radioje ({codes}), ndaj mbeten aty ku janë — zakonisht kjo është e dëshiruar. Vetëm nëse një nga nyjet tuaja duhet të jetë në kanalin publik dhe shfaqet këtu: jepini çelësin standard AQ== në atë nyje, ose shtoni të njëjtin kanal (i njëjti emër, i njëjti çelës) në këtë radio:" },
   "uc.short": { en: "hears unreadable channel", sq: "dëgjon kanal të palexueshëm" },
   "cs.differs": { en: "The radio's channels differ from the copy saved in this hub (the radio was replaced, reset, or changed with the phone app).",
                   sq: "Kanalet e radios ndryshojnë nga kopja e ruajtur në këtë hub (radio u zëvendësua, u rivendos ose u ndryshua me aplikacionin)." },
@@ -522,11 +524,11 @@ async function pageStatus() {
       `<p class="muted small">${t("nl.remote.hint")}</p>
         ${gkeys.length ? gkeys.map((k, i) => `<details class="grp" data-g="${esc(k)}" ${i === 0 && k !== "?" ? "open" : ""}><summary><span class="dot" style="background:${color[k]}"></span><b>${esc(k === "?" ? t("nl.unknown") : codeOf(k))}</b> (${groups[k].length})</summary><div class="grptable"></div></details>`).join("")
           : `<p class="muted">${t("none")}</p>`}`)];
-  const chNote = (unk.length ? `<div class="msg warn"><b>${t("uc.title")}</b>
+  const chNote = (unk.length ? `<details class="msg info small"><summary>${t("uc.summary", { n: unk.length })}</summary>
       ${unk.map(u => `<div style="margin-top:.3rem">${t("uc.line", { code: u.code, n: u.count, x: ago(u.last) })}
         ${u.senders.map(x => `<span class="mono small">${esc(x.id)}</span>${x.name ? ` <span class="small">(${esc(x.name)})</span>` : ""}`).join(", ")}</div>`).join("")}
       <div class="small" style="margin-top:.4rem">${t("uc.fix", { codes: (r.channels || []).map(c => `${esc(c.name)} = ${c.code != null ? c.code : "?"}`).join(", ") })}
-        <a href="#/device">${t("nav.device")} →</a></div></div>` : "")
+        <a href="#/device">${t("nav.device")} →</a></div></details>` : "")
     + (r && r.connected && r.channels_match === false ? `<div class="msg warn">${t("cs.differs")} <a href="#/device">${t("nav.device")} →</a></div>` : "");
   app().innerHTML = `${pendingNote}${chNote}
     <div class="grid g4">
