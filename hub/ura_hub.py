@@ -2137,6 +2137,7 @@ class Link:
         self.reconnect = asyncio.Event()
         self.kick_nodes = asyncio.Event()     # report nodes now (approved, reconnected, settings changed)
         self.kick_location = asyncio.Event()  # send the location now (settings changed, reconnected)
+        self.map_data, self.map_event = None, asyncio.Event()     # the linked hubs and their nodes, from the server
 
     def public_rules(self):
         c = cfg.get()
@@ -2287,6 +2288,9 @@ class Link:
 
     async def _on_message(self, m):
         t = m.get("t")
+        if t == "map":                                   # answer to map_req: linked hubs + their nodes
+            self.map_data = {"t": time.time(), "hubs": m.get("hubs") or [], "nodes": m.get("nodes") or []}
+            self.map_event.set()
         if t == "mesh" and m.get("net") == "mc" and m.get("box"):
             await asyncio.to_thread(mc_receive_box, m.get("from"), base64.b64decode(m["box"]))
         if t == "mesh" and m.get("net") == "mt" and m.get("box"):
@@ -2792,6 +2796,91 @@ def mc_receive_box(peer, box):
         log.warning("from %s MeshCore %s: the radio did not take it (%s)", frm, p["type"], e)
 
 
+# ───────────────────────── map data (home page, network overviews) ─────────────────────────
+_srv_cache = {}
+
+
+def server_json(path, max_age=30):
+    """A public JSON page of the Ura server (same pinned certificate as the hub link), cached for a short while."""
+    hit = _srv_cache.get(path)
+    if hit and time.time() - hit[0] < max_age:
+        return hit[1]
+    srv = cfg.get()["server"]
+    if not (srv["address"] and srv["fingerprint"]):
+        return None
+    host = srv["address"].rpartition(":")[0]
+    url = f"https://{host}:{srv.get('web_port') or 8443}{path}"
+    ctx = ssl.create_default_context(); ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+    try:
+        resp = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": TILE_UA}), timeout=6, context=ctx)
+        if fp_of(resp.fp.raw._sock.getpeercert(binary_form=True)) != srv["fingerprint"]:
+            return hit[1] if hit else None
+        data = json.loads(resp.read())
+        _srv_cache[path] = (time.time(), data)
+        return data
+    except Exception:
+        return hit[1] if hit else None
+
+
+async def _map_req():
+    link.map_event.clear()
+    if not await link.send({"t": "map_req"}):
+        return False
+    try:
+        await asyncio.wait_for(link.map_event.wait(), 4)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
+def map_from_server():
+    """The linked hubs and their nodes as the server has them: asked over the hub connection (cached 20 s); the
+    server's web page is only a fallback (older servers)."""
+    md = link.map_data
+    if not md or time.time() - md["t"] > 20:
+        try:
+            run_coro(_map_req(), timeout=6)
+        except Exception:
+            pass
+        md = link.map_data
+    if md and time.time() - md["t"] < 300:
+        return md["nodes"], md["hubs"]
+    return server_json("/api/public/nodes") or [], server_json("/api/public/hubs") or []
+
+
+def map_payload():
+    """Everything the maps show: this hub, its own nodes (from its radios, live), the linked hubs and THEIR nodes
+    (as the server has them), plus a small statistic per network."""
+    c = cfg.get()
+    peers = set(active_peers())
+    share = c["share_positions_on_map"]
+    local = []
+    r = mt_radio()
+    if r is not None and r.iface is not None:
+        for n in r.nodes(True):
+            if n.get("own") or not (origins.map.get(n["id"])):
+                local.append(dict(n, net="mt"))
+    m = mc_radio()
+    if m is not None and m.ser is not None and m.self_info:
+        local += [dict(n, net="mc") for n in m.nodes(True)]
+    nodes_srv, hubs_srv = map_from_server()
+    remote = [n for n in nodes_srv if n.get("hub") in peers]
+    partners = [{"id": h["id"], "code": h.get("code"), "name": h.get("name"), "lat": h.get("lat"), "lon": h.get("lon"),
+                 "online": h.get("online")} for h in hubs_srv if h.get("id") in peers]
+    pos = r.own_position() if r else None
+    me = {"code": f"{c['hub']['country']}-{c['hub']['city']}", "name": c["hub"]["name"],
+          "lat": c["hub"].get("lat") if c["hub"].get("lat") is not None else (pos or {}).get("lat"),
+          "lon": c["hub"].get("lon") if c["hub"].get("lon") is not None else (pos or {}).get("lon")}
+    g, gm = counters.snapshot()["global"], counters_mc.snapshot()["global"]
+    stats = {"links": len(peers), "links_online": sum(1 for h in partners if h.get("online")),
+             "mt": {"local": sum(1 for n in local if n["net"] == "mt"), "remote": sum(1 for n in remote if n.get("net") == "mt"),
+                    "sent": g.get("sent", 0), "received": g.get("received", 0), "radio": bool(r and r.iface is not None)},
+             "mc": {"local": sum(1 for n in local if n["net"] == "mc"), "remote": sum(1 for n in remote if n.get("net") == "mc"),
+                    "sent": gm.get("sent", 0), "received": gm.get("received", 0), "radio": bool(m and m.ser is not None)},
+             "share_positions": share, "server": bool(nodes_srv or hubs_srv)}
+    return {"me": me, "local": local, "remote": remote, "partners": partners, "stats": stats}
+
+
 # ───────────────────────── website ─────────────────────────
 
 sessions = {}
@@ -2988,6 +3077,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply(c)
             if p == "/api/factory_reset":
                 return self.reply(reset_state)
+            if p == "/api/map":
+                return self.reply(map_payload())
             if p == "/api/mc/status":
                 r = mc_radio()
                 return self.reply({"radio": r.info() if r else None, "result": mc_result})

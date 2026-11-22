@@ -517,6 +517,76 @@ function mcTable(x, rs, rr, groups, defaults) {
     keepOn("data-mck", rs, rr));
 }
 
+
+/* ───────── the hub's map: its own nodes + the linked hubs and their nodes, per network ─────────
+   net = null (home page: both networks, with a filter), "mt" or "mc" (that network's overview) */
+const NET_RIM = { mt: { color: "#fff", weight: 1.5 }, mc: { color: "#b45309", weight: 3 } };
+const PARTNER_COLORS = ["#2563eb", "#9333ea", "#db2777", "#ca8a04", "#0891b2", "#65a30d", "#dc2626"];
+async function hubMap(el, net, opts) {
+  opts = opts || {};
+  const d = await api("GET", "/api/map");
+  const show = { mt: net !== "mc", mc: net !== "mt" };
+  const pc = {}; d.partners.forEach((h, i) => pc[h.id] = PARTNER_COLORS[i % PARTNER_COLORS.length]);
+  el.innerHTML = `<div class="hubmap" style="height:${opts.height || "460px"}"></div>`;
+  const box = $(".hubmap", el);
+  if (mapObj && opts.main) { mapObj.remove(); mapObj = null; }
+  const m = makeMap(box, null, null, { guard: !opts.main });
+  if (opts.main) mapObj = m;
+  const layers = { mt: L.layerGroup().addTo(m), mc: L.layerGroup().addTo(m) }, bounds = [];
+  const dot = (n, fill, rad, where) => {
+    if (n.lat == null || n.lon == null) return;
+    const k = n.net === "mc" ? "mc" : "mt";
+    L.circleMarker([n.lat, n.lon], Object.assign({ radius: rad, fillColor: fill, fillOpacity: .95 }, NET_RIM[k]))
+      .bindPopup(`<b>${esc(n.name || n.id)}</b> ${esc(n.short || "")}<br>${k === "mc" ? "MeshCore" : "Meshtastic"} · ${where}${n.last_heard ? `<br>${t("last_heard")}: ${ago(n.last_heard)}` : ""}`)
+      .addTo(layers[k]);
+    bounds.push([n.lat, n.lon]);
+  };
+  d.local.filter(n => show[n.net]).forEach(n => dot(n, LOCAL_COLOR, n.own ? 9 : 6, n.own ? t("hm.this_radio") : t("hm.here")));
+  d.remote.filter(n => show[n.net === "mc" ? "mc" : "mt"]).forEach(n => {
+    const h = d.partners.find(x => x.id === n.hub); dot(n, pc[n.hub] || "#666", 6, t("hm.from", { x: esc(h ? h.code : n.hub) }));
+  });
+  // hubs: this one and the linked ones, with a line for each link
+  if (d.me.lat != null) {
+    L.circleMarker([d.me.lat, d.me.lon], { radius: 12, color: LOCAL_COLOR, weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(`<b>${esc(d.me.code)} · ${esc(d.me.name)}</b><br>${t("hm.this_hub")}`).addTo(m);
+    bounds.push([d.me.lat, d.me.lon]);
+  }
+  d.partners.forEach(h => {
+    if (h.lat == null) return;
+    if (d.me.lat != null) L.polyline([[d.me.lat, d.me.lon], [h.lat, h.lon]], { color: "#0f7b6c", weight: 3, dashArray: "6 6", opacity: .7 }).addTo(m);
+    L.circleMarker([h.lat, h.lon], { radius: 11, color: pc[h.id], weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(`<b>${esc(h.code)} · ${esc(h.name)}</b><br>${onlineBadge(h.online)}<br>${t("hm.linked")}`).addTo(m);
+    bounds.push([h.lat, h.lon]);
+  });
+  const hubsPos = [d.me, ...d.partners].filter(h => h.lat != null).map(h => L.latLng(h.lat, h.lon));
+  const near = hubsPos.length ? bounds.filter(b => hubsPos.some(h => h.distanceTo(b) < 600000)) : bounds;
+  if (near.length) m.fitBounds(near, { padding: [30, 30], maxZoom: 11 });
+  // the small statistic on the map
+  const st = d.stats, row = k => `<div class="hm-net ${k}"><b>${k === "mc" ? "MeshCore" : "Meshtastic"}</b>
+      ${net ? "" : `<label class="check small" style="margin:0"><input type="checkbox" data-hmnet="${k}" checked> ${t("hm.show")}</label>`}
+      <div class="small">${st[k].radio ? "" : `<span class="badge">${t("hm.no_radio")}</span> `}${t("hm.here_n", { n: st[k].local })} · ${t("hm.links_n", { n: st[k].remote })}</div>
+      <div class="small muted">↑ ${st[k].sent} ↓ ${st[k].received} ${t("hm.since")}</div></div>`;
+  const panel = L.control({ position: "topright" });
+  panel.onAdd = () => {
+    const x = L.DomUtil.create("div", "livebox mappanel hm-panel");
+    x.innerHTML = `<details class="hm-fold" ${window.matchMedia("(max-width: 760px)").matches ? "" : "open"}><summary><b>${esc(d.me.code)}</b> · ${esc(d.me.name)}
+      <span class="small muted">· ${(net ? [net] : ["mt", "mc"]).map(k => (st[k].local + st[k].remote) + (k === "mc" ? " MC" : " MT")).join(" · ")}</span></summary>
+      <div class="small muted">${t("hm.links_online", { n: st.links_online, m: st.links })}</div>
+      ${(net ? [net] : ["mt", "mc"]).map(row).join("")}
+      <div class="small muted" style="margin-top:.3rem">${t("hm.legend")}</div>
+      ${d.partners.map(h => `<div class="small"><span class="dot" style="background:${pc[h.id]}"></span> ${esc(h.code)} · ${esc(h.name)}</div>`).join("")}
+      ${st.server ? "" : `<div class="small muted">${t("hm.no_server")}</div>`}</details>`;
+    L.DomEvent.disableClickPropagation(x); L.DomEvent.disableScrollPropagation(x);
+    return x;
+  };
+  panel.addTo(m);
+  $$("input[data-hmnet]", el).forEach(i => i.onchange = () => { if (i.checked) layers[i.dataset.hmnet].addTo(m); else m.removeLayer(layers[i.dataset.hmnet]); });
+  return m;
+}
+
+async function pageHome() {
+  app().innerHTML = `<div id="homemap" class="homemap"></div>`;
+  await hubMap($("#homemap"), null, { main: true, height: "calc(100vh - 7rem)" });
+}
+
 /* ───────── status ───────── */
 const LOCAL_COLOR = "#0f7b6c";
 const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
@@ -621,10 +691,7 @@ async function pageStatus() {
       <div class="stat"><div class="v">${g.to_radio}</div><div class="l">${t("st.to_radio")}</div></div>
       ${g.transit ? `<div class="stat"><div class="v">${g.transit}</div><div class="l">${t("st.transit")}</div></div>` : ""}
     </div>
-    <div class="card" style="margin-top:1rem"><div class="spread"><h2>${t("map.title")}</h2><span class="muted small">${t("map.own_only")}</span></div>
-      <div id="map" class="minimap" style="height:440px"></div>
-      <div class="legend"><span><span class="dot big" style="background:${LOCAL_COLOR}"></span>${t("map.this_radio")}</span>
-        <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
+    <div class="card" style="margin-top:1rem"><h2>Meshtastic — ${t("hm.title")}</h2><div id="mtmap"></div></div>
     ${secCard("Meshtastic — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
   bindSecs();
   const cols = [
@@ -640,13 +707,7 @@ async function pageStatus() {
     if (d.open) fill();
     d.addEventListener("toggle", fill);
   });
-  const b = [];
-  mapObj = makeMap("map", null, null, { guard: true });
-  const dot = (n, c, rad) => { if (n.lat == null) return; L.circleMarker([n.lat, n.lon], { radius: rad, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: .95 })
-      .bindPopup(`<b>${esc(n.name || n.id)}</b> ${esc(n.short || "")}<br>${t("last_heard")}: ${ago(n.last_heard)}`).addTo(mapObj); b.push([n.lat, n.lon]); };
-  local.forEach(n => dot(n, LOCAL_COLOR, 6));        // only nodes this hub's radio hears; remote nodes are in the list below
-  if (own) dot(own, LOCAL_COLOR, 10);
-  if (b.length) mapObj.fitBounds(b, { padding: [30, 30], maxZoom: 12 });
+  hubMap($("#mtmap"), "mt", { main: true }).catch(() => {});
   if ($("#showold")) $("#showold").onchange = e => { showOld = e.target.checked; if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus(); };
   const ann = async ask => { try { await api("POST", "/api/radio/announce", { ask }); $("#annmsg").textContent = t("st.announced"); } catch (e) { $("#annmsg").textContent = errText(e); } };
   $("#ann").onclick = () => ann(false); $("#ask").onclick = () => ann(true);
@@ -1333,11 +1394,7 @@ async function route() {
       if (!wzState(s0, c0).done) { history.replaceState(null, "", "#/setup"); return await pageSetup(); }
       SESS.setup_done = true; api("POST", "/api/wizard", { done: true }).catch(() => {});   // set up (on any page): remembered
     }
-    if (page === "" && !location.hash.startsWith("#/mt")) {
-      const c1 = await api("GET", "/api/config");
-      if (!mtConf(c1) && (c1.radios || []).some(x => x.net === "mc")) { history.replaceState(null, "", "#/mc/overview"); return await pageMcOverview(); }
-      history.replaceState(null, "", "#/mt");
-    }
+    if (page === "") return await pageHome();
     await pageStatus();
     timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, (SESS.page_refresh_s || 30) * 1000);
   } catch (e) {
@@ -1858,6 +1915,15 @@ Ura.add({
   "adv.title_links": { en: "Advanced settings — links and server", sq: "Cilësime të avancuara — lidhjet dhe serveri" },
   "adv.g.nodes_links": { en: "Nodes: announcing and reporting", sq: "Nyjet: njoftimi dhe raportimi" },
   "adv.g.location": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
+  "hm.title": { en: "Map: this hub, its nodes and the linked hubs with their nodes", sq: "Harta: ky hub, nyjet e tij dhe hub-et e lidhura me nyjet e tyre" },
+  "hm.this_radio": { en: "this hub's radio", sq: "radio e këtij hub-i" }, "hm.here": { en: "heard here", sq: "dëgjuar këtu" },
+  "hm.from": { en: "from {x}", sq: "nga {x}" }, "hm.this_hub": { en: "this hub", sq: "ky hub" }, "hm.linked": { en: "linked hub", sq: "hub i lidhur" },
+  "hm.show": { en: "show", sq: "shfaq" }, "hm.no_radio": { en: "no radio", sq: "pa radio" },
+  "hm.here_n": { en: "{n} here", sq: "{n} këtu" }, "hm.links_n": { en: "{n} from links", sq: "{n} nga lidhjet" },
+  "hm.since": { en: "packets since start", sq: "paketa që nga nisja" },
+  "hm.links_online": { en: "links: {n} of {m} online", sq: "lidhjet: {n} nga {m} online" },
+  "hm.legend": { en: "Colours: green = this hub; linked hubs:", sq: "Ngjyrat: jeshile = ky hub; hub-et e lidhura:" },
+  "hm.no_server": { en: "Nodes of linked hubs: the server is not reachable right now.", sq: "Nyjet e hub-eve të lidhura: serveri nuk arrihet tani." },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
@@ -1957,8 +2023,10 @@ async function pageMcOverview() {
     secBox("mcov", "air", `<b>${t("air.title")}</b>`, [[t("st.hour"), `${((s.mc_airtime || {}).used_hour || 0).toFixed(1)} s`], [t("st.day"), `${((s.mc_airtime || {}).used_day || 0).toFixed(1)} s`]],
       `<p class="small">${t("air.hint_mc")}</p><a href="#/mc/device">${t("nav.mc")} → ${t("nav.sub.device")}</a>`),
     secBox("mcov", "map", `<b>${t("mcov.map")}</b>`, [["", `${contacts.filter(x => x.lat != null && x.lon != null).length}`]], `<div id="mcmap" style="height:420px;border-radius:8px"></div>`)];
-  app().innerHTML = secCard("MeshCore — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
+  app().innerHTML = `<div class="card"><h2>MeshCore — ${t("hm.title")}</h2><div id="mcmap2"></div></div>`
+    + secCard("MeshCore — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.filter(h => !h.includes('data-sec="map"')).join(""));
   bindSecs();
+  hubMap($("#mcmap2"), "mc", { main: true }).catch(() => {});
   const drawMap = () => {
     if (!$("#mcmap") || $("#mcmap")._done) return;
     const d = $("details.secline[data-sec=map]"); if (!d || !d.open) return;

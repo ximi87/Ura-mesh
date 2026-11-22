@@ -466,6 +466,14 @@ async def handle(reader, writer):
                 ids = [r["id"] for r in db.q("SELECT id FROM nodes WHERE hub=?", (hub_id,))]
                 for peer in active_peers(hub_id):          # linked hubs learn which nodes are this hub's
                     await push(peer, {"t": "peer_nodes", "hub": hub_id, "ids": ids})
+            elif t == "map_req":
+                # the hub's map: its linked hubs and THEIR nodes (over the hub connection — no web port needed)
+                peers = active_peers(hub_id)
+                hubs = [hub_public(h) for h in db.q("SELECT * FROM hubs WHERE status='approved'") if h["id"] in peers]
+                for h in hubs:
+                    h["online"] = h["id"] in online
+                nodes = [n for n in db.q("SELECT * FROM nodes") if n["hub"] in peers]
+                await send(writer, {"t": "map", "hubs": hubs, "nodes": nodes})
             elif t == "link_request":
                 await link_request(hub_id, clean(msg.get("to"), 20))
             elif t == "link_accept":
