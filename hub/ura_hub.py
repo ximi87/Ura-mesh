@@ -2318,10 +2318,13 @@ class Link:
     async def _on_message(self, m):
         t = m.get("t")
         if t == "map":                                   # answer to map_req: linked hubs + their nodes
-            self.map_data = {"t": time.time(), "hubs": m.get("hubs") or [], "nodes": m.get("nodes") or []}
+            self.map_data = {"t": time.time(), "hubs": m.get("hubs") or [], "nodes": m.get("nodes") or [],
+                             "offline_grey_h": m.get("offline_grey_h"), "offline_hide_days": m.get("offline_hide_days")}
             self.map_event.set()
         if t == "mesh" and m.get("net") == "mc" and m.get("box"):
             await asyncio.to_thread(mc_receive_box, m.get("from"), base64.b64decode(m["box"]))
+        if t == "mesh" and m.get("net") == "ctl" and m.get("box"):
+            await asyncio.to_thread(ctl_receive_box, m.get("from"), base64.b64decode(m["box"]))
         if t == "mesh" and m.get("net") == "mt" and m.get("box"):
             await asyncio.to_thread(receive_box, m["from"], base64.b64decode(m["box"]))
         elif t == "directory":
@@ -2902,7 +2905,7 @@ def map_payload():
     nodes_srv, hubs_srv = map_from_server()
     remote = [n for n in nodes_srv if n.get("hub") in peers]
     partners = [{"id": h["id"], "code": h.get("code"), "name": h.get("name"), "lat": h.get("lat"), "lon": h.get("lon"),
-                 "online": h.get("online")} for h in hubs_srv if h.get("id") in peers]
+                 "online": h.get("online"), "last_seen": h.get("last_seen")} for h in hubs_srv if h.get("id") in peers]
     pos = r.own_position() if r else None
     me = {"code": f"{c['hub']['country']}-{c['hub']['city']}", "name": c["hub"]["name"],
           "lat": c["hub"].get("lat") if c["hub"].get("lat") is not None else (pos or {}).get("lat"),
@@ -2914,7 +2917,101 @@ def map_payload():
              "mc": {"local": sum(1 for n in local if n["net"] == "mc"), "remote": sum(1 for n in remote if n.get("net") == "mc"),
                     "sent": gm.get("sent", 0), "received": gm.get("received", 0), "radio": bool(m and m.ser is not None)},
              "share_positions": share, "server": bool(nodes_srv or hubs_srv)}
-    return {"me": me, "local": local, "remote": remote, "partners": partners, "stats": stats}
+    md = link.map_data or {}
+    return {"me": me, "local": local, "remote": remote, "partners": partners, "stats": stats,
+            "offline_grey_h": md.get("offline_grey_h") or 24, "offline_hide_days": md.get("offline_hide_days") or 3}
+
+
+# ───────────────────────── "forget my nodes" between hubs (deliberate removals only) ─────────────────────────
+def forget_nodes_from(origin, net, why):
+    """Delete from this hub's radio the nodes of network `net` that came from hub `origin` (and their origin records).
+    Only for deliberate removals at the other side — after an outage nothing is deleted (keys stay, DMs keep working)."""
+    if net == "mc":
+        keys = [k[3:] for k, v in list(origins.map.items()) if v == origin and k.startswith("mc:")]
+        for k in keys:
+            origins.map.pop("mc:" + k, None)
+            mc_remote_keys.discard(k)
+        origins.save()
+        mr = mc_radio()
+        if keys and mr is not None and mr.ser is not None:
+            def go():
+                done, left = mr.remove_contacts([k for k in keys if k in mr.contacts])
+                log.info("MeshCore: %d node(s) of %s deleted from the radio (%s)", done, hub_code(origin), why)
+            threading.Thread(target=go, daemon=True).start()
+        else:
+            log.info("MeshCore: %d node record(s) of %s forgotten (%s)", len(keys), hub_code(origin), why)
+        return len(keys)
+    ids = [k for k, v in list(origins.map.items()) if v == origin and not k.startswith("mc:")]
+    for k in ids:
+        origins.map.pop(k, None)
+    origins.save()
+    r = mt_radio()
+    if ids and r is not None and r.iface is not None:
+        def go():
+            done = 0
+            for nid in ids:
+                if r.iface is None:
+                    break
+                if nid in (r.iface.nodes or {}):
+                    try:
+                        r.iface.localNode.removeNode(nid)
+                        drop_from_cache(r.iface, nid)
+                        done += 1
+                    except Exception as e:
+                        log.warning("could not remove node %s from the radio: %s", nid, e)
+                    time.sleep(2)               # the radio skips delete commands that come too fast
+            log.info("Meshtastic: %d node(s) of %s deleted from the radio (%s)", done, hub_code(origin), why)
+        threading.Thread(target=go, daemon=True).start()
+    else:
+        log.info("Meshtastic: %d node record(s) of %s forgotten (%s)", len(ids), hub_code(origin), why)
+    return len(ids)
+
+
+def hub_code(hid):
+    return next((h.get("code") for h in link.directory if h["id"] == hid), hid)
+
+
+def send_forget(net, peers=None, origin=None, path=None, why="radio removed"):
+    """Tell linked hubs: forget the nodes of `net` that came from `origin` (default: this hub). Sealed end to end."""
+    origin = origin or my_id()
+    path = path or [my_id()]
+    boxes = {}
+    for peer in (peers if peers is not None else active_peers()):
+        if peer in path:
+            continue
+        keys, state = identity.keys_for(peer)
+        if keys is None:
+            continue
+        inner = json.dumps({"ctl": "forget_net", "net": net, "origin": origin, "path": path, "why": why}).encode()
+        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+    if boxes:
+        asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "ctl", "boxes": boxes}), loop)
+        log.info("told %s: forget the %s nodes of %s (%s)", ", ".join(hub_code(x) for x in boxes),
+                 "MeshCore" if net == "mc" else "Meshtastic", hub_code(origin), why)
+
+
+def ctl_receive_box(peer, box):
+    """A control message from a linked hub (sealed): currently only "forget the nodes of network X from hub Y"."""
+    keys, state = identity.keys_for(peer)
+    if keys is None:
+        return
+    try:
+        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
+        m = json.loads(inner)
+    except Exception:
+        return
+    if seen_cache.seen(b"n" + nonce) or m.get("ctl") != "forget_net" or m.get("net") not in ("mt", "mc"):
+        return
+    path = [str(x)[:20] for x in (m.get("path") or [peer])][:16]
+    origin = str(m.get("origin") or peer)[:20]
+    if my_id() in path:
+        return
+    forget_nodes_from(origin, m["net"], f"{hub_code(peer)}: {str(m.get('why') or '')[:60]}")
+    # pass it on to hubs further away that may have the same nodes (multi-hop)
+    tr = cfg.get().get("transit_mc" if m["net"] == "mc" else "transit") or {}
+    if tr.get("enabled"):
+        send_forget(m["net"], peers=[p_ for p_ in active_peers() if p_ != peer], origin=origin, path=path + [my_id()],
+                    why=str(m.get("why") or "")[:60])
 
 
 # ───────────────────────── website ─────────────────────────
@@ -3361,7 +3458,15 @@ class Web(http.server.BaseHTTPRequestHandler):
         if p == "/api/rules":
             peer = str(b.get("peer") or "")
             rules = clean_rules(b.get("rules") or {})
+            before = cfg.rules_for(peer)
+            was = {"mt": before["send"].get("on", True) or before["receive"].get("on", True),
+                   "mc": mc_rule(peer, "send").get("on", True) or mc_rule(peer, "receive").get("on", True)}
+            now_ = {"mt": rules["send"]["on"] or rules["receive"]["on"], "mc": rules["mc"]["send"]["on"] or rules["mc"]["receive"]["on"]}
             cfg.update(lambda d: d["rules"].__setitem__(peer, rules))
+            for net_ in ("mt", "mc"):
+                if was[net_] and not now_[net_]:          # switched off for this link: no more of that network both ways
+                    send_forget(net_, peers=[peer], why=("MeshCore" if net_ == "mc" else "Meshtastic") + " switched off for this link")
+                    forget_nodes_from(peer, net_, ("MeshCore" if net_ == "mc" else "Meshtastic") + " switched off for the link")
             run_coro(link.push_info())
             return self.reply({"ok": True})
         if p == "/api/radio":
@@ -3460,6 +3565,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             loop.call_soon_threadsafe(apply_radios)
             if link.writer is not None:
                 run_coro(link.send({"t": "nodes", "net": "mc", "nodes": []}))
+            send_forget("mc", why="MeshCore radio removed")
             log.info("MeshCore radio removed from the hub by the operator (its nodes on the server deleted too)")
             return self.reply({"ok": True})
         if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
@@ -3474,6 +3580,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             loop.call_soon_threadsafe(apply_radios)
             if link.writer is not None:            # its nodes leave the server map too (an empty report deletes them)
                 run_coro(link.send({"t": "nodes", "net": "mt", "nodes": []}))
+            send_forget("mt", why="Meshtastic radio removed")
             log.info("radio removed from the hub by the operator (settings, saved channels, node origins and its nodes on the server forgotten)")
             return self.reply({"ok": True})
         if p in ("/api/radio/section", "/api/radio/owner", "/api/radio/channel", "/api/radio/fixed"):

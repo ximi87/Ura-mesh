@@ -183,7 +183,10 @@ Ura.add({
   "a.change_pw": { en: "Change admin password", sq: "Ndrysho fjalëkalimin e administratorit" },
   "a.requested": { en: "Requested", sq: "Kërkuar" },
   "notfound": { en: "Not found.", sq: "Nuk u gjet." },
-  "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
+  "map.hub_offline": { en: "its hub has been offline since {x}", sq: "hub-i i saj është offline që nga {x}" },
+  "adv.offline_grey_h": { en: "Map: show nodes of a hub offline for longer than (hours) in grey", sq: "Harta: shfaq gri nyjet e një hub-i offline më shumë se (orë)" },
+  "adv.offline_hide_days": { en: "Map: hide nodes of a hub offline for longer than (days)", sq: "Harta: fshih nyjet e një hub-i offline më shumë se (ditë)" },
+    "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
 });
 
 const MENU = [["#/", "nav.map"], ["#/hubs", "nav.hubs"], ["#/stats", "nav.stats"],
@@ -251,14 +254,17 @@ async function pageMap() {
   // nodes: own layer, shown when zoomed in (and the switch is on)
   const nodeLayer = L.layerGroup(), netLayer = { mt: L.layerGroup().addTo(nodeLayer), mc: L.layerGroup().addTo(nodeLayer) };
   const netCount = { mt: 0, mc: 0 };
+  const nowS = Date.now() / 1000, offFor = h => (h && !h.online && h.last_seen) ? nowS - h.last_seen : 0;
   nodes.forEach(n => {
     if (n.lat == null || n.lon == null) return;
-    const h = byId[n.hub], mc = n.net === "mc";
+    const h = byId[n.hub], mc = n.net === "mc", off = offFor(h);
+    if (off > (INFO.offline_hide_days || 3) * 86400) return;          // hub offline for days: its nodes are hidden
+    const grey = off > (INFO.offline_grey_h || 24) * 3600;              // hub offline for long: its nodes grey
     netCount[mc ? "mc" : "mt"]++;
     // Meshtastic: round dot with a white rim; MeshCore: same hub colour with a thick dark-orange rim
-    L.circleMarker([n.lat, n.lon], mc ? { radius: 6, color: "#b45309", weight: 3, fillColor: color[n.hub] || "#666", fillOpacity: .95 }
-                                      : { radius: 6, color: "#fff", weight: 1.5, fillColor: color[n.hub] || "#666", fillOpacity: .95 })
-      .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? `<a href="#/hub/${h.id}">${esc(h.code)}</a>` : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
+    L.circleMarker([n.lat, n.lon], mc ? { radius: 6, color: grey ? "#9ca3af" : "#b45309", weight: 3, fillColor: grey ? "#d1d5db" : (color[n.hub] || "#666"), fillOpacity: grey ? .6 : .95 }
+                                      : { radius: 6, color: "#fff", weight: 1.5, fillColor: grey ? "#d1d5db" : (color[n.hub] || "#666"), fillOpacity: grey ? .6 : .95 })
+      .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? `<a href="#/hub/${h.id}">${esc(h.code)}</a>` : ""}${grey ? `<br><span class="muted">${t("map.hub_offline", { x: ago(h.last_seen) })}</span>` : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
       .addTo(netLayer[mc ? "mc" : "mt"]);
     bounds.push([n.lat, n.lon]);
   });
@@ -727,7 +733,7 @@ async function pageAdmin() {
   const af = advancedForm($("#advform"), s.advanced_spec, s.advanced, {
     groups: [["adv.g.reg", ["registrations_open", "project_url", "install_guide_url"]],
              ["adv.g.cert", ["acme_enabled", "acme_domain", "acme_email", "acme_staging"]],
-             ["adv.g.traffic", ["node_max_age_days", "max_nodes_per_report", "relay_rate_per_s", "relay_burst", "max_box_bytes", "stats_retention_days"]],
+             ["adv.g.traffic", ["node_max_age_days", "offline_grey_h", "offline_hide_days", "max_nodes_per_report", "relay_rate_per_s", "relay_burst", "max_box_bytes", "stats_retention_days"]],
              ["adv.g.complaints", ["complaints_per_hour", "complaint_min_chars", "complaint_max_chars"]],
              ["adv.g.security", ["session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
              ["adv.g.tiles", ["tile_upstream", "tile_contact", "tile_cache_days", "tile_backoff_s"]]],

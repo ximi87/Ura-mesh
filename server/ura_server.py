@@ -34,6 +34,8 @@ ADV_SPEC = {
     "project_url":          ("https://github.com/ximi87/Ura-mesh", None, None),
     "install_guide_url":    ("https://github.com/ximi87/Ura-mesh/blob/main/docs/INSTALL-HUB.md", None, None),
     "node_max_age_days":    (7, 1, 90),           # nodes older than this are not shown
+    "offline_grey_h":       (24, 1, 720),         # map: nodes of a hub offline this long are shown grey
+    "offline_hide_days":    (3, 1, 90),           # map: … and hidden after this many days (nothing is deleted on any radio)
     "max_nodes_per_report": (2000, 10, 20000),
     "relay_rate_per_s":     (30, 1, 1000),        # sealed boxes per second per hub (flood limit)
     "relay_burst":          (200, 1, 10000),
@@ -473,7 +475,8 @@ async def handle(reader, writer):
                 for h in hubs:
                     h["online"] = h["id"] in online
                 nodes = [n for n in db.q("SELECT * FROM nodes") if n["hub"] in peers]
-                await send(writer, {"t": "map", "hubs": hubs, "nodes": nodes})
+                await send(writer, {"t": "map", "hubs": hubs, "nodes": nodes,
+                                    "offline_grey_h": adv("offline_grey_h"), "offline_hide_days": adv("offline_hide_days")})
             elif t == "link_request":
                 await link_request(hub_id, clean(msg.get("to"), 20))
             elif t == "link_accept":
@@ -496,7 +499,8 @@ async def handle(reader, writer):
                 for dst, box in (msg.get("boxes") or {}).items():
                     if dst in allowed and dst in online and isinstance(box, str) and len(box) * 3 // 4 <= adv("max_box_bytes"):
                         await push(dst, {"t": "mesh", "net": msg.get("net"), "from": hub_id, "box": box})
-                        count(hub_id, dst, msg.get("net") or "mt", len(box) * 3 // 4)
+                        if msg.get("net") != "ctl":                 # control messages are not traffic
+                            count(hub_id, dst, msg.get("net") or "mt", len(box) * 3 // 4)
     except Exception as e:
         log.warning("hub %s connection error: %s", hub_id or peer, e)
     finally:
@@ -676,6 +680,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                                    "password_min": adv("password_min"), "registrations_open": adv("registrations_open"),
                                    "project_url": adv("project_url"), "install_guide_url": adv("install_guide_url"),
                                    "node_max_age_days": adv("node_max_age_days"), "complaint_min_chars": adv("complaint_min_chars"),
+                                   "offline_grey_h": adv("offline_grey_h"), "offline_hide_days": adv("offline_hide_days"),
                                    "setup_needed": db.setting("admin_pw") is None, "admin": self.is_admin(),
                                    # only for a logged-in administrator: how many hubs wait for approval
                                    "pending": (db.one("SELECT COUNT(*) n FROM hubs WHERE status='pending'")["n"]

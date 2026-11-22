@@ -542,8 +542,11 @@ async function hubMap(el, net, opts) {
     bounds.push([n.lat, n.lon]);
   };
   d.local.filter(n => show[n.net]).forEach(n => dot(n, LOCAL_COLOR, n.own ? 9 : 6, n.own ? t("hm.this_radio") : t("hm.here")));
+  const nowS = Date.now() / 1000, gh = d.offline_grey_h || 24, hd = d.offline_hide_days || 3;
   d.remote.filter(n => show[n.net === "mc" ? "mc" : "mt"]).forEach(n => {
-    const h = d.partners.find(x => x.id === n.hub); dot(n, pc[n.hub] || "#666", 6, t("hm.from", { x: esc(h ? h.code : n.hub) }));
+    const h = d.partners.find(x => x.id === n.hub), off = h && !h.online && h.last_seen ? nowS - h.last_seen : 0;
+    if (off > hd * 86400) return;                          // partner offline for days: its nodes hidden (nothing deleted)
+    dot(n, off > gh * 3600 ? "#d1d5db" : (pc[n.hub] || "#666"), 6, t("hm.from", { x: esc(h ? h.code : n.hub) }) + (off > gh * 3600 ? ` · ${t("hm.offline")}` : ""));
   });
   // hubs: this one and the linked ones, with a line for each link
   if (d.me.lat != null) {
@@ -1951,7 +1954,8 @@ Ura.add({
   "hm.title": { en: "Map: this hub, its nodes and the linked hubs with their nodes", sq: "Harta: ky hub, nyjet e tij dhe hub-et e lidhura me nyjet e tyre" },
   "hm.this_radio": { en: "this hub's radio", sq: "radio e këtij hub-i" }, "hm.here": { en: "heard here", sq: "dëgjuar këtu" },
   "hm.from": { en: "from {x}", sq: "nga {x}" }, "hm.this_hub": { en: "this hub", sq: "ky hub" }, "hm.linked": { en: "linked hub", sq: "hub i lidhur" },
-  "hm.show": { en: "show", sq: "shfaq" }, "hm.no_radio": { en: "no radio", sq: "pa radio" },
+  "hm.offline": { en: "its hub is offline", sq: "hub-i i saj është offline" },
+    "hm.show": { en: "show", sq: "shfaq" }, "hm.no_radio": { en: "no radio", sq: "pa radio" },
   "hm.here_n": { en: "{n} here", sq: "{n} këtu" }, "hm.links_n": { en: "{n} from links", sq: "{n} nga lidhjet" },
   "hm.since": { en: "packets since start", sq: "paketa që nga nisja" },
   "hm.links_online": { en: "links: {n} of {m} online", sq: "lidhjet: {n} nga {m} online" },
