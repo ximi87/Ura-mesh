@@ -127,7 +127,7 @@ def program_action(action, before=None):
 
 
 REACH_ANY = 7                 # "anywhere": the longest chain a packet can make (8 links)
-RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True,
+RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "positions": True, "mc": True,
                 # multi-hop, decided by each hub for itself:
                 "reach": 0,           # send:    how many hubs BEYOND this peer my packets may travel (0 = stop there,
                                       #          REACH_ANY = as far as the other hubs allow)
@@ -1726,6 +1726,7 @@ class McRadio:
         self.rx = collections.deque(maxlen=5000)       # (time, route, payload type, length, snr, rssi)
         self.resp = _q.Queue()
         self.contacts_dirty, self.last_contacts = False, 0
+        self.air = collections.deque(maxlen=5000)      # (time, seconds on air) of packets Ura put on air
         threading.Thread(target=self._run, daemon=True).start()
 
     # ── serial link ──
@@ -1786,6 +1787,10 @@ class McRadio:
             self.rx.append((time.time(), h & 3, (h >> 2) & 0x0F, len(f) - 3, (f[1] - 256 if f[1] > 127 else f[1]) / 4,
                             f[2] - 256 if f[2] > 127 else f[2]))
             self.last_rx = time.time()
+            try:
+                mc_send_to_peers(bytes(f[3:]))
+            except Exception as e:
+                log.warning("MeshCore packet not passed on: %s", e)
         elif code in (0x80, 0x8A):                      # an advert: a node (re)announced itself
             self.contacts_dirty = True
         elif code < 0x80:
@@ -1817,7 +1822,7 @@ class McRadio:
         le = lambda a, b, signed=False: int.from_bytes(f[a:b], "little", signed=signed)
         self.self_info = {"adv_type": MC_ADV_TYPES.get(f[1], f[1]), "tx_power": f[2], "max_tx_power": f[3],
                           "public_key": f[4:36].hex(), "lat": le(36, 40, True) / 1e6, "lon": le(40, 44, True) / 1e6,
-                          "advert_location": f[45], "manual_add": f[47],
+                          "advert_location": f[45], "manual_add": f[47], "multi_acks": f[44], "telemetry_byte": f[46],
                           "freq_mhz": le(48, 52) / 1000, "bw_khz": le(52, 56) / 1000, "sf": f[56], "cr": f[57],
                           "name": f[58:].split(b"\0")[0].decode("utf-8", "replace")}
         d = next((x for x in self._request(bytes([22, 3]), lambda x: x[0] == 13) if x[0] == 13), None)
@@ -1909,6 +1914,48 @@ class McRadio:
             except Exception:
                 pass
 
+    def _ok(self, payload, timeout=4.0):
+        if self.ser is None:
+            raise RuntimeError("no_radio")
+        fr = self._request(payload, lambda x: x[0] in (0, 1), timeout)
+        if not fr or fr[-1][0] != 0:
+            raise RuntimeError("the radio refused the command")
+
+    def send_raw(self, raw):
+        """Put a packet from a linked hub on air unchanged (CMD_SEND_RAW_PACKET, normal priority)."""
+        self._ok(bytes([65, 1]) + raw)
+        self.air.append((time.time(), time_on_air(len(raw) + 2, self.self_info.get("sf") or 8, self.self_info.get("bw_khz") or 62.5,
+                                                   (self.self_info.get("cr") or 8))))
+
+    def air_used(self, seconds):
+        t = time.time()
+        return sum(a for ts, a in list(self.air) if t - ts < seconds)
+
+    def prepare(self, name=None):
+        """For Ura: an approximate location (the hub's), shared in the radio's adverts; the hub radio does not repeat
+        packets itself (Ura carries them); optionally a new name. Then the radio announces itself once."""
+        si = self.self_info
+        if name:
+            self._ok(bytes([8]) + name.encode("utf-8")[:31])
+        h = cfg.get()["hub"]
+        lat = approx(si.get("lat")) if si.get("lat") else None
+        lon = approx(si.get("lon")) if si.get("lon") else None
+        if h.get("lat") is not None and h.get("lon") is not None:
+            lat, lon = approx(h["lat"]), approx(h["lon"])
+        if lat is not None and lon is not None:
+            self._ok(bytes([14]) + int(lat * 1e6).to_bytes(4, "little", signed=True) + int(lon * 1e6).to_bytes(4, "little", signed=True))
+        self._ok(bytes([38, si.get("manual_add", 0), si.get("telemetry_byte", 0), 1, si.get("multi_acks", 0)]))   # share location
+        self._read_self()
+        self._ok(bytes([7, 1]))                          # advert, flooded: the mesh learns name + location
+        log.info("MeshCore radio prepared for Ura: %s, location %s, %s (shared in adverts)", self.self_info.get("name"), lat, lon)
+
+    def checks(self):
+        si, d = self.self_info, self.device
+        return {"position_known": bool(si.get("lat") or si.get("lon")),
+                "position_approx": bool(si.get("lat") or si.get("lon")) and approx(si.get("lat")) == si.get("lat") and approx(si.get("lon")) == si.get("lon"),
+                "position_shared": si.get("advert_location") == 1,
+                "no_repeat": not d.get("client_repeat")}
+
     def info(self):
         t = time.time()
         rx = [x for x in list(self.rx) if t - x[0] < 3600]
@@ -1922,7 +1969,8 @@ class McRadio:
                "rx_hour": len(rx), "rx_by_type": by_type, "last_rx": int(rx[-1][0]) if rx else None,
                "rx_snr": round(sum(x[4] for x in rx[-50:]) / len(rx[-50:]), 1) if rx else None}
         if out["connected"]:
-            out.update(self.self_info, device=self.device, channels=self.channels, contacts=len(self.contacts))
+            ck = self.checks()
+            out.update(self.self_info, device=self.device, channels=self.channels, contacts=len(self.contacts), checks=ck, ready=all(ck.values()))
         return out
 
 
@@ -2113,6 +2161,8 @@ class Link:
 
     async def _on_message(self, m):
         t = m.get("t")
+        if t == "mesh" and m.get("net") == "mc" and m.get("box"):
+            await asyncio.to_thread(mc_receive_box, m.get("from"), base64.b64decode(m["box"]))
         if t == "mesh" and m.get("net") == "mt" and m.get("box"):
             await asyncio.to_thread(receive_box, m["from"], base64.b64decode(m["box"]))
         elif t == "directory":
@@ -2417,6 +2467,110 @@ def receive_from_peer(peer, topic, data, origin=None):
         counters.peer_add(peer, "blocked_recv", "no_radio")
         log.info("from %s%s %s: not put on air (radio not connected)", frm, via, pkt_desc(c))
     threading.Thread(target=later, daemon=True).start()
+
+
+
+# ───────────────────────── MeshCore lane ─────────────────────────
+def mc_parse(raw):
+    """A raw MeshCore packet: header (route 2 bits, payload type 4 bits, version 2 bits), optional transport codes,
+    path length (low 6 bits = hops, high 2 bits = hash size - 1), path, payload. Returns its identity like
+    MeshCore's own packet hash (payload type + payload: the same packet repeated along other paths is the same)."""
+    if len(raw) < 3:
+        return None
+    h = raw[0]
+    route, ptype, i = h & 3, (h >> 2) & 0x0F, 1
+    if route in (0, 3):
+        i += 4
+    if i >= len(raw):
+        return None
+    pl = raw[i]; i += 1
+    if pl >> 6 == 3:
+        return None
+    i += (pl & 63) * ((pl >> 6) + 1)
+    if i >= len(raw):
+        return None
+    payload = raw[i:]
+    ident = hashlib.sha256(bytes([ptype]) + (bytes([pl]) if ptype == 9 else b"") + payload).digest()[:16]
+    return {"route": "flood" if route in (0, 1) else "direct", "type": MC_PAYLOAD.get(ptype, f"type {ptype}"), "hops": pl & 63, "id": ident}
+
+
+def mc_send_to_peers(raw):
+    """MeshCore radio -> linked hubs: every packet the radio hears (each only once, whatever path it came by),
+    sealed end-to-end per partner. Copies of packets that came FROM a partner are not sent back."""
+    if len(raw) > 174:
+        return
+    p = mc_parse(raw)
+    if p is None or seen_cache.seen(b"m" + p["id"]):
+        return
+    boxes = {}
+    for peer in active_peers():
+        rule = cfg.rules_for(peer)["send"]
+        if not rule.get("on") or not rule.get("mc", True):
+            counters.peer_add(peer, "blocked_send", "meshcore_off")
+            continue
+        keys, state = identity.keys_for(peer)
+        if keys is None:
+            counters.peer_add(peer, "blocked_send", "key_" + state)
+            continue
+        inner = json.dumps({"net": "mc", "data": base64.b64encode(raw).decode(), "path": [my_id()]}).encode()
+        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+        counters.peer_add(peer, "sent")
+    names = {h["id"]: h.get("code") for h in link.directory}
+    log.info("MeshCore radio -> %s %s (%d hops): sent to %s", p["route"], p["type"], p["hops"], ", ".join(names.get(x, x) for x in boxes) or "nobody")
+    if boxes:
+        counters.add("sent")
+        asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mc", "boxes": boxes}), loop)
+
+
+def mc_receive_box(peer, box):
+    """A MeshCore packet from a linked hub: check the box, the link's receive rule and the airtime limit, then put it
+    on air unchanged with this hub's MeshCore radio."""
+    keys, state = identity.keys_for(peer)
+    if keys is None:
+        counters.peer_add(peer, "blocked_recv", "key_" + state)
+        return
+    try:
+        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
+        m = json.loads(inner)
+        raw = base64.b64decode(m["data"])
+    except Exception:
+        counters.peer_add(peer, "blocked_recv", "bad_box")
+        return
+    if seen_cache.seen(b"n" + nonce):
+        return
+    p = mc_parse(raw)
+    if p is None:
+        counters.peer_add(peer, "blocked_recv", "invalid")
+        return
+    frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
+    counters.add("received")
+    if seen_cache.seen(b"m" + p["id"]):                # already heard here (it went round) -> not again
+        return
+    r = mc_radio()
+    if r is None or r.ser is None:
+        counters.peer_add(peer, "blocked_recv", "no_radio")
+        log.info("from %s MeshCore %s: not put on air (no MeshCore radio connected)", frm, p["type"])
+        return
+    rr = cfg.rules_for(peer)["receive"]
+    if not rr.get("on") or not rr.get("mc", True):
+        counters.peer_add(peer, "blocked_recv", "meshcore_off")
+        log.info("from %s MeshCore %s: not put on air (MeshCore off on this link)", frm, p["type"])
+        return
+    a = cfg.get()["airtime"]
+    si = r.self_info
+    toa = time_on_air(len(raw) + 2, si.get("sf") or 8, si.get("bw_khz") or 62.5, si.get("cr") or 8)
+    if (a.get("pct_hour") and r.air_used(3600) + toa > 3600 * a["pct_hour"] / 100) or \
+       (a.get("pct_day") and r.air_used(86400) + toa > 86400 * a["pct_day"] / 100):
+        counters.peer_add(peer, "blocked_recv", "airtime")
+        log.info("from %s MeshCore %s: not put on air (airtime limit)", frm, p["type"])
+        return
+    try:
+        r.send_raw(raw)
+        counters.peer_add(peer, "received")
+        log.info("from %s MeshCore %s %s (%d hops): put on air", frm, p["route"], p["type"], p["hops"])
+    except Exception as e:
+        counters.peer_add(peer, "blocked_recv", "radio_error")
+        log.warning("from %s MeshCore %s: the radio did not take it (%s)", frm, p["type"], e)
 
 
 # ───────────────────────── website ─────────────────────────
@@ -2905,6 +3059,16 @@ class Web(http.server.BaseHTTPRequestHandler):
             loop.call_soon_threadsafe(apply_radios)
             log.info("MeshCore radio chosen: %s — connecting", addr)
             return self.reply({"ok": True, "state": "connecting"})
+        if p == "/api/mc/prepare":
+            r = mc_radio()
+            if r is None or r.ser is None:
+                return self.reply({"error": "no_radio"}, 400)
+            name = str(b.get("name") or "").strip()[:31]
+            try:
+                r.prepare(name or None)
+            except Exception as e:
+                return self.reply({"error": "radio", "detail": str(e)}, 400)
+            return self.reply({"ok": True, "radio": r.info()})
         if p == "/api/mc/remove":                    # forget the MeshCore radio; the Meshtastic one stays
             cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]))
             loop.call_soon_threadsafe(apply_radios)
@@ -3099,7 +3263,8 @@ def clean_rules(r):
     for d in ("send", "receive"):
         x = r.get(d) or {}
         out[d] = {"on": bool(x.get("on")), "public": bool(x.get("public")), "private": bool(x.get("private")),
-                  "positions": bool(x.get("positions")), "groups": [str(g)[:30] for g in (x.get("groups") or [])][:8]}
+                  "positions": bool(x.get("positions")), "groups": [str(g)[:30] for g in (x.get("groups") or [])][:8],
+                  "mc": bool(x.get("mc", True))}                  # MeshCore lane on this link
         if d == "send":
             out[d]["onward_to"] = [str(h)[:20] for h in (x.get("onward_to") or [])][:50]
             out[d]["reach"] = rule_reach(x)

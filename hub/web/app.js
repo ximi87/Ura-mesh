@@ -603,6 +603,7 @@ async function pageLinks() {
       ${ruleRow(t("rule.positions"), dir, "positions", rule)}
       ${dir === "send" ? onwardBox(peer, rule) + ruleRow(t("rule.transit") + ` <span class="muted small">${t("rule.transit.hint")}</span>`, dir, "transit", rule)
                        : ruleRow(t("rule.from_beyond") + ` <span class="muted small">${t("rule.from_beyond.hint")}</span>`, dir, "from_beyond", rule)}
+      <div class="small muted" style="margin-top:.6rem">${t("rule.mc.title")}</div><label class="check"><input type="checkbox" data-dir="${dir}" data-k="mc" ${rule.mc !== false ? "checked" : ""}> <b>MeshCore</b> <span class="muted small">${t("rule.mc.hint")}</span></label>
       <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
       ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)} <span class="muted small">(${t("ch.code")} ${gcodes(gname)})</span></label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
   // the hubs this peer offers to pass my packets on to (its published transit list), each with a tick box
@@ -1011,7 +1012,8 @@ async function pageSettings(want) {
   const reg = !!c.server.hub_id, h = c.hub;
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
-      ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
+      ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}
+      <div class="small muted" style="margin-top:.6rem">${t("rule.mc.title")}</div><label class="check"><input type="checkbox" data-dir="${dir}" data-k="mc" ${rule.mc !== false ? "checked" : ""}> <b>MeshCore</b> <span class="muted small">${t("rule.mc.hint")}</span></label></div>`;
   const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
   const spec = await api("GET", "/api/advanced_spec");
   spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
@@ -1568,6 +1570,12 @@ async function pageMc() {
       [t("r.port"), saved ? `<span class="mono small">${esc(saved.address.replace(/^.*\/(usb-)?/, ""))}</span>` : "–"]], connBody),
     secBox("mc", "state", `<b>${t("mc.state")}</b>`, r && r.connected ? [[t("name"), esc(r.name)], [t("hardware"), esc(d.model || "–")], [t("r.firmware"), esc(d.firmware || "–")]] : [["", "–"]], stateBody),
     ...(r && r.connected ? [
+      secBox("mc", "prep", `<b>${t("mc.prep")}</b>`, [[t("r.ready"), r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))]],
+        `<p class="small">${t("mc.prep_hint")}</p>
+        ${Object.entries(r.checks || {}).map(([k, v]) => `<div>${v ? "✅" : "❌"} ${t("mcchk." + k)}</div>`).join("")}
+        <label style="margin-top:.6rem">${t("mc.name")}</label><input type="text" id="mcname" maxlength="31" value="${esc(r.name || "")}">
+        <div class="hint">${t("mc.name_hint")}</div>
+        <div class="row" style="margin-top:.6rem"><button class="primary" id="mcprep">${t("mc.prep_btn")}</button></div><div id="mcpmsg"></div>`),
       secBox("mc", "contacts", `<b>${t("mc.contacts")}</b>`, [["", `${r.contacts}`]], `<p class="small muted">${t("mc.contacts_hint")}</p><div id="mccontacts"></div>`),
       secBox("mc", "rx", `<b>${t("mc.rx")}</b>`, [[t("mc.last_hour"), `${r.rx_hour}`]], rxBody)] : [])];
   app().innerHTML = secCard(t("mc.title"), `<div class="msg info small">${t("mc.stage")}</div>` + lines.join(""));
@@ -1606,6 +1614,13 @@ async function pageMc() {
       $("#mcgo").disabled = false;
     }
   };
+  if ($("#mcprep")) $("#mcprep").onclick = async () => {
+    $("#mcprep").disabled = true;
+    try {
+      const x = await api("POST", "/api/mc/prepare", { name: $("#mcname").value.trim() });
+      $("#mcpmsg").innerHTML = `<div class="msg ok">${esc(t("mc.prep_ok", { x: x.radio.name, p: fmtPos(x.radio.lat, x.radio.lon) }))}</div>`; setTimeout(pageMc, 2500);
+    } catch (e) { $("#mcpmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#mcprep").disabled = false; }
+  };
   if ($("#mcrm")) $("#mcrm").onclick = async () => {
     if (!confirm(t("mc.remove_q"))) return;
     await api("POST", "/api/mc/remove", {}); setTimeout(pageMc, 1500);
@@ -1617,8 +1632,8 @@ Ura.add({
   "nav.mt.radio": { en: "Radio & nodes", sq: "Radio dhe nyjet" }, "nav.mt.device": { en: "Device settings", sq: "Cilësimet e pajisjes" },
   "nav.mc.radio": { en: "Radio & contacts", sq: "Radio dhe kontaktet" },
   "mc.title": { en: "MeshCore radio", sq: "Radio MeshCore" },
-  "mc.stage": { en: "MeshCore: the hub connects to the radio and reads it (who it is, its contacts, what it hears). Carrying MeshCore over the links comes next — nothing is sent across yet.",
-                sq: "MeshCore: hub-i lidhet me radion dhe e lexon (kush është, kontaktet, çfarë dëgjon). Kalimi i MeshCore nëpër lidhje vjen më pas — ende nuk dërgohet asgjë." },
+  "mc.stage": { en: "MeshCore: every packet this radio hears is carried to the linked hubs that also have a MeshCore radio (tick “MeshCore” on the link), and theirs are put on air here — adverts, Public, channels and private messages, unchanged.",
+                sq: "MeshCore: çdo paketë që dëgjon kjo radio barten te hub-et e lidhura që kanë gjithashtu radio MeshCore (shënoni “MeshCore” te lidhja), dhe të tyret transmetohen këtu — reklama, Public, kanale dhe mesazhe private, të pandryshuara." },
   "mc.conn": { en: "Connection", sq: "Lidhja" }, "mc.state": { en: "Radio", sq: "Radio" }, "mc.contacts": { en: "Contacts", sq: "Kontaktet" },
   "mc.rx": { en: "Packets heard", sq: "Paketa të dëgjuara" }, "mc.last_hour": { en: "last hour", sq: "ora e fundit" },
   "mc.conn_hint": { en: "A MeshCore radio with companion firmware, connected to this computer by USB. The hub asks every USB device what it is; choose the MeshCore radio. A hub can have a Meshtastic and a MeshCore radio at the same time.",
@@ -1639,6 +1654,18 @@ Ura.add({
   "mc.rx_hint": { en: "Every packet the radio hears, also those it cannot read — these are what Ura will carry to the linked hubs.", sq: "Çdo paketë që dëgjon radio, edhe ato që nuk i lexon — këto do t'i bartë Ura te hub-et e lidhura." },
   "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
   "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
+  "rule.mc.title": { en: "MeshCore", sq: "MeshCore" },
+  "rule.mc.hint": { en: "all MeshCore packets (adverts, Public, channels, private messages) — only if both hubs have a MeshCore radio", sq: "të gjitha paketat MeshCore (reklama, Public, kanale, mesazhe private) — vetëm nëse të dy hub-et kanë radio MeshCore" },
+  "mc.prep": { en: "Prepare for Ura", sq: "Përgatit për Ura" },
+  "mc.prep_hint": { en: "Like every radio in Ura, it gets the hub's approximate location (≈ 1 km) and shares it in its adverts; it does not repeat packets itself (Ura carries them). Then it announces itself once.", sq: "Si çdo radio në Ura, merr vendndodhjen e përafërt të hub-it (≈ 1 km) dhe e ndan në reklamat e saj; nuk i përsërit vetë paketat (Ura i bart). Pastaj njoftohet një herë." },
+  "mc.name": { en: "Name of this radio (seen by other MeshCore nodes)", sq: "Emri i kësaj radioje (i dukshëm për nyjet e tjera MeshCore)" },
+  "mc.name_hint": { en: "e.g. the hub's name; at most 31 characters", sq: "p.sh. emri i hub-it; deri në 31 shkronja" },
+  "mc.prep_btn": { en: "Prepare and announce", sq: "Përgatit dhe njofto" },
+  "mc.prep_ok": { en: "Done: “{x}” at {p}, location shared, announced.", sq: "U bë: “{x}” në {p}, vendndodhja e ndarë, u njoftua." },
+  "mcchk.position_known": { en: "The radio has a location", sq: "Radio ka një vendndodhje" },
+  "mcchk.position_approx": { en: "… only approximate (≈ 1 km)", sq: "… vetëm e përafërt (≈ 1 km)" },
+  "mcchk.position_shared": { en: "… shared in its adverts (so it appears on maps)", sq: "… e ndarë në reklamat e saj (që të shfaqet në harta)" },
+  "mcchk.no_repeat": { en: "It does not repeat packets itself (Ura carries them)", sq: "Nuk i përsërit vetë paketat (Ura i bart)" },
 });
 
 // start only after every part of this file (pages, wizard, texts) is loaded — otherwise the menu shows raw keys
