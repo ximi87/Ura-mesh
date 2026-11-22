@@ -333,3 +333,23 @@ details.about > summary { cursor: pointer; }
 
 .adv-num .muted { white-space: nowrap; }
 .adv-row { grid-template-columns: minmax(11rem, 1.1fr) minmax(10rem, 12rem) 2fr; }
+
+/* notes at the END of the row (right edge), not glued to the field */
+.adv-side { justify-self: end; text-align: right; max-width: 34rem; }
+@media (max-width: 760px) {
+  .adv-row, .adv-row.wide { grid-template-columns: 1fr auto; gap: .15rem .6rem; padding: .4rem .6rem; }
+  .adv-label { font-size: .92rem; }
+  .adv-side { grid-column: 1 / -1; justify-self: start; text-align: left; }
+  .adv-num input { width: 5.5rem; }
+  .adv-ctl input[type=text] { width: 100%; }
+  .adv-row.wide .adv-ctl { grid-column: 1 / -1; }
+}
+
+/* phone: logo + language on top, the menu in its own full-width row below */
+@media (max-width: 760px) {
+  #top .in { flex-wrap: wrap; row-gap: .2rem; }
+  #top nav.menu { order: 3; flex: 1 1 100%; justify-content: space-between; gap: .1rem; flex-wrap: wrap; }
+  #top nav.menu > a, #top nav.menu .ddb { padding: .35rem .45rem; font-size: .9rem; white-space: nowrap; }
+  #top nav.menu .dd:last-child .ddm { left: auto; right: 0; }
+  #top nav.menu .ddm { min-width: 180px; }
+}
