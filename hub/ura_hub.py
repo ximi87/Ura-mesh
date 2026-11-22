@@ -134,6 +134,9 @@ RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "posi
                 "onward_to": [],      # send:    which of this peer's links my packets may continue on (first step)
                 "transit": True,      # send:    I pass other hubs' packets on to this peer (if transit is on)
                 "from_beyond": True}  # receive: accept packets that started at hubs beyond this peer
+MC_RULE_DEFAULT = {"on": True, "adverts": True, "public": True, "private": True, "groups": [],
+                   "other_groups": False,   # channels of other people (unknown to this radio) — off, like Meshtastic
+                   "other": True}           # traceroute, control packets
 DEFAULT_CONFIG = {
     "hub": {"name": "", "email": "", "country": "", "city": "", "lat": None, "lon": None, "description": "",
             "location_mode": "radio"},            # radio = follow the connected radio's position, manual = typed in
@@ -141,7 +144,8 @@ DEFAULT_CONFIG = {
     "radios": [],                 # [{"id","net":"mt","transport":"serial|tcp","address","enabled"}]
     "airtime": {"pct_hour": 10.0, "pct_day": 0.0},        # Meshtastic radio: limit for packets from links
     "airtime_mc": {"pct_hour": 10.0, "pct_day": 0.0},     # MeshCore radio: its own limit
-    "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
+    "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT),
+                 "mc": {"send": dict(MC_RULE_DEFAULT), "receive": dict(MC_RULE_DEFAULT)}},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
     "setup_skipped": False,       # the operator chose to set up without the step-by-step wizard
@@ -192,6 +196,8 @@ class Config:
             out = {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)}
             for d in ("send", "receive"):
                 out[d].update(r.get(d) or {})
+            if r.get("mc"):
+                out["mc"] = copy.deepcopy(r["mc"])           # MeshCore rules of this link (own block)
             return out
 
 
@@ -1857,7 +1863,7 @@ class McRadio:
             if f and len(f) >= 50:
                 name = f[2:34].split(b"\0")[0].decode("utf-8", "replace")
                 if name or any(f[34:50]):
-                    out.append({"index": idx, "name": name or "(no name)",
+                    out.append({"index": idx, "name": name or "(no name)", "hash": hashlib.sha256(bytes(f[34:50])).digest()[0],
                                 "public": f[34:50].hex() == "8b3387e9c5cdea6ac9e5edbaa115cd72"})   # MeshCore's well-known Public key
         self.channels = out
 
@@ -1974,7 +1980,7 @@ class McRadio:
             return
         self.sync_last = time.time()
         online = {h["id"] for h in link.directory if h.get("online")}
-        partners = {p for p in active_peers() if p in online and cfg.rules_for(p)["send"].get("mc", True)}
+        partners = {p for p in active_peers() if p in online and mc_rule(p, "send").get("on", True) and mc_rule(p, "send").get("adverts", True)}
         if partners - self.sync_partners:
             self.sync_sent.clear()
         self.sync_partners = partners
@@ -2615,7 +2621,50 @@ def mc_parse(raw):
         return None
     payload = raw[i:]
     ident = hashlib.sha256(bytes([ptype]) + (bytes([pl]) if ptype == 9 else b"") + payload).digest()[:16]
-    return {"route": "flood" if route in (0, 1) else "direct", "type": MC_PAYLOAD.get(ptype, f"type {ptype}"), "hops": pl & 63, "id": ident}
+    out = {"route": "flood" if route in (0, 1) else "direct", "type": MC_PAYLOAD.get(ptype, f"type {ptype}"), "hops": pl & 63, "id": ident}
+    if ptype == 4:
+        out["class"] = "adverts"
+    elif ptype in (5, 6):                               # group: first payload byte = channel hash
+        out["class"], ch = "group", None
+        r = mc_radio()
+        for c in (r.channels if r else []):
+            if c.get("hash") == payload[0]:
+                ch = c
+                break
+        if ch is None and payload[0] == MC_PUBLIC_HASH:
+            ch = {"name": "Public", "public": True}
+        if ch and ch.get("public"):
+            out["class"] = "public"
+        elif ch:
+            out["group"] = ch["name"]
+    elif ptype in (0, 1, 2, 3, 7, 8):
+        out["class"] = "private"                        # private messages + their confirmations, paths, requests
+    else:
+        out["class"] = "other"                          # traceroute, control, multipart, raw
+    return out
+
+
+MC_PUBLIC_HASH = hashlib.sha256(bytes.fromhex("8b3387e9c5cdea6ac9e5edbaa115cd72")).digest()[0]
+
+
+def mc_rule(peer, direction):
+    """This link's MeshCore rule for one direction (separate from the Meshtastic rules)."""
+    r = cfg.rules_for(peer)
+    m = (r.get("mc") or {}).get(direction)
+    if m is None:
+        m = dict(MC_RULE_DEFAULT, on=bool((r.get(direction) or {}).get("mc", True)))
+    return m
+
+
+def mc_allowed(rule, p):
+    if not rule.get("on", True):
+        return False, "meshcore_off"
+    k = p.get("class", "other")
+    if k == "group":
+        if p.get("group"):
+            return (True, None) if p["group"] in (rule.get("groups") or []) else (False, "meshcore_group")
+        return (True, None) if rule.get("other_groups", False) else (False, "meshcore_other_groups")
+    return (True, None) if rule.get(k, True) else (False, "meshcore_" + k)
 
 
 mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never announced back)
@@ -2632,9 +2681,9 @@ def mc_send_to_peers(raw, announce=None):
         return
     boxes = {}
     for peer in active_peers():
-        rule = cfg.rules_for(peer)["send"]
-        if not rule.get("mc", True):                   # MeshCore has its own switch per link (independent of Meshtastic)
-            counters_mc.peer_add(peer, "blocked_send", "meshcore_off")
+        ok, why = mc_allowed(mc_rule(peer, "send"), p)     # MeshCore rules of this link (independent of Meshtastic)
+        if not ok:
+            counters_mc.peer_add(peer, "blocked_send", why)
             continue
         keys, state = identity.keys_for(peer)
         if keys is None:
@@ -2689,10 +2738,10 @@ def mc_receive_box(peer, box):
         counters_mc.peer_add(peer, "blocked_recv", "no_radio")
         log.info("from %s MeshCore %s: not put on air (no MeshCore radio connected)", frm, p["type"])
         return
-    rr = cfg.rules_for(peer)["receive"]
-    if not rr.get("mc", True):
-        counters_mc.peer_add(peer, "blocked_recv", "meshcore_off")
-        log.info("from %s MeshCore %s: not put on air (MeshCore off on this link)", frm, p["type"])
+    ok, why = mc_allowed(mc_rule(peer, "receive"), p)
+    if not ok:
+        counters_mc.peer_add(peer, "blocked_recv", why)
+        log.info("from %s MeshCore %s: not put on air (%s)", frm, p["type"], why)
         return
     a = cfg.get().get("airtime_mc") or {"pct_hour": 10.0, "pct_day": 0.0}
     si = r.self_info
@@ -3434,6 +3483,16 @@ def clean_rules(r):
             out[d]["transit"] = bool(x.get("transit", True))
         else:
             out[d]["from_beyond"] = bool(x.get("from_beyond", True))
+    m = r.get("mc") or {}
+    out["mc"] = {}
+    for d in ("send", "receive"):
+        x = m.get(d)
+        if x is None:                                    # older rules: one MeshCore switch per direction
+            x = dict(MC_RULE_DEFAULT, on=bool((r.get(d) or {}).get("mc", True)))
+        out["mc"][d] = {k: bool(x.get(k, v)) for k, v in MC_RULE_DEFAULT.items() if k != "groups"}
+        out["mc"][d]["groups"] = [str(g)[:32] for g in (x.get("groups") or [])][:40]
+    for d in ("send", "receive"):
+        out[d].pop("mc", None)
     return out
 
 

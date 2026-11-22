@@ -434,6 +434,29 @@ function bindSecs() {
   $$("details.secline > summary button, details.secline > summary a").forEach(x => x.addEventListener("click", e => e.stopPropagation()));
 }
 
+
+/* MeshCore rules of a link (or of the defaults): one column per direction, separate from Meshtastic */
+const MC_DEF = { on: true, adverts: true, public: true, private: true, groups: [], other_groups: false, other: true };
+function mcRuleOf(r, dir) {
+  const m = r && r.mc && r.mc[dir];
+  return m ? Object.assign({}, MC_DEF, m) : Object.assign({}, MC_DEF, { on: !(r && r[dir] && r[dir].mc === false) });
+}
+function mcCol(dir, rule, groups) {
+  const row = (k, hint) => `<label class="check"><input type="checkbox" data-dir="${dir}" data-mck="${k}" ${rule[k] ? "checked" : ""}> ${t("mcr." + k)}${hint ? ` <span class="muted small">${t(hint)}</span>` : ""}</label>`;
+  return `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
+    ${row("on")}${row("adverts", "mcr.adverts.hint")}${row("public")}${row("private", "mcr.private.hint")}
+    <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
+    ${groups.length ? groups.map(g => `<label class="check"><input type="checkbox" data-dir="${dir}" data-mcg="${esc(g)}" ${(rule.groups || []).includes(g) ? "checked" : ""}> ${esc(g)}</label>`).join("")
+      : `<div class="muted small">${t("mcr.nogroups")}</div>`}
+    ${row("other_groups", "mcr.other_groups.hint")}${row("other", "mcr.other.hint")}</div>`;
+}
+function mcRead(box) {
+  const out = { send: { groups: [] }, receive: { groups: [] } };
+  $$("input[data-mck]", box).forEach(i => out[i.dataset.dir][i.dataset.mck] = i.checked);
+  $$("input[data-mcg]", box).forEach(i => { if (i.checked) out[i.dataset.dir].groups.push(i.dataset.mcg); });
+  return out;
+}
+
 /* ───────── status ───────── */
 const LOCAL_COLOR = "#0f7b6c";
 const REMOTE_COLORS = ["#2a56c6", "#c2410c", "#7c3aed", "#b91c1c", "#0e7490", "#a16207", "#be185d"];
@@ -584,15 +607,14 @@ async function pageLinks() {
   const others = s.directory.filter(h => h.id !== s.server.hub_id);
   const peerCounts = s.counters.peers;
   const rulesOf = peer => { const x = c.rules[peer] || c.defaults; return { send: Object.assign({}, x.send), receive: Object.assign({}, x.receive) }; };
+  const mcGroups = ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name);
   const dirCol = (peer, dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
-      <div class="small muted" style="margin-top:.2rem"><b>Meshtastic</b></div>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}
       ${ruleRow(t("rule.public") + ` <span class="muted small">${t("l.public.hint", { x: esc(pubName) })}</span>`, dir, "public", rule)}
       ${ruleRow(t("rule.private"), dir, "private", rule)}
       ${ruleRow(t("rule.positions"), dir, "positions", rule)}
       ${dir === "send" ? onwardBox(peer, rule) + ruleRow(t("rule.transit") + ` <span class="muted small">${t("rule.transit.hint")}</span>`, dir, "transit", rule)
                        : ruleRow(t("rule.from_beyond") + ` <span class="muted small">${t("rule.from_beyond.hint")}</span>`, dir, "from_beyond", rule)}
-      <div class="small muted" style="margin-top:.6rem">${t("rule.mc.title")}</div><label class="check"><input type="checkbox" data-dir="${dir}" data-k="mc" ${rule.mc !== false ? "checked" : ""}> <b>MeshCore</b> <span class="muted small">${t("rule.mc.hint")}</span></label>
       <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
       ${groups.length ? groups.map(gname => `<label class="check"><input type="checkbox" data-dir="${dir}" data-g="${esc(gname)}" ${(rule.groups || []).includes(gname) ? "checked" : ""}> ${esc(gname)} <span class="muted small">(${t("ch.code")} ${gcodes(gname)})</span></label>`).join("") : `<div class="muted small">${t("l.nogroups")}</div>`}</div>`;
   // the hubs this peer offers to pass my packets on to (its published transit list), each with a tick box
@@ -670,8 +692,10 @@ async function pageLinks() {
           ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
           ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono" style="font-size:1.1rem">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
           ${l.e2e.state === "changed" ? `<button class="danger small" data-trust="${l.peer}" style="margin-top:.4rem">${t("e2e.trust")}</button>` : ""}</div>
-        <h3>${t("l.rules")}</h3><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
+        <h3>Meshtastic — ${t("l.rules")}</h3><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
         <div class="grid g2">${dirCol(l.peer, "send", rulesOf(l.peer).send)}${dirCol(l.peer, "receive", rulesOf(l.peer).receive)}</div>
+        <h3 style="margin-top:1rem">MeshCore — ${t("l.rules")}</h3><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
+        <div class="grid g2" data-mcbox>${mcCol("send", mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcGroups)}${mcCol("receive", mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div>
         <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
           <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
         <div class="grid g2"><div><h3>${t("l.peer_rules", { x: esc(l.peer_code) })}</h3>${prHtml(peerRules(l), esc(l.peer_code))}</div>
@@ -713,6 +737,7 @@ async function pageLinks() {
     $$("input[data-g]", box).forEach(i => { if (i.checked) rules[i.dataset.dir].groups.push(i.dataset.g); });
     rules.send.onward_to = $$("input[data-onward]", box).filter(i => i.checked).map(i => i.dataset.onward);
     rules.send.reach = +$("[data-reach]", box).value;
+    rules.mc = mcRead(box);
     b.disabled = true;
     try { await api("POST", "/api/rules", { peer, rules }); $(`[data-saved="${peer}"]`).textContent = "✓ " + t("saved"); }
     catch (e) { $(`[data-saved="${peer}"]`).textContent = errText(e); }
@@ -1002,8 +1027,7 @@ async function pageSettings(want, opts) {
   const reg = !!c.server.hub_id, h = c.hub;
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
-      ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}
-      <div class="small muted" style="margin-top:.6rem">${t("rule.mc.title")}</div><label class="check"><input type="checkbox" data-dir="${dir}" data-k="mc" ${rule.mc !== false ? "checked" : ""}> <b>MeshCore</b> <span class="muted small">${t("rule.mc.hint")}</span></label></div>`;
+      ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
   const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
   const spec = await api("GET", "/api/advanced_spec");
   spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
@@ -1047,7 +1071,8 @@ async function pageSettings(want, opts) {
       <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
       <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
       <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
-      <h3>${t("s.defaults")}</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
+      <h3>${t("s.defaults")} — Meshtastic</h3><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div>
+      <h3>${t("s.defaults")} — MeshCore</h3><div class="grid g2" id="defsmc">${mcCol("send", mcRuleOf(c.defaults, "send"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}${mcCol("receive", mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}</div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button>`),
     secBox("settings", "pw", `<b>${t("s.password")}</b>`, [["", `<span class="muted small">${t("s.pw_short")}</span>`], ["", `<button class="small" id="logout">${t("logout")}</button>`]],
       `<input type="password" id="npw"><div class="hint">${t("password.min", { n: SESS.password_min })}</div><div id="pwmsg"></div>
@@ -1141,6 +1166,7 @@ async function pageSettings(want, opts) {
   if ($("#lsave")) $("#lsave").onclick = async () => {
     const defaults = { send: { groups: [] }, receive: { groups: [] } };
     $$("#defs input[data-k]").forEach(i => defaults[i.dataset.dir][i.dataset.k] = i.checked);
+    if ($("#defsmc")) defaults.mc = mcRead($("#defsmc"));
     try { await api("POST", "/api/hub", { share_positions_on_map: $("#spos").checked, defaults,
                                            transit: { enabled: $("#tron").checked, max_hops: $("#trhops").value } });
           $("#lmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
@@ -1691,6 +1717,14 @@ Ura.add({
   "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
   "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
   "rule.mc.title": { en: "MeshCore", sq: "MeshCore" },
+  "mcr.hint": { en: "What MeshCore traffic goes to {x} and what you accept from it — separate from Meshtastic. Only if both hubs have a MeshCore radio.", sq: "Çfarë trafiku MeshCore shkon te {x} dhe çfarë pranoni prej tij — e ndarë nga Meshtastic. Vetëm nëse të dy hub-et kanë radio MeshCore." },
+  "mcr.on": { en: "MeshCore on this link", sq: "MeshCore në këtë lidhje" },
+  "mcr.adverts": { en: "Adverts", sq: "Reklamat" }, "mcr.adverts.hint": { en: "nodes become known on the other side", sq: "nyjet bëhen të njohura në anën tjetër" },
+  "mcr.public": { en: "Public channel", sq: "Kanali Public" },
+  "mcr.private": { en: "Private messages", sq: "Mesazhe private" }, "mcr.private.hint": { en: "with their confirmations, paths and requests", sq: "me konfirmimet, shtigjet dhe kërkesat e tyre" },
+  "mcr.nogroups": { en: "This hub's MeshCore radio has no other channel.", sq: "Radio MeshCore e këtij hub-i nuk ka kanal tjetër." },
+  "mcr.other_groups": { en: "Other people's channels", sq: "Kanalet e të tjerëve" }, "mcr.other_groups.hint": { en: "channels this radio does not have (it cannot read them)", sq: "kanale që kjo radio nuk i ka (nuk mund t'i lexojë)" },
+  "mcr.other": { en: "Other", sq: "Të tjera" }, "mcr.other.hint": { en: "traceroute, control packets", sq: "traceroute, paketa kontrolli" },
   "mc.msgs": { en: "Messages to this radio", sq: "Mesazhe për këtë radio" },
   "mc.msgs_short": { en: "for testing", sq: "për testim" },
   "mc.msgs_hint": { en: "Messages this hub radio received from ITS OWN mesh (its channels, e.g. Public, and private messages to it). Messages arriving over Ura are not shown here: this radio is the one that SENDS them out, and a radio does not receive its own transmissions — so a hub radio cannot be the recipient of a message from the other side; the nodes around it are.",
