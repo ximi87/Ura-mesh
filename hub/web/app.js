@@ -1576,10 +1576,16 @@ async function pageMc() {
         <label style="margin-top:.6rem">${t("mc.name")}</label><input type="text" id="mcname" maxlength="31" value="${esc(r.name || "")}">
         <div class="hint">${t("mc.name_hint")}</div>
         <div class="row" style="margin-top:.6rem"><button class="primary" id="mcprep">${t("mc.prep_btn")}</button></div><div id="mcpmsg"></div>`),
+      secBox("mc", "msgs", `<b>${t("mc.msgs")}</b>`, [["", `<span class="muted small">${t("mc.msgs_short")}</span>`]], `<p class="small muted">${t("mc.msgs_hint")}</p><div id="mcmsgs"></div>`),
       secBox("mc", "contacts", `<b>${t("mc.contacts")}</b>`, [["", `${r.contacts}`]], `<p class="small muted">${t("mc.contacts_hint")}</p><div id="mccontacts"></div>`),
       secBox("mc", "rx", `<b>${t("mc.rx")}</b>`, [[t("mc.last_hour"), `${r.rx_hour}`]], rxBody)] : [])];
   app().innerHTML = secCard(t("mc.title"), `<div class="msg info small">${t("mc.stage")}</div>` + lines.join(""));
   bindSecs();
+  if ($("#mcmsgs")) api("GET", "/api/mc/messages").then(list => {
+    $("#mcmsgs").innerHTML = list.length ? list.map(m => `<div class="reqrow small"><b>${esc(m.from || "?")}</b>
+        ${m.kind === "private" ? B("info", t("mc.private")) : B("", esc(m.channel))} <span class="muted">${ago(m.received)}${m.hops != null ? " · " + t("mc.hops_n", { n: m.hops }) : ""}</span>
+        <div>${esc(m.text)}</div></div>`).join("") : `<p class="muted">${t("none")}</p>`;
+  }).catch(() => {});
   if ($("#mccontacts")) api("GET", "/api/mc/contacts").then(list => dataTable($("#mccontacts"), list, [
       { key: "name", label: t("name"), render: x => `<b>${esc(x.name || "?")}</b>` },
       { key: "type", label: t("role"), render: x => esc(x.type) },
@@ -1655,6 +1661,11 @@ Ura.add({
   "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
   "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
   "rule.mc.title": { en: "MeshCore", sq: "MeshCore" },
+  "mc.msgs": { en: "Messages to this radio", sq: "Mesazhe për këtë radio" },
+  "mc.msgs_short": { en: "for testing", sq: "për testim" },
+  "mc.msgs_hint": { en: "What this hub radio itself received: private messages to it and messages on its channels (e.g. Public). Useful to test a link. Its own confirmations do not go back over Ura (a radio does not hear its own transmissions) — messages to other nodes are confirmed normally.",
+                    sq: "Çfarë mori vetë kjo radio e hub-it: mesazhe private për të dhe mesazhe në kanalet e saj (p.sh. Public). E dobishme për të testuar një lidhje. Konfirmimet e saj nuk kthehen nëpër Ura (një radio nuk dëgjon transmetimet e veta) — mesazhet për nyjet e tjera konfirmohen normalisht." },
+  "mc.private": { en: "private", sq: "privat" }, "mc.hops_n": { en: "{n} hops", sq: "{n} hope" },
   "rule.mc.hint": { en: "all MeshCore packets (adverts, Public, channels, private messages) — only if both hubs have a MeshCore radio", sq: "të gjitha paketat MeshCore (reklama, Public, kanale, mesazhe private) — vetëm nëse të dy hub-et kanë radio MeshCore" },
   "mc.prep": { en: "Prepare for Ura", sq: "Përgatit për Ura" },
   "mc.prep_hint": { en: "Like every radio in Ura, it gets the hub's approximate location (≈ 1 km) and shares it in its adverts; it does not repeat packets itself (Ura carries them). Then it announces itself once.", sq: "Si çdo radio në Ura, merr vendndodhjen e përafërt të hub-it (≈ 1 km) dhe e ndan në reklamat e saj; nuk i përsërit vetë paketat (Ura i bart). Pastaj njoftohet një herë." },

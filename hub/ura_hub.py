@@ -1727,6 +1727,8 @@ class McRadio:
         self.resp = _q.Queue()
         self.contacts_dirty, self.last_contacts = False, 0
         self.air = collections.deque(maxlen=5000)      # (time, seconds on air) of packets Ura put on air
+        self.sync_sent, self.sync_partners, self.sync_last = {}, set(), 0   # adverts announced over the links
+        self.messages, self.msg_waiting = collections.deque(maxlen=100), True  # what this radio itself received
         threading.Thread(target=self._run, daemon=True).start()
 
     # ── serial link ──
@@ -1793,6 +1795,8 @@ class McRadio:
                 log.warning("MeshCore packet not passed on: %s", e)
         elif code in (0x80, 0x8A):                      # an advert: a node (re)announced itself
             self.contacts_dirty = True
+        elif code == 0x83:                              # a message for this radio is waiting
+            self.msg_waiting = True
         elif code < 0x80:
             self.resp.put(f)                            # an answer to our request
 
@@ -1902,7 +1906,78 @@ class McRadio:
                     self._read_contacts()
                 except Exception:
                     pass
+            if self.ser is not None and self.self_info and self.msg_waiting:
+                try:
+                    self._read_messages()
+                except Exception as e:
+                    log.warning("MeshCore messages not read: %s", e)
+            if self.ser is not None and self.self_info:
+                try:
+                    self._sync_step()
+                except Exception as e:
+                    log.warning("MeshCore advert announcement failed: %s", e)
             time.sleep(3)
+
+    def _read_messages(self):
+        """Messages addressed to this radio (private) or on its channels: kept for the MeshCore page."""
+        self.msg_waiting = False
+        for _ in range(30):
+            f = next((x for x in self._request(bytes([10]), lambda x: x[0] in (16, 17, 7, 8, 10), timeout=3) if x[0] in (16, 17, 7, 8, 10)), None)
+            if f is None or f[0] == 10:
+                return
+            if f[0] == 16 and len(f) >= 16:
+                pre = f[4:10].hex()
+                who = next((c["name"] for k, c in self.contacts.items() if k.startswith(pre)), pre)
+                m = {"kind": "private", "from": who, "hops": None if f[10] == 255 else f[10] & 63,
+                     "sent": int.from_bytes(f[12:16], "little"), "text": f[16 + (4 if f[11] == 2 else 0):].decode("utf-8", "replace")}
+            elif f[0] == 17 and len(f) >= 11:
+                ch = next((c["name"] for c in self.channels if c["index"] == f[4]), f"#{f[4]}")
+                txt = f[11:].decode("utf-8", "replace")
+                who, _, body = txt.partition(": ")
+                m = {"kind": "channel", "channel": ch, "from": who if body else "", "text": body or txt,
+                     "hops": None if f[5] == 255 else f[5] & 63, "sent": int.from_bytes(f[7:11], "little")}
+            else:
+                continue
+            m["received"] = int(time.time())
+            self.messages.append(m)
+            log.info("MeshCore radio received a %s message from %s (%s hops)", m["kind"] if m["kind"] == "private" else "channel " + m["channel"],
+                     m["from"] or "?", m["hops"] if m["hops"] is not None else "direct")
+
+    def export(self, key_hex=None):
+        """The radio's own advert (no key) or a contact's advert, as the raw signed packet (CMD_EXPORT_CONTACT)."""
+        fr = self._request(bytes([17]) + (bytes.fromhex(key_hex) if key_hex else b""), lambda x: x[0] in (11, 1))
+        f = next((x for x in fr if x[0] == 11), None)
+        return bytes(f[1:]) if f and len(f) > 3 else None
+
+    def _sync_step(self):
+        """A hub radio does not hear its own adverts, and quiet nodes do not advertise while a link is up: so the
+        radio's own advert and those of the contacts it knows FROM ITS OWN MESH are announced to the linked hubs —
+        one every "node_sync_gap_s" s, each again every "node_sync_hours" h, everything again when a partner returns."""
+        if not adv("node_sync") or time.time() - self.sync_last < max(2, adv("node_sync_gap_s")):
+            return
+        self.sync_last = time.time()
+        online = {h["id"] for h in link.directory if h.get("online")}
+        partners = {p for p in active_peers() if p in online and cfg.rules_for(p)["send"].get("mc", True)}
+        if partners - self.sync_partners:
+            self.sync_sent.clear()
+        self.sync_partners = partners
+        if not partners:
+            return
+        due = []
+        if time.time() - self.sync_sent.get("self", 0) > adv("node_sync_hours") * 3600:
+            due.append("self")
+        for c in sorted(self.contacts.values(), key=lambda x: -(x.get("last_advert") or 0)):
+            if c["key"] in mc_remote_keys or not c.get("last_advert") or time.time() - c["last_advert"] > adv("node_sync_age_h") * 3600:
+                continue
+            if time.time() - self.sync_sent.get(c["key"], 0) > adv("node_sync_hours") * 3600:
+                due.append(c["key"])
+        if not due:
+            return
+        k = due[0]
+        raw = self.export(None if k == "self" else k)
+        self.sync_sent[k] = time.time()
+        if raw:
+            mc_send_to_peers(raw, announce=self.self_info.get("name") if k == "self" else (self.contacts.get(k) or {}).get("name"))
 
     def close(self):
         self.stop = True
@@ -2494,7 +2569,10 @@ def mc_parse(raw):
     return {"route": "flood" if route in (0, 1) else "direct", "type": MC_PAYLOAD.get(ptype, f"type {ptype}"), "hops": pl & 63, "id": ident}
 
 
-def mc_send_to_peers(raw):
+mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never announced back)
+
+
+def mc_send_to_peers(raw, announce=None):
     """MeshCore radio -> linked hubs: every packet the radio hears (each only once, whatever path it came by),
     sealed end-to-end per partner. Copies of packets that came FROM a partner are not sent back."""
     if len(raw) > 174:
@@ -2516,7 +2594,10 @@ def mc_send_to_peers(raw):
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
         counters.peer_add(peer, "sent")
     names = {h["id"]: h.get("code") for h in link.directory}
-    log.info("MeshCore radio -> %s %s (%d hops): sent to %s", p["route"], p["type"], p["hops"], ", ".join(names.get(x, x) for x in boxes) or "nobody")
+    if announce:
+        log.info("MeshCore advert of “%s” announced to %s", announce, ", ".join(names.get(x, x) for x in boxes) or "nobody")
+    else:
+        log.info("MeshCore radio -> %s %s (%d hops): sent to %s", p["route"], p["type"], p["hops"], ", ".join(names.get(x, x) for x in boxes) or "nobody")
     if boxes:
         counters.add("sent")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mc", "boxes": boxes}), loop)
@@ -2544,6 +2625,13 @@ def mc_receive_box(peer, box):
         return
     frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
     counters.add("received")
+    if p["type"] == "advert":                          # remember: this node lives on the other side
+        try:
+            i_ = 1 + (4 if (raw[0] & 3) in (0, 3) else 0)
+            pl_ = raw[i_]; i_ += 1 + (pl_ & 63) * ((pl_ >> 6) + 1)
+            mc_remote_keys.add(raw[i_:i_ + 32].hex())
+        except Exception:
+            pass
     if seen_cache.seen(b"m" + p["id"]):                # already heard here (it went round) -> not again
         return
     r = mc_radio()
@@ -2764,6 +2852,9 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/mc/status":
                 r = mc_radio()
                 return self.reply({"radio": r.info() if r else None, "result": mc_result})
+            if p == "/api/mc/messages":
+                r = mc_radio()
+                return self.reply(list(reversed(r.messages)) if r else [])
             if p == "/api/mc/contacts":
                 r = mc_radio()
                 return self.reply(sorted((r.contacts.values() if r else []), key=lambda x: -(x.get("last_advert") or 0)))
