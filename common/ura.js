@@ -84,8 +84,12 @@ function onlineBadge(on) { return on ? `<span class="badge ok"><span class="dot 
 /* Header with brand, menu and language switch. items: [[hash, labelKey], ...] */
 /* Menu items: [href, textKey], or {key, items: [[href, textKey], …]} for a menu with a submenu. */
 function renderHeader(title, items, extraRight) {
-  const hash = location.hash || "#/", cur = hash.split("/")[1] || "";
-  const isActive = h => h === hash || ((h.split("/")[1] || "") === cur && (h.split("/").length < 3 || hash.startsWith(h)));
+  const hash = (location.hash || "#/").split("?")[0];
+  // exactly ONE item is marked: the one whose address matches the current page best (exact, else the longest prefix)
+  const all = items.flatMap(it => Array.isArray(it) ? [it[0]] : it.items.map(x => x[0]));
+  const best = all.includes(hash) ? hash
+    : all.filter(h => h !== "#/" && hash.startsWith(h + "/")).sort((a, b) => b.length - a.length)[0] || (hash === "#/" || hash === "#" ? "#/" : null);
+  const isActive = h => h === best;
   const item = it => Array.isArray(it)
     ? `<a href="${it[0]}" class="${isActive(it[0]) ? "active" : ""}">${t(it[1])}</a>`
     : `<div class="dd ${it.items.some(x => isActive(x[0])) ? "active" : ""}"><button type="button" class="ddb">${t(it.key)} <span class="caret">▾</span></button>
