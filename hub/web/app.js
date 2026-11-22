@@ -436,7 +436,7 @@ function bindSecs() {
 
 
 /* MeshCore rules of a link (or of the defaults): one column per direction, separate from Meshtastic */
-const MC_DEF = { on: true, adverts: true, public: true, private: true, groups: [], other_groups: false, other: true };
+const MC_DEF = { on: true, adverts: true, public: true, private: true, groups: [], other_groups: false, other: true, reach: 0, transit: true, from_beyond: true };
 function mcRuleOf(r, dir) {
   const m = r && r.mc && r.mc[dir];
   return m ? Object.assign({}, MC_DEF, m) : Object.assign({}, MC_DEF, { on: !(r && r[dir] && r[dir].mc === false) });
@@ -448,12 +448,16 @@ function mcCol(dir, rule, groups) {
     <div class="small muted" style="margin-top:.4rem">${t("rule.groups")}</div>
     ${groups.length ? groups.map(g => `<label class="check"><input type="checkbox" data-dir="${dir}" data-mcg="${esc(g)}" ${(rule.groups || []).includes(g) ? "checked" : ""}> ${esc(g)}</label>`).join("")
       : `<div class="muted small">${t("mcr.nogroups")}</div>`}
-    ${row("other_groups", "mcr.other_groups.hint")}${row("other", "mcr.other.hint")}</div>`;
+    ${row("other_groups", "mcr.other_groups.hint")}${row("other", "mcr.other.hint")}
+    <div class="small muted" style="margin-top:.5rem"><b>${t("mcr.multihop")}</b></div>
+    ${dir === "send" ? `<label class="small">${t("mcr.reach")}</label><select data-dir="send" data-mcreach>${[0, 1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${+rule.reach === n ? "selected" : ""}>${n === 0 ? t("mcr.reach0") : n === 7 ? t("reach.any") : t(n === 1 ? "reach.1" : "reach.n", { n })}</option>`).join("")}</select>
+      ${row("transit", "mcr.transit.hint")}` : row("from_beyond", "mcr.from_beyond.hint")}</div>`;
 }
 function mcRead(box) {
   const out = { send: { groups: [] }, receive: { groups: [] } };
   $$("input[data-mck]", box).forEach(i => out[i.dataset.dir][i.dataset.mck] = i.checked);
   $$("input[data-mcg]", box).forEach(i => { if (i.checked) out[i.dataset.dir].groups.push(i.dataset.mcg); });
+  const rs = $("select[data-mcreach]", box); if (rs) out.send.reach = +rs.value;
   return out;
 }
 
@@ -1099,12 +1103,16 @@ async function pageSettings(want, opts) {
       <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat)}${inp("hlon", "s.lon", "number", h.lon)}</div>
       <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button>`),
     secBox("settings", "limits", `<b>${t("s.linkset")}</b>`,
-      [[t("tr.title"), onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
+      [[t("tr.title") + " MT", onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
+       [t("tr.title") + " MC", onoff(c.transit_mc && c.transit_mc.enabled) + (c.transit_mc && c.transit_mc.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit_mc.max_hops || 2 })}</span>` : "")],
        [t("s.share_pos_short"), onoff(c.share_positions_on_map)]],
       `<label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
-      <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
-      <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
-      <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
+      <div class="netbox mt"><div class="nb-head">${t("tr.title")} — Meshtastic</div><div class="nb-body"><p class="hint">${t("tr.hint")}</p>
+        <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on_mt")}</label>
+        <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div></div></div>
+      <div class="netbox mc"><div class="nb-head">${t("tr.title")} — MeshCore</div><div class="nb-body"><p class="hint">${t("tr.hint_mc")}</p>
+        <label class="check"><input type="checkbox" id="mctron" ${c.transit_mc && c.transit_mc.enabled ? "checked" : ""}> ${t("tr.on_mc")}</label>
+        <label>${t("tr.hops")}</label><input type="number" id="mctrhops" min="2" max="8" value="${esc((c.transit_mc && c.transit_mc.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div></div></div>
       <div class="netbox mt"><div class="nb-head">${t("s.defaults")} — Meshtastic</div><div class="nb-body"><div class="grid g2" id="defs">${ruleBox("send", c.defaults.send)}${ruleBox("receive", c.defaults.receive)}</div></div></div>
       <div class="netbox mc"><div class="nb-head">${t("s.defaults")} — MeshCore</div><div class="nb-body"><div class="grid g2" id="defsmc">${mcCol("send", mcRuleOf(c.defaults, "send"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}${mcCol("receive", mcRuleOf(c.defaults, "receive"), ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name))}</div></div></div>
       <div id="lmsg"></div><button class="primary" id="lsave">${t("save")}</button>`),
@@ -1202,7 +1210,8 @@ async function pageSettings(want, opts) {
     $$("#defs input[data-k]").forEach(i => defaults[i.dataset.dir][i.dataset.k] = i.checked);
     if ($("#defsmc")) defaults.mc = mcRead($("#defsmc"));
     try { await api("POST", "/api/hub", { share_positions_on_map: $("#spos").checked, defaults,
-                                           transit: { enabled: $("#tron").checked, max_hops: $("#trhops").value } });
+                                           transit: { enabled: $("#tron").checked, max_hops: $("#trhops").value },
+                                           transit_mc: { enabled: $("#mctron").checked, max_hops: $("#mctrhops").value } });
           $("#lmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   if ($("#pwsave")) $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: SESS.password_min })}</div>`; } };
@@ -1751,6 +1760,17 @@ Ura.add({
   "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
   "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
   "rule.mc.title": { en: "MeshCore", sq: "MeshCore" },
+  "mcr.multihop": { en: "Multi-hop", sq: "Shumë-hop" },
+  "mcr.reach": { en: "How far may my MeshCore packets go through this partner?", sq: "Sa larg mund të shkojnë paketat e mia MeshCore përmes këtij partneri?" },
+  "mcr.reach0": { en: "stop at this partner", sq: "ndalen te ky partner" },
+  "mcr.transit": { en: "Pass other hubs' MeshCore packets to this hub", sq: "Kaloji paketat MeshCore të hub-eve të tjera te ky hub" },
+  "mcr.transit.hint": { en: "only if MeshCore multi-hop is on (link settings below)", sq: "vetëm nëse shumë-hop MeshCore është i ndezur (cilësimet e lidhjeve më poshtë)" },
+  "mcr.from_beyond": { en: "Accept MeshCore packets from hubs beyond this one", sq: "Prano paketat MeshCore nga hub-et përtej këtij" },
+  "mcr.from_beyond.hint": { en: "traffic that started further away and was passed on by this hub", sq: "trafik që nisi më larg dhe u kalua nga ky hub" },
+  "tr.on_mt": { en: "This hub passes Meshtastic traffic from one of its links to its other links", sq: "Ky hub kalon trafikun Meshtastic nga një lidhje te lidhjet e tjera" },
+  "tr.on_mc": { en: "This hub passes MeshCore traffic from one of its links to its other links", sq: "Ky hub kalon trafikun MeshCore nga një lidhje te lidhjet e tjera" },
+  "tr.hint_mc": { en: "MeshCore packets that came from one linked hub are passed on to your other linked hubs — only as far as the hub where they started allows (“How far may my MeshCore packets go”), at most this many links in total, and only to links where “Pass other hubs' MeshCore packets” is ticked. Decided separately from Meshtastic.",
+                  sq: "Paketat MeshCore që erdhën nga një hub i lidhur u kalohen hub-eve të tjera të lidhura — vetëm aq larg sa lejon hub-i ku nisën (“Sa larg mund të shkojnë paketat e mia MeshCore”), gjithsej jo më shumë se kaq lidhje, dhe vetëm te lidhjet ku është shënuar “Kaloji paketat MeshCore të hub-eve të tjera”. Vendoset veçmas nga Meshtastic." },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },

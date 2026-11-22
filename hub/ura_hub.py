@@ -136,7 +136,10 @@ RULE_DEFAULT = {"on": True, "public": True, "groups": [], "private": True, "posi
                 "from_beyond": True}  # receive: accept packets that started at hubs beyond this peer
 MC_RULE_DEFAULT = {"on": True, "adverts": True, "public": True, "private": True, "groups": [],
                    "other_groups": False,   # channels of other people (unknown to this radio) — off, like Meshtastic
-                   "other": True}           # traceroute, control packets
+                   "other": True,           # traceroute, control packets
+                   "reach": 0,              # send: how many hubs BEYOND this partner my MeshCore packets may travel
+                   "transit": True,         # send: I pass other hubs' MeshCore packets on to this partner (if MeshCore transit is on)
+                   "from_beyond": True}     # receive: accept MeshCore packets that started at hubs beyond this partner
 DEFAULT_CONFIG = {
     "hub": {"name": "", "email": "", "country": "", "city": "", "lat": None, "lon": None, "description": "",
             "location_mode": "radio"},            # radio = follow the connected radio's position, manual = typed in
@@ -150,7 +153,8 @@ DEFAULT_CONFIG = {
     "share_positions_on_map": True,
     "setup_skipped": False,       # the operator chose to set up without the step-by-step wizard
     "setup_done": False,          # every wizard step was done once: the wizard no longer opens by itself
-    "transit": {"enabled": False, "max_hops": 2},   # pass traffic between my linked hubs (multi-hop)
+    "transit": {"enabled": False, "max_hops": 2},   # Meshtastic: pass traffic between my linked hubs (multi-hop)
+    "transit_mc": {"enabled": False, "max_hops": 2},  # MeshCore: the same, decided separately
     "advanced": {k: v[0] for k, v in ADV_SPEC.items()},
     "peer_keys": {},              # peer hub id -> pinned end-to-end public key (base64)
     "web_password": None,
@@ -2671,16 +2675,24 @@ mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never a
 counters_mc = Counters()   # MeshCore traffic is counted on its own (Meshtastic keeps `counters`)
 
 
-def mc_send_to_peers(raw, announce=None):
+def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
     """MeshCore radio -> linked hubs: every packet the radio hears (each only once, whatever path it came by),
     sealed end-to-end per partner. Copies of packets that came FROM a partner are not sent back."""
     if len(raw) > 174:
         return
     p = mc_parse(raw)
-    if p is None or seen_cache.seen(b"m" + p["id"]):
+    own = path is None
+    if p is None or (own and seen_cache.seen(b"m" + p["id"])):
         return
+    if own:
+        path = [my_id()]
     boxes = {}
     for peer in active_peers():
+        if peer in exclude:
+            continue
+        if not own and not mc_rule(peer, "send").get("transit", True):
+            counters_mc.peer_add(peer, "blocked_send", "transit_off")
+            continue
         ok, why = mc_allowed(mc_rule(peer, "send"), p)     # MeshCore rules of this link (independent of Meshtastic)
         if not ok:
             counters_mc.peer_add(peer, "blocked_send", why)
@@ -2689,16 +2701,20 @@ def mc_send_to_peers(raw, announce=None):
         if keys is None:
             counters_mc.peer_add(peer, "blocked_send", "key_" + state)
             continue
-        inner = json.dumps({"net": "mc", "data": base64.b64encode(raw).decode(), "path": [my_id()]}).encode()
+        mh = (int(mc_rule(peer, "send").get("reach") or 0) + 1) if own else int(max_hops or 2)   # the ORIGIN decides how far
+        inner = json.dumps({"net": "mc", "data": base64.b64encode(raw).decode(), "path": path, "max_hops": mh}).encode()
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
-        counters_mc.peer_add(peer, "sent")
+        counters_mc.peer_add(peer, "sent" if own else "transit")
     names = {h["id"]: h.get("code") for h in link.directory}
-    if announce:
+    if not own:
+        if boxes:
+            log.info("MeshCore passing on %s %s (from %s): sent to %s", p["route"], p["type"], names.get(path[0], path[0]), ", ".join(names.get(x, x) for x in boxes))
+    elif announce:
         log.info("MeshCore advert of “%s” announced to %s", announce, ", ".join(names.get(x, x) for x in boxes) or "nobody")
     else:
         log.info("MeshCore radio -> %s %s (%d hops): sent to %s", p["route"], p["type"], p["hops"], ", ".join(names.get(x, x) for x in boxes) or "nobody")
     if boxes:
-        counters_mc.add("sent")
+        counters_mc.add("sent" if own else "transit")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mc", "boxes": boxes}), loop)
 
 
@@ -2722,6 +2738,13 @@ def mc_receive_box(peer, box):
     if p is None:
         counters_mc.peer_add(peer, "blocked_recv", "invalid")
         return
+    path = [str(x)[:20] for x in (m.get("path") or [peer])][:16]
+    if my_id() in path:                                 # it went round in a circle
+        counters_mc.peer_add(peer, "blocked_recv", "loop")
+        return
+    if len(path) > 1 and not mc_rule(peer, "receive").get("from_beyond", True):
+        counters_mc.peer_add(peer, "blocked_recv", "from_beyond")
+        return
     frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
     counters_mc.add("received")
     if p["type"] == "advert":                          # remember: this node lives on the other side
@@ -2733,6 +2756,14 @@ def mc_receive_box(peer, box):
             pass
     if seen_cache.seen(b"m" + p["id"]):                # already heard here (it went round) -> not again
         return
+    # MeshCore multi-hop: pass it on to my other links only if I allow MeshCore transit and the origin's limit allows
+    tm = cfg.get().get("transit_mc") or {}
+    origin_max = int(m.get("max_hops") or 1)
+    if tm.get("enabled") and len(path) + 1 <= min(int(tm.get("max_hops", 2)), origin_max):
+        try:
+            mc_send_to_peers(raw, path=path + [my_id()], exclude=set(path) | {peer}, max_hops=origin_max)
+        except Exception as e:
+            log.warning("MeshCore packet not passed on: %s", e)
     r = mc_radio()
     if r is None or r.ser is None:
         counters_mc.peer_add(peer, "blocked_recv", "no_radio")
@@ -3108,11 +3139,12 @@ class Web(http.server.BaseHTTPRequestHandler):
                                  "pct_day": max(0.0, min(100.0, float(b[k_].get("pct_day") or 0)))}
                 if "defaults" in b:
                     d["defaults"] = clean_rules(b["defaults"])
-                if "transit" in b:
-                    hops = int(b["transit"].get("max_hops") or 2)
-                    if not 2 <= hops <= 8:
-                        raise ValueError("max_hops")
-                    d["transit"] = {"enabled": bool(b["transit"].get("enabled")), "max_hops": hops}
+                for k_ in ("transit", "transit_mc"):
+                    if k_ in b:
+                        hops = int(b[k_].get("max_hops") or 2)
+                        if not 2 <= hops <= 8:
+                            raise ValueError("max_hops")
+                        d[k_] = {"enabled": bool(b[k_].get("enabled")), "max_hops": hops}
             cfg.update(upd)
             run_coro(link.push_info())
             link.kick()                       # new location / positions setting: tell the server now
@@ -3489,8 +3521,9 @@ def clean_rules(r):
         x = m.get(d)
         if x is None:                                    # older rules: one MeshCore switch per direction
             x = dict(MC_RULE_DEFAULT, on=bool((r.get(d) or {}).get("mc", True)))
-        out["mc"][d] = {k: bool(x.get(k, v)) for k, v in MC_RULE_DEFAULT.items() if k != "groups"}
+        out["mc"][d] = {k: bool(x.get(k, v)) for k, v in MC_RULE_DEFAULT.items() if k not in ("groups", "reach")}
         out["mc"][d]["groups"] = [str(g)[:32] for g in (x.get("groups") or [])][:40]
+        out["mc"][d]["reach"] = max(0, min(REACH_ANY, int(x.get("reach") or 0)))
     for d in ("send", "receive"):
         out[d].pop("mc", None)
     return out
