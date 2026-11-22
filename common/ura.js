@@ -209,10 +209,10 @@ function advancedForm(el, spec, values, opts) {
   const row = k => {
     const sp = spec[k], v = val(k), full = t("adv." + k), hk = "adv." + k + ".hint";
     const m = full.match(/^(.*?)\s*\(([^()]*)\)\s*$/), label = m ? m[1] : full, unit = m ? m[2] : "";
-    const hint = t(hk) !== hk ? `<div class="hint">${t(hk)}</div>` : "";
+    const hint = t(hk) !== hk ? `<span class="adv-hint">${t(hk)}</span>` : "";
     const range = sp.min != null ? `${sp.min}–${sp.max} · ` : "";
-    const meta = `<div class="adv-meta">${range}${t("adv.default")} ${esc(typeof sp.default === "boolean" ? t(sp.default ? "adv.on" : "adv.off") : String(sp.default))}
-      <button type="button" class="linkbtn adv-reset" data-reset="${k}">↺ ${t("adv.reset")}</button></div>`;
+    const meta = `<span class="adv-meta">${range}${t("adv.default")} ${esc(typeof sp.default === "boolean" ? t(sp.default ? "adv.on" : "adv.off") : String(sp.default))}
+      <button type="button" class="linkbtn adv-reset" data-reset="${k}">↺ ${t("adv.reset")}</button></span>`;
     let ctl;
     if (typeof sp.default === "boolean")
       ctl = `<label class="switch"><input type="checkbox" data-adv="${k}" ${v ? "checked" : ""}><span></span></label>`;
@@ -221,8 +221,9 @@ function advancedForm(el, spec, values, opts) {
     else
       ctl = `<input type="text" data-adv="${k}" value="${esc(v)}">`;
     const wide = typeof sp.default === "string" ? " wide" : "";
-    return `<div class="adv-row${wide}" data-adv-row="${k}"><div class="adv-text"><div class="adv-label">${esc(label)}${typeof sp.default === "number" || !unit ? "" : ` <span class="muted small">(${esc(unit)})</span>`}</div>${hint}</div>
-      <div class="adv-ctl">${ctl}${meta}</div></div>`;
+    // one compact row: name | field | explanation, range and default beside it (not below)
+    return `<div class="adv-row${wide}" data-adv-row="${k}"><div class="adv-label">${esc(label)}${typeof sp.default === "number" || !unit ? "" : ` <span class="muted small">(${esc(unit)})</span>`}</div>
+      <div class="adv-ctl">${ctl}</div><div class="adv-side">${hint}${meta}</div></div>`;
   };
   el.innerHTML = `<div class="row adv-tools"><button type="button" class="small" data-all="1">${t("adv.open_all")}</button>
       <button type="button" class="small" data-all="0">${t("adv.close_all")}</button></div>` +
