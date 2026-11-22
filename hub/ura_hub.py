@@ -625,8 +625,9 @@ class Radio:
             radio_result = {"address": c["address"], "state": "refused", "found": info, "text": describe_kind(info), "t": time.time()}
             log.warning("radio not saved: %s on %s — the hub works only with a Meshtastic radio", describe_kind(info), c["address"])
             def drop(d):
-                if d["radios"] and d["radios"][0].get("address") == c["address"]:
-                    d["radios"], d["channels_saved"] = [], []
+                if any(x.get("net", "mt") == "mt" and x.get("address") == c["address"] for x in d["radios"]):
+                    d["radios"] = [x for x in d["radios"] if x.get("net", "mt") != "mt"]
+                    d["channels_saved"] = []
             cfg.update(drop)
             loop.call_soon_threadsafe(apply_radios)
         elif self.error != "not_meshtastic":
@@ -1526,7 +1527,7 @@ def factory_reset():
     elif peers:
         step("no radio connected: its node list was not touched")
     def wipe():
-        for r in list(radios.values()):
+        for r in list(radios.values()) + list(mc_radios.values()):
             r.close()
         for name in os.listdir(DATA_DIR):
             p_ = os.path.join(DATA_DIR, name)
@@ -1705,6 +1706,236 @@ def mt_radio():
     return None
 
 
+# ───────────────────────── radio (MeshCore companion) ─────────────────────────
+MC_ADV_TYPES = {0: "none", 1: "companion", 2: "repeater", 3: "room", 4: "sensor"}
+MC_PAYLOAD = {0: "request", 1: "response", 2: "text", 3: "ack", 4: "advert", 5: "group text", 6: "group data", 7: "anon request",
+              8: "path", 9: "trace", 10: "multipart", 11: "control", 15: "raw"}
+
+
+class McRadio:
+    """A MeshCore radio with companion firmware on USB. It speaks its own serial protocol: frames "<" + length (2
+    bytes, little endian) + payload to the radio, ">" + length + payload back. For now the hub only READS: who the
+    radio is (name, key, radio settings, firmware), its contacts and channels, and every raw packet it hears
+    (PUSH_CODE_LOG_RX_DATA) — those are what will be carried over the links."""
+
+    def __init__(self, conf):
+        import collections, queue as _q
+        self.conf, self.lock, self.req_lock = conf, threading.Lock(), threading.Lock()
+        self.ser, self.stop, self.error, self.connected_at, self.found = None, False, "", 0, {}
+        self.self_info, self.device, self.contacts, self.channels = {}, {}, {}, []
+        self.rx = collections.deque(maxlen=5000)       # (time, route, payload type, length, snr, rssi)
+        self.resp = _q.Queue()
+        self.contacts_dirty, self.last_contacts = False, 0
+        threading.Thread(target=self._run, daemon=True).start()
+
+    # ── serial link ──
+    def _open(self):
+        import serial, termios
+        path = self.conf["address"]
+        if not os.path.exists(path):
+            raise RuntimeError("port not present")
+        with open(path) as f:                          # do not reset the board when the port closes
+            a = termios.tcgetattr(f); a[2] &= ~termios.HUPCL; termios.tcsetattr(f, termios.TCSAFLUSH, a)
+        return serial.Serial(path, 115200, timeout=0.3, write_timeout=2, exclusive=True)
+
+    def _send(self, payload):
+        self.ser.write(b"<" + len(payload).to_bytes(2, "little") + payload)
+
+    def _reader(self, ser):
+        buf = b""
+        while not self.stop and self.ser is ser:
+            try:
+                chunk = ser.read(512)
+            except Exception:
+                break
+            buf += chunk
+            while True:
+                i = buf.find(b">")
+                if i < 0:
+                    buf = b""
+                    break
+                if len(buf) < i + 3:
+                    buf = buf[i:]
+                    break
+                n = int.from_bytes(buf[i + 1:i + 3], "little")
+                if n == 0 or n > 300:
+                    buf = buf[i + 1:]
+                    continue
+                if len(buf) < i + 3 + n:
+                    buf = buf[i:]
+                    break
+                frame, buf = buf[i + 3:i + 3 + n], buf[i + 3 + n:]
+                try:
+                    self._frame(frame)
+                except Exception as e:
+                    log.warning("MeshCore radio: bad frame (%s)", e)
+        if self.ser is ser and not self.stop:
+            with self.lock:
+                self.ser = None
+            self.error = "connection lost"
+            log.warning("MeshCore radio %s: connection lost", self.conf.get("address"))
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+    def _frame(self, f):
+        code = f[0]
+        if code == 0x88 and len(f) > 3:                 # a raw packet the radio heard
+            h = f[3]
+            self.rx.append((time.time(), h & 3, (h >> 2) & 0x0F, len(f) - 3, (f[1] - 256 if f[1] > 127 else f[1]) / 4,
+                            f[2] - 256 if f[2] > 127 else f[2]))
+            self.last_rx = time.time()
+        elif code in (0x80, 0x8A):                      # an advert: a node (re)announced itself
+            self.contacts_dirty = True
+        elif code < 0x80:
+            self.resp.put(f)                            # an answer to our request
+
+    def _request(self, payload, until, timeout=4.0):
+        """Send a command, collect answer frames until `until(frame)` is true (or ERR / timeout)."""
+        import queue as _q
+        with self.req_lock:
+            while not self.resp.empty():
+                self.resp.get_nowait()
+            self._send(payload)
+            out, end = [], time.time() + timeout
+            while time.time() < end:
+                try:
+                    f = self.resp.get(timeout=max(0.05, end - time.time()))
+                except _q.Empty:
+                    break
+                out.append(f)
+                if f[0] == 1 or until(f):
+                    break
+            return out
+
+    # ── reading the radio ──
+    def _read_self(self):
+        f = next((x for x in self._request(bytes([1, 3]) + b"\0" * 6 + b"ura-hub", lambda x: x[0] == 5) if x[0] == 5), None)
+        if not f or len(f) < 58:
+            raise RuntimeError("no_answer")
+        le = lambda a, b, signed=False: int.from_bytes(f[a:b], "little", signed=signed)
+        self.self_info = {"adv_type": MC_ADV_TYPES.get(f[1], f[1]), "tx_power": f[2], "max_tx_power": f[3],
+                          "public_key": f[4:36].hex(), "lat": le(36, 40, True) / 1e6, "lon": le(40, 44, True) / 1e6,
+                          "advert_location": f[45], "manual_add": f[47],
+                          "freq_mhz": le(48, 52) / 1000, "bw_khz": le(52, 56) / 1000, "sf": f[56], "cr": f[57],
+                          "name": f[58:].split(b"\0")[0].decode("utf-8", "replace")}
+        d = next((x for x in self._request(bytes([22, 3]), lambda x: x[0] == 13) if x[0] == 13), None)
+        if d and len(d) >= 80:
+            self.device = {"fw_code": d[1], "max_contacts": d[2] * 2, "max_channels": d[3],
+                           "build": d[8:20].split(b"\0")[0].decode(), "model": d[20:60].split(b"\0")[0].decode(),
+                           "firmware": d[60:80].split(b"\0")[0].decode(),
+                           "client_repeat": d[80] if len(d) > 80 else None}
+
+    def _read_contacts(self):
+        frames = self._request(bytes([4]), lambda x: x[0] == 4, timeout=8)
+        out = {}
+        for f in frames:
+            if f[0] != 3 or len(f) < 148:
+                continue
+            le = lambda a, b, signed=False: int.from_bytes(f[a:b], "little", signed=signed)
+            key = f[1:33].hex()
+            out[key] = {"key": key, "type": MC_ADV_TYPES.get(f[33], f[33]), "path_len": f[35] if f[35] != 255 else None,
+                        "name": f[100:132].split(b"\0")[0].decode("utf-8", "replace"),
+                        "last_advert": le(132, 136), "lat": le(136, 140, True) / 1e6 or None, "lon": le(140, 144, True) / 1e6 or None}
+        self.contacts, self.last_contacts, self.contacts_dirty = out, time.time(), False
+
+    def _read_channels(self):
+        out = []
+        for idx in range((self.device or {}).get("max_channels") or 8):
+            f = next((x for x in self._request(bytes([31, idx]), lambda x: x[0] in (18, 1), timeout=2) if x[0] == 18), None)
+            if f and len(f) >= 50:
+                name = f[2:34].split(b"\0")[0].decode("utf-8", "replace")
+                if name or any(f[34:50]):
+                    out.append({"index": idx, "name": name or "(no name)",
+                                "public": f[34:50].hex() == "8b3387e9c5cdea6ac9e5edbaa115cd72"})   # MeshCore's well-known Public key
+        self.channels = out
+
+    def _run(self):
+        global mc_result
+        while not self.stop:
+            if self.ser is None and self.conf.get("enabled", True):
+                try:
+                    ser = self._open()
+                    with self.lock:
+                        self.ser = ser
+                    threading.Thread(target=self._reader, args=(ser,), daemon=True).start()
+                    time.sleep(0.3)
+                    self._read_self()
+                    self.error, self.connected_at, self.found = "", time.time(), {}
+                    self._read_contacts()
+                    self._read_channels()
+                    log.info("MeshCore radio connected: %s (%s, %s) — %d contacts, %d channels", self.self_info.get("name"),
+                             self.device.get("model"), self.device.get("firmware"), len(self.contacts), len(self.channels))
+                    if mc_result.get("address") == self.conf.get("address"):
+                        mc_result = {"address": self.conf["address"], "state": "connected", "t": time.time(),
+                                     "found": {"kind": "meshcore", "name": self.self_info.get("name"), "contacts": len(self.contacts)}}
+                except Exception as e:
+                    with self.lock:
+                        ser, self.ser = self.ser, None
+                    if ser:
+                        try:
+                            ser.close()
+                        except Exception:
+                            pass
+                    msg = str(e)
+                    if msg == "no_answer":                 # the port is there, but no MeshCore companion answered
+                        info = identify_port(self.conf["address"])
+                        self.found, msg = info, ("not_meshcore" if info["kind"] not in ("no_answer", "busy") else info["kind"])
+                        if mc_result.get("address") == self.conf.get("address") and mc_result.get("state") == "connecting" \
+                                and info["kind"] in ("meshtastic", "unknown"):
+                            mc_result = {"address": self.conf["address"], "state": "refused", "found": info,
+                                         "text": describe_kind(info), "t": time.time()}
+                            log.warning("MeshCore radio not saved: %s on %s", describe_kind(info), self.conf["address"])
+                            cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]))
+                            loop.call_soon_threadsafe(apply_radios)
+                    if self.error != msg and msg != "port not present":
+                        log.warning("MeshCore radio %s: %s", self.conf.get("address"), msg)
+                    self.error = msg
+            elif self.ser is not None and (self.contacts_dirty or time.time() - self.last_contacts > 300):
+                try:
+                    self._read_contacts()
+                except Exception:
+                    pass
+            time.sleep(3)
+
+    def close(self):
+        self.stop = True
+        with self.lock:
+            ser, self.ser = self.ser, None
+        if ser:
+            try:
+                ser.close()
+            except Exception:
+                pass
+
+    def info(self):
+        t = time.time()
+        rx = [x for x in list(self.rx) if t - x[0] < 3600]
+        by_type = {}
+        for x in rx:
+            k = MC_PAYLOAD.get(x[2], f"type {x[2]}")
+            by_type[k] = by_type.get(k, 0) + 1
+        out = {"id": self.conf.get("id"), "net": "mc", "transport": "serial", "address": self.conf.get("address"),
+               "connected": self.ser is not None and bool(self.self_info) and not self.error, "error": self.error,
+               "found": self.found if self.error in ("not_meshcore", "no_answer", "busy") else None,
+               "rx_hour": len(rx), "rx_by_type": by_type, "last_rx": int(rx[-1][0]) if rx else None,
+               "rx_snr": round(sum(x[4] for x in rx[-50:]) / len(rx[-50:]), 1) if rx else None}
+        if out["connected"]:
+            out.update(self.self_info, device=self.device, channels=self.channels, contacts=len(self.contacts))
+        return out
+
+
+mc_radios = {}       # radio id -> McRadio
+mc_result = {}       # outcome of the last "Save" on the MeshCore page: connecting / connected / refused
+
+
+def mc_radio():
+    for r in mc_radios.values():
+        return r
+    return None
+
+
 def apply_radios():
     """(Re)create radio objects after a config change."""
     wanted = {r["id"]: r for r in cfg.get()["radios"] if r.get("net") == "mt" and r.get("enabled", True)}
@@ -1714,6 +1945,13 @@ def apply_radios():
     for rid, conf in wanted.items():
         if rid not in radios:
             radios[rid] = Radio(conf, radio_queue)
+    want_mc = {r["id"]: r for r in cfg.get()["radios"] if r.get("net") == "mc" and r.get("enabled", True)}
+    for rid in list(mc_radios):
+        if rid not in want_mc or mc_radios[rid].conf != want_mc[rid]:
+            mc_radios.pop(rid).close()
+    for rid, conf in want_mc.items():
+        if rid not in mc_radios:
+            mc_radios[rid] = McRadio(conf)
 
 
 # ───────────────────────── server link ─────────────────────────
@@ -1745,6 +1983,10 @@ class Link:
             i = r.info()
             out.append({"net": "mt", "name": i.get("name"), "hw": i.get("hw"), "firmware": i.get("firmware"),
                         "connected": i.get("connected")})
+        for r in mc_radios.values():
+            i = r.info()
+            out.append({"net": "mc", "name": i.get("name"), "hw": (i.get("device") or {}).get("model"),
+                        "firmware": (i.get("device") or {}).get("firmware"), "connected": i.get("connected")})
         return out
 
     async def send(self, obj):
@@ -2246,6 +2488,7 @@ def status_payload():
     r = mt_radio()
     return {"version": VERSION, "hub": c["hub"], "server": {k: c["server"][k] for k in ("address", "fingerprint", "hub_id", "status")},
             "link_state": link.state, "link_detail": link.detail, "radio": r.info() if r else None,
+            "mc_radio": mc_radio().info() if mc_radio() else None,
             "counters": counters.snapshot(), "airtime": {"used_hour": counters.air_used(3600), "used_day": counters.air_used(86400),
                                                        "limits": c["airtime"]},
             "links": [dict(l, e2e=identity.safety(l["peer"])) for l in link.links], "directory": link.directory,
@@ -2364,6 +2607,12 @@ class Web(http.server.BaseHTTPRequestHandler):
                 return self.reply(c)
             if p == "/api/factory_reset":
                 return self.reply(reset_state)
+            if p == "/api/mc/status":
+                r = mc_radio()
+                return self.reply({"radio": r.info() if r else None, "result": mc_result})
+            if p == "/api/mc/contacts":
+                r = mc_radio()
+                return self.reply(sorted((r.contacts.values() if r else []), key=lambda x: -(x.get("last_advert") or 0)))
             if p == "/api/radio/result":
                 return self.reply(radio_result)
             if p == "/api/radio/settings":
@@ -2377,7 +2626,12 @@ class Web(http.server.BaseHTTPRequestHandler):
                     paths = ["/dev/fake", "/dev/fake-meshcore", "/dev/fake-unknown"]
                 r = mt_radio()
                 live = r.conf.get("address") if r is not None and r.iface is not None else None
+                mcr = mc_radio()
+                mc_live = mcr.conf.get("address") if mcr is not None and mcr.ser is not None and mcr.self_info else None
                 def one(path):
+                    if path == mc_live:                   # the hub's MeshCore radio: from its open connection
+                        return {"kind": "meshcore", "name": mcr.self_info.get("name") or "", "id": "", "hw": mcr.device.get("model") or "",
+                                "in_use": True, "path": path, "dev": os.path.basename(os.path.realpath(path)), "usb": usb_label(path)}
                     if path == live:                      # the hub is using it: ask the open connection, not the port
                         i = r.info()
                         info = {"kind": "meshtastic", "name": i.get("name") or "", "id": i.get("node_id") or "", "hw": i.get("hw") or "", "in_use": True}
@@ -2385,7 +2639,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                         info = identify_port(path)
                     return dict(info, path=path, dev=os.path.basename(os.path.realpath(path)), usb=usb_label(path))
                 def quick(path):                          # instant: what the computer says + what is already known
-                    if path == live:
+                    if path in (live, mc_live):
                         return one(path)
                     known = _ident_cache.get(ident_key(path))
                     return dict(known or {"kind": None}, path=path, dev=os.path.basename(os.path.realpath(path)), usb=usb_label(path))
@@ -2469,7 +2723,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             if act not in ("restart", "stop"):
                 return self.reply({"error": "bad_action"}, 400)
             def release():
-                for r in list(radios.values()):
+                for r in list(radios.values()) + list(mc_radios.values()):
                     r.close()
             program_action(act, release)
             return self.reply({"ok": True, "action": act})
@@ -2614,11 +2868,12 @@ class Web(http.server.BaseHTTPRequestHandler):
                     log.warning("radio not saved: %s on %s — the hub works only with a Meshtastic radio", describe_kind(found), addr)
                     loop.call_soon_threadsafe(apply_radios)
                     return self.reply({"error": "not_meshtastic", "found": found, "text": describe_kind(found)}, 400)
+            others = lambda d: [x for x in d["radios"] if x.get("net", "mt") != "mt"]      # a MeshCore radio stays
             if not addr:
-                cfg.update(lambda d: d.update(radios=[]))
+                cfg.update(lambda d: d.update(radios=others(d)))
             else:
-                cfg.update(lambda d: d.update(radios=[{"id": "r1", "net": "mt", "transport": transport, "address": addr,
-                                                       "enabled": bool(rc.get("enabled", True))}]))
+                cfg.update(lambda d: d.update(radios=others(d) + [{"id": "r1", "net": "mt", "transport": transport, "address": addr,
+                                                                   "enabled": bool(rc.get("enabled", True))}]))
             global radio_result
             if found and found["kind"] == "meshtastic" and found.get("name") and r is not None and r.iface is not None and r.conf.get("address") == addr:
                 radio_result = {"address": addr, "state": "connected", "found": found, "t": time.time()}
@@ -2630,9 +2885,35 @@ class Web(http.server.BaseHTTPRequestHandler):
             if addr:
                 log.info("radio chosen: %s — connecting", addr)
             return self.reply({"ok": True, "found": found, "state": state_now})
+        if p == "/api/mc/radio":                     # choose the MeshCore radio (USB)
+            addr = str((b.get("radio") or {}).get("address") or "").strip()
+            if not addr:
+                return self.reply({"error": "no_address"}, 400)
+            r = mt_radio()
+            if r is not None and r.conf.get("address") == addr:
+                return self.reply({"error": "not_meshcore", "found": {"kind": "meshtastic", "name": r.info().get("name") or ""},
+                                   "text": "this port is the hub's Meshtastic radio"}, 400)
+            k_ = ident_key(addr)
+            found = {"kind": "missing", "name": ""} if k_ is None else _ident_cache.get(k_) or {"kind": "meshcore?"}
+            if found["kind"] not in ("meshcore", "meshcore?"):
+                log.warning("MeshCore radio not saved: %s on %s", describe_kind(found), addr)
+                return self.reply({"error": "not_meshcore", "found": found, "text": describe_kind(found)}, 400)
+            global mc_result
+            mc_result = {"address": addr, "state": "connecting", "t": time.time()}
+            cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]
+                                               + [{"id": "m1", "net": "mc", "transport": "serial", "address": addr, "enabled": True}]))
+            loop.call_soon_threadsafe(apply_radios)
+            log.info("MeshCore radio chosen: %s — connecting", addr)
+            return self.reply({"ok": True, "state": "connecting"})
+        if p == "/api/mc/remove":                    # forget the MeshCore radio; the Meshtastic one stays
+            cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]))
+            loop.call_soon_threadsafe(apply_radios)
+            log.info("MeshCore radio removed from the hub by the operator")
+            return self.reply({"ok": True})
         if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
             def clear(d):
-                d["radios"], d["channels_saved"] = [], []
+                d["radios"] = [x for x in d["radios"] if x.get("net", "mt") != "mt"]      # only the Meshtastic radio
+                d["channels_saved"] = []
             cfg.update(clear)
             with origins.lock:
                 origins.map.clear()

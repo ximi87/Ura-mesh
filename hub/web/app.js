@@ -149,7 +149,7 @@ Ura.add({
   "r.none_saved": { en: "No radio is set up in this hub. Plug one in, choose its port and press Save.", sq: "Asnjë radio nuk është vendosur në këtë hub. Lidhni një, zgjidhni portën dhe shtypni Ruaj." },
   "r.unplugged": { en: "no radio plugged in", sq: "asnjë radio e lidhur" },
   "r.saved_missing": { en: "saved, but not plugged in", sq: "e ruajtur, por jo e lidhur" },
-  "r.k.meshtastic": { en: "Meshtastic radio", sq: "Radio Meshtastic" }, "r.k.meshcore": { en: "MeshCore radio — not supported yet", sq: "Radio MeshCore — ende pa mbështetje" },
+  "r.k.meshtastic": { en: "Meshtastic radio", sq: "Radio Meshtastic" }, "r.k.meshcore": { en: "MeshCore radio", sq: "Radio MeshCore" },
   "r.k.unknown": { en: "not recognised as a radio", sq: "nuk njihet si radio" }, "r.k.busy": { en: "in use by another program", sq: "në përdorim nga një program tjetër" },
   "r.k.missing": { en: "nothing plugged in", sq: "asgjë e lidhur" },
   "r.k.checking": { en: "checking what it is…", sq: "po kontrollohet çfarë është…" },
@@ -393,7 +393,15 @@ Ura.add({
   "err.address_required": { en: "Please enter the server address.", sq: "Ju lutem vendosni adresën e serverit." },
 });
 
-const MENU = [["#/setup", "nav.setup"], ["#/", "nav.status"], ["#/links", "nav.links"], ["#/radio", "nav.radio"], ["#/device", "nav.device"], ["#/settings", "nav.settings"], ["#/logs", "nav.logs"]];
+const MENU = [["#/", "nav.overview"],
+  { key: "nav.mt", items: [["#/radio", "nav.mt.radio"], ["#/device", "nav.mt.device"]] },
+  { key: "nav.mc", items: [["#/mc", "nav.mc.radio"]] },
+  ["#/links", "nav.links"],
+  { key: "nav.settings", items: [["#/settings/hub", "s.hub"], ["#/settings/server", "s.server"], ["#/settings/loc", "loc.title"], ["#/settings/limits", "s.limits"],
+                                 ["#/settings/pw", "s.password"], ["#/settings/program", "pg.title"], ["#/settings/adv", "adv.title"], ["#/settings/reset", "fr.title"],
+                                 ["#/setup", "nav.setup"]] },
+  ["#/logs", "nav.logs"]];
+const mtConf = c => (c.radios || []).find(x => (x.net || "mt") === "mt");      // the Meshtastic radio (a MeshCore one may exist too)
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
 
@@ -493,6 +501,10 @@ async function pageStatus() {
       `<dl class="kv"><dt>${t("status")}</dt><dd>${B(srvBadge, t(srvState(s)))} <span class="muted small">${esc(s.link_detail || "")}</span></dd>
         <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
         <dt>${t("links")}</dt><dd>${active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")} · <a href="#/links">${t("nav.links")} →</a></dd></dl>`),
+    ...(s.mc_radio ? [secBox("status", "mc", `<b>${t("st.mc")}</b>`, [
+        [t("status"), s.mc_radio.connected ? B("ok", t("r.connected")) : B("bad", s.mc_radio.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
+        [t("name"), esc(s.mc_radio.name || "–")], [t("mc.contacts"), s.mc_radio.connected ? s.mc_radio.contacts : "–"], [t("mc.last_hour"), s.mc_radio.connected ? s.mc_radio.rx_hour : "–"]],
+      `<p class="small">${t("mc.stage")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.mc.radio")}</a>`)] : []),
     secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
         [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
@@ -725,7 +737,7 @@ async function pageRadio() {
   const portTxt = p => `${kindTxt(p)} — ${p.dev}${p.usb ? " (" + p.usb + ")" : ""}`;
   const paths = ports.map(p => p.path), canUse = p => !["meshcore", "unknown", "busy"].includes(p.kind);
   const firstUse = ports.find(p => p.kind === "meshtastic") || ports.find(canUse);
-  const rc = c.radios[0] || { transport: "serial", address: "" }, r = s.radio;
+  const rc = mtConf(c) || { transport: "serial", address: "" }, r = s.radio;
   const nodes = r && r.connected ? await api("GET", "/api/nodes").catch(() => []) : [];
   secs("radio", [!r || !r.connected ? "conn" : null, r && r.connected && !r.ready ? "state" : null, r && r.connected && r.ready ? "diag" : null]);
   const connBody = `
@@ -994,7 +1006,7 @@ function chForm(c) {
 }
 
 /* ───────── settings ───────── */
-async function pageSettings() {
+async function pageSettings(want) {
   const [s, c] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
   const reg = !!c.server.hub_id, h = c.hub;
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
@@ -1007,6 +1019,7 @@ async function pageSettings() {
                    + ((c.server.web_port || 8443) !== 8443 ? 1 : 0);
   const sb = s.link_state === "connected" ? "ok" : (s.link_state === "connecting" ? "warn" : "bad");
   secs("settings", [!reg ? "hub" : null, !reg || s.link_state !== "connected" ? "server" : null]);
+  if (want) openSecs.settings.add(want);                      // opened from the Settings menu: that section
   const onoff = v => v ? B("ok", t("on")) : B("", t("off"));
   const lines = [
     secBox("settings", "hub", `<b>${t("s.hub")}</b>`,
@@ -1063,6 +1076,7 @@ async function pageSettings() {
   app().innerHTML = secCard(t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
   programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
+  if (want && $(`details.secline[data-sec="${want}"]`)) $(`details.secline[data-sec="${want}"]`).scrollIntoView({ block: "start" });
   $("#frgo").onclick = async () => {
     if ($("#frconfirm").value.trim() !== "RESET") return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.type_bad")}</div>`;
     if (!confirm(t("fr.q"))) return;
@@ -1176,7 +1190,8 @@ async function route() {
     if (page === "links") return await pageLinks();
     if (page === "radio") return await pageRadio();
     if (page === "device") return await pageDevice();
-    if (page === "settings") return await pageSettings();
+    if (page === "settings") return await pageSettings(location.hash.split("/")[2]);
+    if (page === "mc") return await pageMc();
     if (page === "logs") return pageLogs();
     if (page === "setup") return await pageSetup();
     if (!SESS.setup_skipped && !SESS.setup_done) {   // never fully set up yet: the wizard first (it can be skipped)
@@ -1218,7 +1233,7 @@ function wzSummary(k, s, c) {
 }
 function wzSub(k, s, c) {          // when this changes, the open step is drawn again
   const r = s.radio || {};
-  if (k === "radio") return [c.radios[0] && c.radios[0].address, r.connected, r.error].join("|");
+  if (k === "radio") return [mtConf(c) && mtConf(c).address, r.connected, r.error].join("|");
   if (k === "server") return [c.server.fingerprint, c.server.hub_id, c.server.status, s.link_state].join("|");
   if (k === "link" || k === "done") return s.server.status + "|" + s.link_state + "|" + JSON.stringify([(s.links || []).map(l => [l.id, l.state, l.i_accepted]), (s.directory || []).map(h => [h.id, h.online])]);
   return "";
@@ -1239,7 +1254,7 @@ async function pageSetup() {
     const st = wzState(s, c);
     if (st.done && !SESS.setup_done) { SESS.setup_done = true; api("POST", "/api/wizard", { done: true }).catch(() => {}); }
     let cur = WZ_STEPS.find(k => !st[k]) || "done";
-    if (cur === "radio" && wz.prepUntil > Date.now() && c.radios.length) cur = "prep";   // the radio restarts after "prepare"
+    if (cur === "radio" && wz.prepUntil > Date.now() && mtConf(c)) cur = "prep";   // the radio restarts after "prepare"
     const ci = WZ_STEPS.indexOf(cur);
     $$("#wz .wzs").forEach(li => {
       const k = li.dataset.k, i = WZ_STEPS.indexOf(k), ok = k === "done" ? st.done : st[k];
@@ -1281,7 +1296,7 @@ async function wzBody(k, el, s, c) {
   const r = s.radio || {};
   if (k === "radio") {
     const ports = await api("GET", "/api/ports");
-    const saved = c.radios[0];
+    const saved = mtConf(c);
     el.innerHTML = `<label>${t("r.type")}</label>
       <div class="row wztype"><label class="check"><input type="radio" name="wztype" value="mt" checked> Meshtastic</label>
         <label class="check muted"><input type="radio" name="wztype" value="mc" disabled> MeshCore — ${t("r.mc_soon")}</label></div>
@@ -1514,6 +1529,116 @@ Ura.add({
   "wz.done.nolink": { en: "No link yet. As soon as another hub is on the server, ask it below.", sq: "Ende pa lidhje. Sapo një hub tjetër të jetë në server, kërkojeni më poshtë." },
   "wz.link.after": { en: "Links can be made once the server has approved this hub.", sq: "Lidhjet mund të bëhen pasi serveri ta ketë miratuar këtë hub." },
   "wz.done.status": { en: "Go to the status page", sq: "Shko te faqja e gjendjes" },
+});
+
+
+
+/* ───────── MeshCore radio ───────── */
+async function pageMc() {
+  const [st, c, ports] = await Promise.all([api("GET", "/api/mc/status"), api("GET", "/api/config"), api("GET", "/api/ports")]);
+  const r = st.radio, saved = (c.radios || []).find(x => x.net === "mc");
+  const usable = p => p.kind === "meshcore" || p.kind === "no_answer" || !p.kind;
+  const ptxt = p => (p.kind === "meshtastic" ? `${t("r.k.meshtastic")} “${p.name || "?"}” — ${t("mc.is_mt")}` : kindTxt(p)) + ` — ${p.dev}${p.usb ? " (" + p.usb + ")" : ""}`;
+  secs("mc", [!r || !r.connected ? "conn" : null, r && r.connected ? "state" : null]);
+  const connBody = `<p class="small">${t("mc.conn_hint")}</p>
+    ${saved && r && !r.connected ? `<div class="msg warn small">${r.error === "port not present" ? t("r.unplugged")
+        : r.found ? esc(t("mc.not_mc_now", { x: kindTxt(r.found) })) : esc(r.error || t("r.not_connected"))}</div>` : ""}
+    ${ports.length ? `<label>${t("r.port")}</label><select id="mcport">${ports.map(p => `<option value="${esc(p.path)}" ${usable(p) ? "" : "disabled"}
+        ${saved ? (p.path === saved.address ? "selected" : "") : (p.kind === "meshcore" ? "selected" : "")}>${esc(ptxt(p))}</option>`).join("")}</select>
+      <div class="row" style="margin-top:.6rem"><button class="primary" id="mcgo">${t("wz.radio.connect")}</button></div>`
+      : `<div class="msg warn">${t("r.none_detected")}</div>`}
+    <div id="mcmsg"></div>
+    ${saved ? `<div style="margin-top:1rem;border-top:1px solid var(--line);padding-top:.8rem"><button class="danger" id="mcrm">${t("mc.remove")}</button>
+      <div class="hint">${t("mc.remove_hint")}</div></div>` : ""}`;
+  const d = (r && r.device) || {};
+  const stateBody = r && r.connected ? `<dl class="kv">
+      <dt>${t("name")}</dt><dd><b>${esc(r.name)}</b> <span class="muted small mono">${esc((r.public_key || "").slice(0, 12))}…</span></dd>
+      <dt>${t("hardware")}</dt><dd>${esc(d.model || "–")}</dd><dt>${t("r.firmware")}</dt><dd>${esc(d.firmware || "–")} <span class="muted small">(${esc(d.build || "")})</span></dd>
+      <dt>${t("role")}</dt><dd>${esc(r.adv_type)}${d.client_repeat ? ` · ${B("warn", t("mc.repeats"))}` : ""}</dd>
+      <dt>${t("mc.radio_params")}</dt><dd>${r.freq_mhz} MHz · ${r.bw_khz} kHz · SF${r.sf} · CR${r.cr} · ${r.tx_power} dBm</dd>
+      <dt>${t("position")}</dt><dd>${r.lat || r.lon ? fmtPos(r.lat, r.lon) : `<span class="muted">${t("mc.no_pos")}</span>`}</dd>
+      <dt>${t("r.channels")}</dt><dd>${(r.channels || []).map(ch => `${esc(ch.name)} ${ch.public ? B("info", t("r.public")) : B("", t("r.private_ch"))}`).join("<br>") || "–"}</dd>
+      <dt>${t("mc.contacts")}</dt><dd>${r.contacts}</dd></dl>`
+    : `<p class="muted">${saved ? t("r.not_connected") : t("mc.none")}</p>`;
+  const rxBody = r && r.connected ? `<p class="small">${t("mc.rx_hint")}</p>
+      <p>${t("mc.rx_hour", { n: r.rx_hour })}${r.rx_snr != null ? ` · SNR ${r.rx_snr} dB` : ""}${r.last_rx ? ` · ${t("wd.last")}: ${ago(r.last_rx)}` : ""}</p>
+      ${Object.entries(r.rx_by_type || {}).map(([k, v]) => `<span class="badge">${esc(k)}: ${v}</span>`).join(" ")}` : "";
+  const lines = [
+    secBox("mc", "conn", `<b>${t("mc.conn")}</b>`, [[t("status"), r && r.connected ? B("ok", t("r.connected")) : saved ? B("bad", t("r.not_connected")) : B("", t("r.not_set"))],
+      [t("r.port"), saved ? `<span class="mono small">${esc(saved.address.replace(/^.*\/(usb-)?/, ""))}</span>` : "–"]], connBody),
+    secBox("mc", "state", `<b>${t("mc.state")}</b>`, r && r.connected ? [[t("name"), esc(r.name)], [t("hardware"), esc(d.model || "–")], [t("r.firmware"), esc(d.firmware || "–")]] : [["", "–"]], stateBody),
+    ...(r && r.connected ? [
+      secBox("mc", "contacts", `<b>${t("mc.contacts")}</b>`, [["", `${r.contacts}`]], `<p class="small muted">${t("mc.contacts_hint")}</p><div id="mccontacts"></div>`),
+      secBox("mc", "rx", `<b>${t("mc.rx")}</b>`, [[t("mc.last_hour"), `${r.rx_hour}`]], rxBody)] : [])];
+  app().innerHTML = secCard(t("mc.title"), `<div class="msg info small">${t("mc.stage")}</div>` + lines.join(""));
+  bindSecs();
+  if ($("#mccontacts")) api("GET", "/api/mc/contacts").then(list => dataTable($("#mccontacts"), list, [
+      { key: "name", label: t("name"), render: x => `<b>${esc(x.name || "?")}</b>` },
+      { key: "type", label: t("role"), render: x => esc(x.type) },
+      { key: "last_advert", label: t("mc.last_advert"), render: x => x.last_advert ? ago(x.last_advert) : "–", sort: x => x.last_advert || 0 },
+      { key: "lat", label: t("position"), render: x => fmtPos(x.lat, x.lon), sort: x => x.lat || 0 },
+      { key: "key", label: t("mc.key"), render: x => `<span class="mono small">${esc(x.key.slice(0, 12))}</span>` }],
+    { searchKeys: ["name", "type"], initialSort: "last_advert", pageSize: 25, empty: t("none") })).catch(() => {});
+  ports.filter(p => !p.kind).forEach(p => api("GET", "/api/ports?check=" + encodeURIComponent(p.path)).then(x => {
+    const o = [...document.querySelectorAll("#mcport option")].find(o => o.value === p.path);
+    if (!o) return;
+    o.textContent = ptxt(x); o.disabled = !usable(x);
+    if (x.kind === "meshcore" && !saved) $("#mcport").value = p.path;
+  }).catch(() => {}));
+  if ($("#mcgo")) $("#mcgo").onclick = async () => {
+    const addr = $("#mcport").value, m = $("#mcmsg");
+    if (!addr) return;
+    $("#mcgo").disabled = true;
+    try {
+      await api("POST", "/api/mc/radio", { radio: { address: addr } });
+      m.innerHTML = `<div class="msg info"><span class="spin"></span> ${t("mc.connecting")}</div>`;
+      for (let i = 0; i < 40; i++) {
+        await new Promise(ok => setTimeout(ok, 2000));
+        if (!$("#mcmsg")) return;
+        const x = (await api("GET", "/api/mc/status").catch(() => ({}))).result || {};
+        if (x.address !== addr) continue;
+        if (x.state === "connected") { m.innerHTML = `<div class="msg ok">${esc(t("mc.conn_ok", { x: x.found.name, n: x.found.contacts }))}</div>`; setTimeout(pageMc, 2500); return; }
+        if (x.state === "refused") { m.innerHTML = `<div class="msg bad">${esc(t("mc.found_bad", { x: kindTxt(x.found) }))}</div>`; $("#mcgo").disabled = false; return; }
+      }
+      m.innerHTML = `<div class="msg warn">${t("r.conn_wait")}</div>`; $("#mcgo").disabled = false;
+    } catch (e) {
+      m.innerHTML = `<div class="msg bad">${e.message === "not_meshcore" && e.data && e.data.found ? esc(t("mc.found_bad", { x: kindTxt(e.data.found) })) : errText(e)}</div>`;
+      $("#mcgo").disabled = false;
+    }
+  };
+  if ($("#mcrm")) $("#mcrm").onclick = async () => {
+    if (!confirm(t("mc.remove_q"))) return;
+    await api("POST", "/api/mc/remove", {}); setTimeout(pageMc, 1500);
+  };
+}
+
+Ura.add({
+  "nav.overview": { en: "Overview", sq: "Përmbledhje" }, "nav.mt": { en: "Meshtastic", sq: "Meshtastic" }, "nav.mc": { en: "MeshCore", sq: "MeshCore" },
+  "nav.mt.radio": { en: "Radio & nodes", sq: "Radio dhe nyjet" }, "nav.mt.device": { en: "Device settings", sq: "Cilësimet e pajisjes" },
+  "nav.mc.radio": { en: "Radio & contacts", sq: "Radio dhe kontaktet" },
+  "mc.title": { en: "MeshCore radio", sq: "Radio MeshCore" },
+  "mc.stage": { en: "MeshCore: the hub connects to the radio and reads it (who it is, its contacts, what it hears). Carrying MeshCore over the links comes next — nothing is sent across yet.",
+                sq: "MeshCore: hub-i lidhet me radion dhe e lexon (kush është, kontaktet, çfarë dëgjon). Kalimi i MeshCore nëpër lidhje vjen më pas — ende nuk dërgohet asgjë." },
+  "mc.conn": { en: "Connection", sq: "Lidhja" }, "mc.state": { en: "Radio", sq: "Radio" }, "mc.contacts": { en: "Contacts", sq: "Kontaktet" },
+  "mc.rx": { en: "Packets heard", sq: "Paketa të dëgjuara" }, "mc.last_hour": { en: "last hour", sq: "ora e fundit" },
+  "mc.conn_hint": { en: "A MeshCore radio with companion firmware, connected to this computer by USB. The hub asks every USB device what it is; choose the MeshCore radio. A hub can have a Meshtastic and a MeshCore radio at the same time.",
+                    sq: "Një radio MeshCore me firmware companion, e lidhur me këtë kompjuter me USB. Hub-i pyet çdo pajisje USB se çfarë është; zgjidhni radion MeshCore. Një hub mund të ketë njëkohësisht një radio Meshtastic dhe një MeshCore." },
+  "mc.is_mt": { en: "set it up under Meshtastic", sq: "konfigurojeni te Meshtastic" },
+  "mc.connecting": { en: "Connecting to the MeshCore radio and reading it…", sq: "Po lidhet me radion MeshCore dhe po e lexon…" },
+  "mc.conn_ok": { en: "Connected: MeshCore radio “{x}” — {n} contacts read.", sq: "U lidh: radio MeshCore “{x}” — {n} kontakte të lexuara." },
+  "mc.found_bad": { en: "Not saved — on this port the hub found: {x}. Here only a MeshCore radio (companion firmware) can be used.", sq: "Nuk u ruajt — në këtë portë hub-i gjeti: {x}. Këtu mund të përdoret vetëm një radio MeshCore (firmware companion)." },
+  "mc.not_mc_now": { en: "The device on the saved port is not a MeshCore companion: {x}", sq: "Pajisja në portën e ruajtur nuk është MeshCore companion: {x}" },
+  "mc.remove": { en: "Remove the MeshCore radio from the hub", sq: "Hiq radion MeshCore nga hub-i" },
+  "mc.remove_hint": { en: "The hub forgets this radio; the Meshtastic radio is not affected.", sq: "Hub-i e harron këtë radio; radio Meshtastic nuk preket." },
+  "mc.remove_q": { en: "Remove the MeshCore radio from this hub?", sq: "Të hiqet radio MeshCore nga ky hub?" },
+  "mc.none": { en: "No MeshCore radio set up.", sq: "Asnjë radio MeshCore e konfiguruar." },
+  "mc.radio_params": { en: "Radio", sq: "Radio" }, "mc.no_pos": { en: "no position set", sq: "pa pozicion" },
+  "mc.repeats": { en: "repeats packets itself", sq: "i përsërit vetë paketat" },
+  "mc.contacts_hint": { en: "Nodes this radio knows from their adverts (name, key, position).", sq: "Nyjet që njeh kjo radio nga reklamat e tyre (emri, çelësi, pozicioni)." },
+  "mc.last_advert": { en: "Last advert", sq: "Reklama e fundit" }, "mc.key": { en: "Key", sq: "Çelësi" },
+  "mc.rx_hint": { en: "Every packet the radio hears, also those it cannot read — these are what Ura will carry to the linked hubs.", sq: "Çdo paketë që dëgjon radio, edhe ato që nuk i lexon — këto do t'i bartë Ura te hub-et e lidhura." },
+  "mc.rx_hour": { en: "{n} packets in the last hour", sq: "{n} paketa në orën e fundit" },
+  "st.mc": { en: "MeshCore radio", sq: "Radio MeshCore" },
 });
 
 // start only after every part of this file (pages, wizard, texts) is loaded — otherwise the menu shows raw keys

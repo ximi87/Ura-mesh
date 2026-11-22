@@ -82,17 +82,29 @@ function fmtPos(lat, lon) { return (lat == null || lon == null) ? "–" : `${(+l
 function onlineBadge(on) { return on ? `<span class="badge ok"><span class="dot ok"></span>${t("online")}</span>` : `<span class="badge"><span class="dot"></span>${t("offline")}</span>`; }
 
 /* Header with brand, menu and language switch. items: [[hash, labelKey], ...] */
+/* Menu items: [href, textKey], or {key, items: [[href, textKey], …]} for a menu with a submenu. */
 function renderHeader(title, items, extraRight) {
-  const cur = location.hash.split("/")[1] || "";
+  const hash = location.hash || "#/", cur = hash.split("/")[1] || "";
+  const isActive = h => h === hash || ((h.split("/")[1] || "") === cur && (h.split("/").length < 3 || hash.startsWith(h)));
+  const item = it => Array.isArray(it)
+    ? `<a href="${it[0]}" class="${isActive(it[0]) ? "active" : ""}">${t(it[1])}</a>`
+    : `<div class="dd ${it.items.some(x => isActive(x[0])) ? "active" : ""}"><button type="button" class="ddb">${t(it.key)} <span class="caret">▾</span></button>
+        <div class="ddm">${it.items.map(x => `<a href="${x[0]}" class="${isActive(x[0]) ? "active" : ""}">${t(x[1])}</a>`).join("")}</div></div>`;
   document.getElementById("top").innerHTML = `
     <div class="in">
       <a class="brand" href="#/">${LOGO}<span>Ura <small>${esc(title)}</small></span></a>
-      <nav class="menu">${items.map(([h, k]) => `<a href="${h}" class="${(h.split("/")[1] || "") === cur ? "active" : ""}">${t(k)}</a>`).join("")}</nav>
+      <nav class="menu">${items.map(item).join("")}</nav>
       ${extraRight || ""}
       <div class="lang"><button data-l="en" class="${Ura.lang === "en" ? "on" : ""}">EN</button><button data-l="sq" class="${Ura.lang === "sq" ? "on" : ""}">SQ</button></div>
     </div>`;
   $$(".lang button").forEach(b => b.onclick = () => Ura.setLang(b.dataset.l));
+  $$("nav.menu .ddb").forEach(b => b.onclick = e => {           // open / close a submenu (touch screens; mouse: hover)
+    e.stopPropagation(); const d = b.parentElement, was = d.classList.contains("open");
+    $$("nav.menu .dd.open").forEach(x => x.classList.remove("open")); if (!was) d.classList.add("open");
+  });
+  $$("nav.menu .ddm a").forEach(a => a.addEventListener("click", () => $$("nav.menu .dd.open").forEach(x => x.classList.remove("open"))));
 }
+document.addEventListener("click", () => $$("nav.menu .dd.open").forEach(x => x.classList.remove("open")));
 
 /* Leaflet map with OpenStreetMap tiles. */
 function makeMap(el, center, zoom, opts) {

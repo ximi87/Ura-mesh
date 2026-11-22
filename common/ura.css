@@ -266,3 +266,15 @@ a.stat.tile.warn .v { color: var(--warn); }
 .spin { display: inline-block; width: .85em; height: .85em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
         animation: spin .8s linear infinite; vertical-align: -.1em; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* menus with submenus */
+nav.menu .dd { position: relative; }
+nav.menu .ddb { background: none; border: 0; padding: .35rem .7rem; border-radius: 8px; color: var(--muted); font-weight: 500; cursor: pointer; font-size: inherit; }
+nav.menu .ddb:hover, nav.menu .dd.open .ddb { background: var(--bg); color: var(--text); }
+nav.menu .dd.active > .ddb { background: var(--accent-soft); color: var(--accent-2); }
+nav.menu .caret { font-size: .75em; opacity: .7; }
+nav.menu .ddm { display: none; position: absolute; top: 100%; left: 0; z-index: 2000; min-width: 210px; padding: .3rem; flex-direction: column;
+                background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+nav.menu .dd.open .ddm { display: flex; }
+@media (hover: hover) { nav.menu .dd:hover .ddm { display: flex; } }
+nav.menu .ddm a { white-space: nowrap; }
