@@ -769,7 +769,7 @@ async function pageRadio() {
     secBox("radio", "conn", `<b>${t("r.title")}</b>`,
       [[t("r.type"), "Meshtastic"], [t("r.transport"), rc.transport === "tcp" ? t("r.tcp") : t("r.serial")],
        [t("r.port"), rc.transport === "tcp" ? `<span class="mono small">${esc(rc.address || "–")}</span>`
-         : ports.includes(rc.address) ? `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`
+         : (paths.includes(rc.address) || (r && r.connected && r.address === rc.address)) ? `<span class="mono small">${esc((rc.address || "–").replace(/^.*\/(usb-)?/, ""))}</span>`
          : rc.address ? B("bad", t("r.unplugged")) : B("", t("r.not_set"))]], connBody),
     secBox("radio", "state", `<b>${t("r.state")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
