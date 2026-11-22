@@ -278,3 +278,7 @@ nav.menu .ddm { display: none; position: absolute; top: 100%; left: 0; z-index: 
 nav.menu .dd.open .ddm { display: flex; }
 @media (hover: hover) { nav.menu .dd:hover .ddm { display: flex; } }
 nav.menu .ddm a { white-space: nowrap; }
+
+/* map legend markers per network */
+.mkr { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; vertical-align: -.1rem; background: #888; }
+.mkr.mt { border: 2px solid #fff; box-shadow: 0 0 0 1px #888; } .mkr.mc { border: 3px solid #b45309; }

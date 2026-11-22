@@ -1943,6 +1943,22 @@ class McRadio:
             log.info("MeshCore radio received a %s message from %s (%s hops)", m["kind"] if m["kind"] == "private" else "channel " + m["channel"],
                      m["from"] or "?", m["hops"] if m["hops"] is not None else "direct")
 
+    def nodes(self, share_positions):
+        """For the server map: this radio and the contacts it knows from ITS OWN mesh (not those that came over Ura)."""
+        if not self.self_info:
+            return []
+        si, t = self.self_info, time.time()
+        out = [{"id": si.get("public_key", "")[:12], "name": si.get("name"), "short": "", "hw": (self.device or {}).get("model"),
+                "role": si.get("adv_type"), "lat": (si.get("lat") or None) if share_positions else None,
+                "lon": (si.get("lon") or None) if share_positions else None, "alt": None, "last_heard": int(t), "hops": 0, "own": True}]
+        for c in self.contacts.values():
+            if c["key"] in mc_remote_keys or not c.get("last_advert") or t - c["last_advert"] > adv("node_max_age_days") * 86400:
+                continue
+            out.append({"id": c["key"][:12], "name": c["name"], "short": "", "hw": "", "role": c["type"],
+                        "lat": c["lat"] if share_positions else None, "lon": c["lon"] if share_positions else None, "alt": None,
+                        "last_heard": min(int(t), c["last_advert"]), "hops": c.get("path_len"), "own": False})
+        return out
+
     def export(self, key_hex=None):
         """The radio's own advert (no key) or a contact's advert, as the raw signed packet (CMD_EXPORT_CONTACT)."""
         fr = self._request(bytes([17]) + (bytes.fromhex(key_hex) if key_hex else b""), lambda x: x[0] in (11, 1))
@@ -2281,6 +2297,7 @@ class Link:
         """Report local nodes to the server: as soon as the radio is connected, then at least every "nodes_report_min" minutes.
         Never report while the radio is down (an empty list would wipe the hub's nodes from the map)."""
         last, last_sig, checked = 0, None, 0
+        mc_last, mc_sig, mc_checked = 0, None, 0
         while True:
             r = mt_radio()
             if r and r.iface is not None and time.time() - checked >= adv("nodes_check_s"):
@@ -2293,8 +2310,16 @@ class Link:
                 if nodes and (sig != last_sig or time.time() - last >= adv("nodes_report_min") * 60):
                     await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
                     last, last_sig = time.time(), sig
+            mr = mc_radio()
+            if mr and mr.ser is not None and mr.self_info and time.time() - mc_checked >= adv("nodes_check_s"):
+                mc_checked = time.time()
+                mnodes = await asyncio.to_thread(mr.nodes, cfg.get()["share_positions_on_map"])
+                msig = hashlib.sha256(json.dumps(sorted((n["id"], n["name"], n["lat"], n["lon"]) for n in mnodes), default=str).encode()).digest()
+                if mnodes and (msig != mc_sig or time.time() - mc_last >= adv("nodes_report_min") * 60):
+                    await self.send({"t": "nodes", "net": "mc", "nodes": mnodes})
+                    mc_last, mc_sig = time.time(), msig
             if await self._sleep_or(self.kick_nodes, 10):
-                checked, last_sig = 0, None
+                checked, last_sig, mc_checked, mc_sig = 0, None, 0, None
 
     async def _node_sync(self):
         """Ura passes on live traffic; a node that is quiet while a link is up would stay unknown on the other side.
@@ -3163,7 +3188,9 @@ class Web(http.server.BaseHTTPRequestHandler):
         if p == "/api/mc/remove":                    # forget the MeshCore radio; the Meshtastic one stays
             cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]))
             loop.call_soon_threadsafe(apply_radios)
-            log.info("MeshCore radio removed from the hub by the operator")
+            if link.writer is not None:
+                run_coro(link.send({"t": "nodes", "net": "mc", "nodes": []}))
+            log.info("MeshCore radio removed from the hub by the operator (its nodes on the server deleted too)")
             return self.reply({"ok": True})
         if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
             def clear(d):

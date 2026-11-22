@@ -249,13 +249,17 @@ async function pageMap() {
     lines[key] = ln; (linesOf[h.id] = linesOf[h.id] || []).push(ln); (linesOf[p.id] = linesOf[p.id] || []).push(ln);
   }));
   // nodes: own layer, shown when zoomed in (and the switch is on)
-  const nodeLayer = L.layerGroup();
+  const nodeLayer = L.layerGroup(), netLayer = { mt: L.layerGroup().addTo(nodeLayer), mc: L.layerGroup().addTo(nodeLayer) };
+  const netCount = { mt: 0, mc: 0 };
   nodes.forEach(n => {
     if (n.lat == null || n.lon == null) return;
-    const h = byId[n.hub];
-    L.circleMarker([n.lat, n.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: color[n.hub] || "#666", fillOpacity: .95 })
+    const h = byId[n.hub], mc = n.net === "mc";
+    netCount[mc ? "mc" : "mt"]++;
+    // Meshtastic: round dot with a white rim; MeshCore: same hub colour with a thick dark-orange rim
+    L.circleMarker([n.lat, n.lon], mc ? { radius: 6, color: "#b45309", weight: 3, fillColor: color[n.hub] || "#666", fillOpacity: .95 }
+                                      : { radius: 6, color: "#fff", weight: 1.5, fillColor: color[n.hub] || "#666", fillOpacity: .95 })
       .bindPopup(`<b><a href="${nodeHref(n)}">${esc(n.name || n.id)}</a></b> ${esc(n.short || "")}<br>${netBadge(n.net)}<br>${t("node.on_hub")}: ${h ? `<a href="#/hub/${h.id}">${esc(h.code)}</a>` : ""}<br>${t("last_heard")}: ${ago(n.last_heard)}`)
-      .addTo(nodeLayer);
+      .addTo(netLayer[mc ? "mc" : "mt"]);
     bounds.push([n.lat, n.lon]);
   });
   const hubMarker = {};
@@ -281,6 +285,9 @@ async function pageMap() {
     const d = L.DomUtil.create("div", "livebox mappanel");
     d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>
       <label class="check small"><input type="checkbox" id="nodeson" checked> ${t("map.show_nodes")}</label>
+      <div class="small" style="margin:.1rem 0 .2rem 1.4rem">
+        <label class="check small"><input type="checkbox" id="net_mt" checked> <span class="mkr mt"></span> Meshtastic (${netCount.mt})</label>
+        <label class="check small"><input type="checkbox" id="net_mc" checked> <span class="mkr mc"></span> MeshCore (${netCount.mc})</label></div>
       <div class="small muted" id="zoomhint" hidden>${t("map.zoom_for_nodes")}</div>
       <details id="hubpanel"><summary class="small"><b>${t("map.hubs")} (${hubs.length})</b> · ${t("map.links_n", { n: Object.keys(lines).length })}</summary>
         ${hubs.length > 6 ? `<input type="text" id="hubq" placeholder="${t("dt.search")}" class="small">` : ""}
@@ -293,6 +300,7 @@ async function pageMap() {
   };
   panel.addTo(m);
   $("#nodeson").onchange = e => { showNodes = e.target.checked; syncNodes(); };
+  ["mt", "mc"].forEach(k => $("#net_" + k).onchange = e => { if (e.target.checked) netLayer[k].addTo(nodeLayer); else nodeLayer.removeLayer(netLayer[k]); });
   if ($("#hubq")) $("#hubq").oninput = e => { const q = e.target.value.toLowerCase(); $$(".hubline").forEach(x => x.style.display = x.dataset.q.includes(q) ? "" : "none"); };
   let hl = [];
   $$(".hubline").forEach(a => a.onclick = () => {
@@ -466,7 +474,9 @@ async function pageStats() {
   const name = id => (d.hubs[id] && d.hubs[id].code) || id;
   const pairs = {};
   // grouped by hub CODE, not internal id: a hub that registered again keeps one chart with its whole history
-  d.rows.forEach(r => { const src = name(r.src), dst = name(r.dst), k = src + ">" + dst; (pairs[k] = pairs[k] || { src, dst, total: 0, hours: {} }); pairs[k].total += r.frames; pairs[k].hours[r.hour] = (pairs[k].hours[r.hour] || 0) + r.frames; });
+  const netOf = {};                     // per link (both directions): packets per network
+  d.rows.forEach(r => { const src = name(r.src), dst = name(r.dst), k = src + ">" + dst; (pairs[k] = pairs[k] || { src, dst, total: 0, hours: {} }); pairs[k].total += r.frames; pairs[k].hours[r.hour] = (pairs[k].hours[r.hour] || 0) + r.frames;
+    const lk_ = [src, dst].sort().join("|"); netOf[lk_] = netOf[lk_] || {}; netOf[lk_][r.net || "mt"] = (netOf[lk_][r.net || "mt"] || 0) + r.frames; });
   const bucket = hours <= 48 ? 3600 : 86400;
   const start = Math.floor(d.since / bucket) * bucket, n = Math.ceil((Date.now() / 1000 - start) / bucket);
   const labels = [...Array(n)].map((_, i) => { const x = new Date((start + i * bucket) * 1000); return bucket === 3600 ? x.getHours() + ":00" : (x.getDate() + "." + (x.getMonth() + 1)); });
@@ -502,6 +512,7 @@ async function pageStats() {
         <div><span class="lr-k">${esc(x.a)} → ${esc(x.b)}</span><span class="dot" style="background:var(--accent)"></span><b>${ab}</b></div>
         <div><span class="lr-k">${esc(x.b)} → ${esc(x.a)}</span><span class="dot" style="background:var(--info)"></span><b>${ba}</b></div>
         <div><span class="lr-k">${t("stats.share")}</span>${all ? `<div class="sharebar" title="${pa}% / ${100 - pa}%"><span style="width:${pa}%"></span></div>` : `<span class="muted small">${t("stats.no_traffic")}</span>`}</div>
+        <div><span class="lr-k">${t("network")}</span>${Object.entries(netOf[x.a + "|" + x.b] || {}).map(([k, v]) => `${netBadge(k)} <b>${v}</b>`).join(" ") || "–"}</div>
         <div class="lr-tr"><span class="lr-k">${t("stats.total")}</span><b>${all}</b></div></div></summary>
       <div class="linkbody"><div class="chart" id="ch${i}"></div></div></details>`; };
   $("#charts").innerHTML = `<div class="card"><div class="spread"><h2>${t("links")} (${lk.length})</h2>
