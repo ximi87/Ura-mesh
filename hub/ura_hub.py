@@ -1463,7 +1463,19 @@ def forget_peer(peer, everything=False, wait=False):
     cfg.update(lambda d: (d["rules"].pop(peer, None), d["peer_keys"].pop(peer, None)))
     with counters.lock:
         counters.peer.pop(peer, None)
-    nodes = origins.drop_peer(peer)
+    gone = origins.drop_peer(peer)
+    mc_keys = [n[3:] for n in gone if n.startswith("mc:")]
+    nodes = [n for n in gone if not n.startswith("mc:")]
+    if mc_keys:
+        mc_remote_keys.difference_update(mc_keys)
+        def mc_forget():
+            mr = mc_radio()
+            if mr is None or mr.ser is None:
+                return
+            done, left = mr.remove_contacts([k for k in mc_keys if k in mr.contacts])
+            log.info("link to %s ended: %d MeshCore contact(s) from it deleted from the radio%s", peer, done,
+                     f" ({len(left)} could not be deleted)" if left else "")
+        threading.Thread(target=mc_forget, daemon=True).start()
     r = mt_radio()
     def radio_forget():
         # The radio silently skips delete commands that come too fast (seen live: 31 of 51 at 0.3 s): send them
@@ -1963,7 +1975,7 @@ class McRadio:
                 "role": si.get("adv_type"), "lat": (si.get("lat") or None) if share_positions else None,
                 "lon": (si.get("lon") or None) if share_positions else None, "alt": None, "last_heard": int(t), "hops": 0, "own": True}]
         for c in self.contacts.values():
-            if c["key"] in mc_remote_keys or not c.get("last_advert") or t - c["last_advert"] > adv("node_max_age_days") * 86400:
+            if mc_is_remote(c["key"]) or not c.get("last_advert") or t - c["last_advert"] > adv("node_max_age_days") * 86400:
                 continue
             out.append({"id": c["key"][:12], "name": c["name"], "short": "", "hw": "", "role": c["type"],
                         "lat": c["lat"] if share_positions else None, "lon": c["lon"] if share_positions else None, "alt": None,
@@ -1994,7 +2006,7 @@ class McRadio:
         if time.time() - self.sync_sent.get("self", 0) > adv("node_sync_hours") * 3600:
             due.append("self")
         for c in sorted(self.contacts.values(), key=lambda x: -(x.get("last_advert") or 0)):
-            if c["key"] in mc_remote_keys or not c.get("last_advert") or time.time() - c["last_advert"] > adv("node_sync_age_h") * 3600:
+            if mc_is_remote(c["key"]) or not c.get("last_advert") or time.time() - c["last_advert"] > adv("node_sync_age_h") * 3600:
                 continue
             if time.time() - self.sync_sent.get(c["key"], 0) > adv("node_sync_hours") * 3600:
                 due.append(c["key"])
@@ -2022,6 +2034,23 @@ class McRadio:
         fr = self._request(payload, lambda x: x[0] in (0, 1), timeout)
         if not fr or fr[-1][0] != 0:
             raise RuntimeError("the radio refused the command")
+
+    def remove_contacts(self, keys):
+        """Delete contacts from the radio (CMD_REMOVE_CONTACT), then read the list again from the radio."""
+        done = 0
+        for k in keys:
+            try:
+                self._ok(bytes([15]) + bytes.fromhex(k))
+                done += 1
+            except Exception:
+                pass
+            time.sleep(0.4)
+        try:
+            self._read_contacts()
+        except Exception:
+            pass
+        left = [k for k in keys if k in self.contacts]
+        return done, left
 
     def send_raw(self, raw):
         """Put a packet from a linked hub on air unchanged (CMD_SEND_RAW_PACKET, normal priority)."""
@@ -2676,7 +2705,12 @@ def mc_allowed(rule, p):
     return (True, None) if rule.get(k, True) else (False, "meshcore_" + k)
 
 
-mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never announced back)
+mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never announced back); kept in `origins` too
+
+
+def mc_is_remote(key):
+    """A MeshCore node that came over a link: not this hub's own (not reported, not announced back)."""
+    return key in mc_remote_keys or ("mc:" + key) in origins.map
 counters_mc = Counters()   # MeshCore traffic is counted on its own (Meshtastic keeps `counters`)
 
 
@@ -2752,11 +2786,13 @@ def mc_receive_box(peer, box):
         return
     frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
     counters_mc.add("received")
-    if p["type"] == "advert":                          # remember: this node lives on the other side
+    if p["type"] == "advert":                          # remember (permanently): this node lives on the other side
         try:
             i_ = 1 + (4 if (raw[0] & 3) in (0, 3) else 0)
             pl_ = raw[i_]; i_ += 1 + (pl_ & 63) * ((pl_ >> 6) + 1)
-            mc_remote_keys.add(raw[i_:i_ + 32].hex())
+            k_ = raw[i_:i_ + 32].hex()
+            mc_remote_keys.add(k_)
+            origins.note("mc:" + k_, path[0] if path else peer)
         except Exception:
             pass
     if seen_cache.seen(b"m" + p["id"]):                # already heard here (it went round) -> not again
@@ -3403,8 +3439,24 @@ class Web(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 return self.reply({"error": "radio", "detail": str(e)}, 400)
             return self.reply({"ok": True, "radio": r.info()})
+        if p == "/api/mc/forget":                    # delete contacts from the MeshCore radio (they are learned again when heard)
+            r = mc_radio()
+            if r is None or r.ser is None:
+                return self.reply({"error": "no_radio"}, 400)
+            keys = [str(k).lower() for k in (b.get("keys") or []) if re.match(r"^[0-9a-fA-F]{64}$", str(k))]
+            for k in keys:
+                origins.map.pop("mc:" + k, None)
+            origins.save()
+            done, left = r.remove_contacts(keys)
+            log.info("MeshCore: %d contact(s) deleted from the radio by the operator", done)
+            link.kick()
+            return self.reply({"ok": True, "deleted": done, "left": left})
         if p == "/api/mc/remove":                    # forget the MeshCore radio; the Meshtastic one stays
             cfg.update(lambda d: d.__setitem__("radios", [x for x in d["radios"] if x.get("net") != "mc"]))
+            for k_ in [k for k in origins.map if k.startswith("mc:")]:     # what came over links for this radio goes too
+                origins.map.pop(k_, None)
+            origins.save()
+            mc_remote_keys.clear()
             loop.call_soon_threadsafe(apply_radios)
             if link.writer is not None:
                 run_coro(link.send({"t": "nodes", "net": "mc", "nodes": []}))
@@ -3416,7 +3468,8 @@ class Web(http.server.BaseHTTPRequestHandler):
                 d["channels_saved"] = []
             cfg.update(clear)
             with origins.lock:
-                origins.map.clear()
+                for k_ in [k for k in origins.map if not k.startswith("mc:")]:   # only the Meshtastic ones
+                    origins.map.pop(k_, None)
                 origins.save()
             loop.call_soon_threadsafe(apply_radios)
             if link.writer is not None:            # its nodes leave the server map too (an empty report deletes them)
@@ -3500,7 +3553,8 @@ class Web(http.server.BaseHTTPRequestHandler):
             r.iface.localNode.resetNodeDb()
             drop_from_cache(r.iface)
             with origins.lock:
-                origins.map.clear()
+                for k_ in [k for k in origins.map if not k.startswith("mc:")]:   # only the Meshtastic ones
+                    origins.map.pop(k_, None)
                 origins.save()
             log.info("radio node list cleared by the operator; asking neighbours to answer")
             def refill():
