@@ -1215,8 +1215,9 @@ document.documentElement.lang = Ura.lang;
 const WZ_STEPS = ["hub", "radio", "prep", "server", "link", "done"];
 const wz = { cur: null, sub: null, live: null, timer: null, prepUntil: 0 };
 function wzState(s, c) {
-  const r = s.radio || {}, h = c.hub;
-  const st = { radio: !!r.connected, prep: !!(r.connected && r.ready),
+  const r = s.radio || {}, h = c.hub, mc = s.mc_radio || {};
+  const st = { radio: !!(r.connected || mc.connected),
+    prep: !!(r.connected || mc.connected) && (!r.connected || !!r.ready) && (!mc.connected || !!mc.ready),     // every radio of the hub
     hub: !!(h.name && h.email && h.country && h.city && h.lat != null && h.lon != null),     // every hub has an (approximate) location
     server: !!c.server.hub_id && ["pending", "approved"].includes(c.server.status),          // sent: approval comes later
     link: (s.links || []).some(l => l.state === "active") || !!SESS.setup_done };              // or "finish, link later"
@@ -1227,7 +1228,9 @@ const wzPortTxt = p => `${kindTxt(p)} — ${p.dev}${p.usb ? " (" + p.usb + ")" :
 const wzUsable = p => !["meshcore", "unknown", "busy"].includes(p.kind);
 function wzSummary(k, s, c) {
   const r = s.radio || {}, act = (s.links || []).filter(l => l.state === "active");
-  return k === "radio" ? `${esc(r.name || "")} · ${t("wz.nodes_n", { n: r.nodes ?? "?" })}`
+  const mcr = s.mc_radio || {};
+  return k === "radio" ? [r.connected ? `Meshtastic “${esc(r.name || "")}” · ${t("wz.nodes_n", { n: r.nodes ?? "?" })}` : "",
+                          mcr.connected ? `MeshCore “${esc(mcr.name || "")}” · ${t("wz.contacts_n", { n: mcr.contacts ?? "?" })}` : ""].filter(Boolean).join(" · ")
     : k === "prep" ? t("r.ready")
     : k === "hub" ? `${esc(c.hub.country)}-${esc(c.hub.city)} · ${esc(c.hub.name)}`
     : k === "server" ? `${esc(c.server.address)} · ${c.server.status === "approved" ? t("reg.approved") : t("wz.srv.waiting_short")}`
@@ -1235,7 +1238,8 @@ function wzSummary(k, s, c) {
 }
 function wzSub(k, s, c) {          // when this changes, the open step is drawn again
   const r = s.radio || {};
-  if (k === "radio") return [mtConf(c) && mtConf(c).address, r.connected, r.error].join("|");
+  if (k === "radio") return [mtConf(c) && mtConf(c).address, r.connected, r.error, (s.mc_radio || {}).connected].join("|");
+  if (k === "prep") return [r.connected, (s.mc_radio || {}).connected].join("|");
   if (k === "server") return [c.server.fingerprint, c.server.hub_id, c.server.status, s.link_state].join("|");
   if (k === "link" || k === "done") return s.server.status + "|" + s.link_state + "|" + JSON.stringify([(s.links || []).map(l => [l.id, l.state, l.i_accepted]), (s.directory || []).map(h => [h.id, h.online])]);
   return "";
@@ -1298,46 +1302,55 @@ async function wzBody(k, el, s, c) {
   const r = s.radio || {};
   if (k === "radio") {
     const ports = await api("GET", "/api/ports");
-    const saved = mtConf(c);
+    const saved = mtConf(c), savedMc = (c.radios || []).find(x => x.net === "mc"), mc = s.mc_radio || {};
+    if (!wz.type) wz.type = ports.some(p => p.kind === "meshcore") && !ports.some(p => p.kind === "meshtastic") ? "mc" : "mt";
+    const usable = p => wz.type === "mc" ? (p.kind === "meshcore" || p.kind === "no_answer" || !p.kind) : wzUsable(p);
+    const ptxt = p => wzPortTxt(p) + (wz.type === "mt" && p.kind === "meshcore" ? " — " + t("wz.radio.other_mc") : wz.type === "mc" && p.kind === "meshtastic" ? " — " + t("wz.radio.other_mt") : "");
     el.innerHTML = `<label>${t("r.type")}</label>
-      <div class="row wztype"><label class="check"><input type="radio" name="wztype" value="mt" checked> Meshtastic</label>
-        <label class="check muted"><input type="radio" name="wztype" value="mc" disabled> MeshCore — ${t("r.mc_soon")}</label></div>
-      <p class="small">${t("wz.radio.hint")}</p>
-      ${saved && !r.connected ? `<div class="msg warn small">${t("wz.radio.saved_not", { x: esc(saved.address.replace(/^.*\//, "")) })} ${radioErr(r) || (r.error === "port not present" ? t("r.unplugged") : "")}</div>` : ""}
-      ${ports.length ? `<label>${t("r.port")}</label><select id="wzport">${ports.map(p => `<option value="${esc(p.path)}" ${wzUsable(p) ? "" : "disabled"}>${esc(wzPortTxt(p))}</option>`).join("")}</select>
+      <div class="row wztype"><label class="check"><input type="radio" name="wztype" value="mt" ${wz.type === "mt" ? "checked" : ""}> Meshtastic</label>
+        <label class="check"><input type="radio" name="wztype" value="mc" ${wz.type === "mc" ? "checked" : ""}> MeshCore</label></div>
+      <p class="small">${t("wz.radio.hint")} ${t("wz.radio.both")}</p>
+      ${wz.type === "mt" && saved && !r.connected ? `<div class="msg warn small">${t("wz.radio.saved_not", { x: esc(saved.address.replace(/^.*\//, "")) })} ${radioErr(r) || (r.error === "port not present" ? t("r.unplugged") : "")}</div>` : ""}
+      ${wz.type === "mc" && savedMc && !mc.connected ? `<div class="msg warn small">${t("wz.radio.saved_not", { x: esc(savedMc.address.replace(/^.*\//, "")) })} ${esc(mc.error || "")}</div>` : ""}
+      ${ports.length ? `<label>${t("r.port")}</label><select id="wzport">${ports.map(p => `<option value="${esc(p.path)}" ${usable(p) ? "" : "disabled"}>${esc(ptxt(p))}</option>`).join("")}</select>
         <div class="row" style="margin-top:.6rem"><button class="primary" id="wzrgo">${t("wz.radio.connect")}</button></div>`
         : `<div class="msg warn">${t("r.none_detected")} ${t("wz.radio.plug")}</div>`}
       <div id="wzrmsg"></div>`;
+    $$("input[name=wztype]", el).forEach(x => x.onchange = () => { wz.type = x.value; wz.tick(true); });
     const shown = ports.map(p => p.path).join("|");
     wz.live = async () => {        // a radio plugged in or out: the list follows by itself
       if (wz.busy) return;
       const now = await api("GET", "/api/ports").catch(() => null);
       if (now && now.map(p => p.path).join("|") !== shown) wz.tick(true);
     };
+    const pick = () => { const o = [...document.querySelectorAll("#wzport option")].find(o => !o.disabled && (wz.type === "mc" ? /MeshCore/.test(o.textContent) : /Meshtastic/.test(o.textContent))); if (o) $("#wzport").value = o.value; };
+    pick();
     ports.filter(p => !p.kind).forEach(p => api("GET", "/api/ports?check=" + encodeURIComponent(p.path)).then(x => {
       const o = [...document.querySelectorAll("#wzport option")].find(o => o.value === p.path);
       if (!o) return;
-      o.textContent = wzPortTxt(x); o.disabled = !wzUsable(x);
-      if (x.kind === "meshtastic") $("#wzport").value = p.path;
+      o.textContent = ptxt(x); o.disabled = !usable(x); pick();
     }).catch(() => {}));
     if ($("#wzrgo")) $("#wzrgo").onclick = async () => {
-      const addr = $("#wzport").value, m = $("#wzrmsg");
+      const addr = $("#wzport").value, m = $("#wzrmsg"), isMc = wz.type === "mc";
       if (!addr) return;
       $("#wzrgo").disabled = true; wz.busy = true;
       try {
-        const res = await api("POST", "/api/radio", { radio: { transport: "serial", address: addr } });
-        wzMsg(m, "info", wzSpin(t("r.connecting")));
+        const res = await api("POST", isMc ? "/api/mc/radio" : "/api/radio", { radio: { transport: "serial", address: addr } });
+        wzMsg(m, "info", wzSpin(t(isMc ? "mc.connecting" : "r.connecting")));
         for (let i = 0; i < 45 && res.state === "connecting"; i++) {
           await new Promise(ok => setTimeout(ok, 2000));
           if (!$("#wzrmsg")) return;
-          const x = await api("GET", "/api/radio/result").catch(() => ({}));
+          const x = isMc ? ((await api("GET", "/api/mc/status").catch(() => ({}))).result || {}) : await api("GET", "/api/radio/result").catch(() => ({}));
           if (x.address !== addr) continue;
-          if (x.state === "connected") { wzMsg(m, "ok", esc(t("r.conn_ok", { x: kindTxt(x.found), n: x.found.nodes ?? "?" }))); break; }
-          if (x.state === "refused") { wzMsg(m, "bad", esc(t("r.found_bad", { x: kindTxt(x.found) }))); $("#wzrgo").disabled = false; wz.busy = false; return; }
+          if (x.state === "connected") {
+            wzMsg(m, "ok", esc(isMc ? t("mc.conn_ok", { x: x.found.name, n: x.found.contacts }) : t("r.conn_ok", { x: kindTxt(x.found), n: x.found.nodes ?? "?" }))); break;
+          }
+          if (x.state === "refused") { wzMsg(m, "bad", esc(t(isMc ? "mc.found_bad" : "r.found_bad", { x: kindTxt(x.found) }))); $("#wzrgo").disabled = false; wz.busy = false; return; }
           if (i === 44) { wzMsg(m, "warn", t("r.conn_wait")); $("#wzrgo").disabled = false; }
         }
       } catch (e) {
-        wzMsg(m, "bad", e.message === "not_meshtastic" && e.data && e.data.found ? esc(t("r.found_bad", { x: kindTxt(e.data.found) })) : errText(e));
+        const bad = (e.message === "not_meshtastic" || e.message === "not_meshcore") && e.data && e.data.found;
+        wzMsg(m, "bad", bad ? esc(t(isMc ? "mc.found_bad" : "r.found_bad", { x: kindTxt(e.data.found) })) : errText(e));
         $("#wzrgo").disabled = false;
       }
       wz.busy = false; setTimeout(() => wz.tick(), 1500);
@@ -1345,18 +1358,31 @@ async function wzBody(k, el, s, c) {
     return;
   }
   if (k === "prep") {
-    el.innerHTML = `<p class="small">${t("wz.prep.hint")}</p><div id="wzchecks" class="small"></div>
-      <div class="row" style="margin-top:.6rem"><button class="primary" id="wzprep">${t("r.prepare")}</button></div><div id="wzpmsg"></div>`;
+    const mc = s.mc_radio || {};
+    el.innerHTML = `<p class="small">${t("wz.prep.hint_all")}</p>
+      ${r.connected ? `<h3>Meshtastic “${esc(r.name || "")}”</h3><div id="wzchecks" class="small"></div>
+        <div class="row" style="margin-top:.6rem"><button class="primary" id="wzprep" ${r.ready ? "disabled" : ""}>${t("r.prepare")}</button></div><div id="wzpmsg"></div>` : ""}
+      ${mc.connected ? `<h3 style="margin-top:1rem">MeshCore “${esc(mc.name || "")}”</h3><div id="wzmcchecks" class="small"></div>
+        <label style="margin-top:.5rem">${t("mc.name")}</label><input type="text" id="wzmcname" maxlength="31" value="${esc(mc.name || "")}">
+        <div class="row" style="margin-top:.6rem"><button class="primary" id="wzmcprep" ${mc.ready ? "disabled" : ""}>${t("mc.prep_btn")}</button></div><div id="wzmcmsg"></div>` : ""}`;
     wz.live = s2 => {
-      const r2 = s2.radio || {};
-      $("#wzchecks").innerHTML = r2.connected ? Object.entries(r2.checks || {}).map(([k2, v]) => `<div>${v ? "✅" : "❌"} ${t("chk." + k2)}</div>`).join("") : "";
-      if (wz.prepUntil > Date.now()) wzMsg($("#wzpmsg"), "info", wzSpin(r2.connected ? t("wz.prep.working") : t("wz.prep.restart")));
+      const r2 = s2.radio || {}, m2 = s2.mc_radio || {};
+      if ($("#wzchecks")) $("#wzchecks").innerHTML = r2.connected ? Object.entries(r2.checks || {}).map(([k2, v]) => `<div>${v ? "✅" : "❌"} ${t("chk." + k2)}</div>`).join("") : "";
+      if ($("#wzmcchecks")) $("#wzmcchecks").innerHTML = m2.connected ? Object.entries(m2.checks || {}).map(([k2, v]) => `<div>${v ? "✅" : "❌"} ${t("mcchk." + k2)}</div>`).join("") : "";
+      if (wz.prepUntil > Date.now() && $("#wzpmsg")) wzMsg($("#wzpmsg"), "info", wzSpin(r2.connected ? t("wz.prep.working") : t("wz.prep.restart")));
     };
     wz.live(s);
-    $("#wzprep").onclick = async () => {
+    if ($("#wzprep")) $("#wzprep").onclick = async () => {
       $("#wzprep").disabled = true;
       try { await api("POST", "/api/radio/prepare", {}); wz.prepUntil = Date.now() + 120000; wz.live(await api("GET", "/api/status")); }
       catch (e) { wzMsg($("#wzpmsg"), "bad", errText(e)); $("#wzprep").disabled = false; }
+    };
+    if ($("#wzmcprep")) $("#wzmcprep").onclick = async () => {
+      $("#wzmcprep").disabled = true; wz.busy = true;
+      try { const x = await api("POST", "/api/mc/prepare", { name: $("#wzmcname").value.trim() });
+            wzMsg($("#wzmcmsg"), "ok", esc(t("mc.prep_ok", { x: x.radio.name, p: fmtPos(x.radio.lat, x.radio.lon) }))); }
+      catch (e) { wzMsg($("#wzmcmsg"), "bad", errText(e)); $("#wzmcprep").disabled = false; }
+      wz.busy = false; setTimeout(() => wz.tick(true), 1500);
     };
     return;
   }
@@ -1442,8 +1468,8 @@ async function wzBody(k, el, s, c) {
   const act = (s.links || []).filter(l => l.state === "active");
   const pend = s.server.status === "pending" ? `<div class="msg info">${wzSpin(t("wz.srv.pending_link"))}</div>`
     : !act.length ? `<div class="msg info">${t("wz.done.nolink")}</div>` : "";
-  el.innerHTML = `${act.length && s.server.status === "approved" ? `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || ""), n: r.nodes ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>`
-      : `<div class="msg ok">${t("wz.done.setup", { r: esc(r.name || ""), n: r.nodes ?? "?" })}</div>`}${pend}
+  el.innerHTML = `${act.length && s.server.status === "approved" ? `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || (s.mc_radio || {}).name || ""), n: r.nodes ?? (s.mc_radio || {}).contacts ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>`
+      : `<div class="msg ok">${t("wz.done.setup", { r: esc(r.name || (s.mc_radio || {}).name || ""), n: r.nodes ?? (s.mc_radio || {}).contacts ?? "?" })}</div>`}${pend}
     <p class="small">${t("wz.done.hint")}</p>
     <div class="row"><button class="primary" id="wzask">${t("wz.done.ask")}</button><a class="btn" href="#/">${t("wz.done.status")}</a></div><div id="wzdmsg">${wz.doneMsg || ""}</div>
     <h3>${t("wz.link.more_t")}</h3><div id="wzmore"></div>`;
@@ -1520,6 +1546,11 @@ Ura.add({
                     sq: "Nyjet e hub-eve të lidhura tani vijnë në këtë radio dhe u kalohen nyjeve tuaja LoRa; tuajat shkojnë tek ata. Nyjet njoftohen çdo disa orë — “Kërkoju fqinjëve të përgjigjen” bën që të afërtit të përgjigjen tani, që të kalojnë menjëherë lidhjen." },
   "wz.done.ask": { en: "Ask neighbours to answer", sq: "Kërkoju fqinjëve të përgjigjen" },
   "wz.done.asked": { en: "Sent. Nearby nodes answer within a minute or two.", sq: "U dërgua. Nyjet e afërta përgjigjen brenda një-dy minutave." },
+  "wz.contacts_n": { en: "{n} contacts", sq: "{n} kontakte" },
+  "wz.radio.both": { en: "A hub can have one of each; add the second one later under the Meshtastic or MeshCore menu.", sq: "Një hub mund të ketë nga një të secilit; shtoni të dytin më vonë te menuja Meshtastic ose MeshCore." },
+  "wz.radio.other_mc": { en: "MeshCore: choose “MeshCore” above", sq: "MeshCore: zgjidhni “MeshCore” më lart" },
+  "wz.radio.other_mt": { en: "Meshtastic: choose “Meshtastic” above", sq: "Meshtastic: zgjidhni “Meshtastic” më lart" },
+  "wz.prep.hint_all": { en: "Every radio of this hub gets what Ura needs (marked ❌), including its approximate location. A Meshtastic radio restarts once; a MeshCore radio announces itself once. This step continues by itself.", sq: "Çdo radio e këtij hub-i merr atë që i duhet Ura (shënuar ❌), përfshirë vendndodhjen e përafërt. Një radio Meshtastic rindizet një herë; një radio MeshCore njoftohet një herë. Ky hap vazhdon vetë." },
   "wz.link.more_t": { en: "Link with more hubs", sq: "Lidhu me më shumë hub-e" },
   "wz.link.more": { en: "You can ask more hubs at any time; each one accepts on its side. Rules per link and ending a link are on the “Links” page.", sq: "Mund të kërkoni më shumë hub-e në çdo kohë; secili pranon nga ana e vet. Rregullat për çdo lidhje dhe mbyllja e një lidhjeje janë te faqja “Lidhjet”." },
   "wz.srv.waiting_short": { en: "waiting for approval", sq: "në pritje të miratimit" },

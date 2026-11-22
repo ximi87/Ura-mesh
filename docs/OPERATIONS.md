@@ -62,6 +62,18 @@ the page follows the steps until the hub is back in first-start mode:
 
 Only the website's certificate stays (it holds no data; the browser would otherwise warn again).
 
+## MeshCore lane
+
+The hub talks to a MeshCore companion radio on USB with MeshCore's own serial protocol. Every raw packet the
+radio receives (`PUSH_CODE_LOG_RX_DATA`) is sealed end-to-end and sent to the linked hubs that allow MeshCore;
+there it is put on air unchanged (`CMD_SEND_RAW_PACKET`). Copies of the same packet (repeated along other
+paths) are recognised by MeshCore's own packet hash and cross only once; packets that came from a partner are
+not sent back. The partner's airtime limit applies. Packets larger than ~173 bytes do not fit through the
+companion's USB frame (rare). The hub radio's own advert and its own-mesh contacts' adverts are announced with
+`CMD_EXPORT_CONTACT`. Log lines: `MeshCore radio -> flood text (6 hops): sent to …`, `from … MeshCore …: put on air`,
+`MeshCore advert of “…” announced to …`. The server map shows MeshCore nodes with a dark-orange rim and a filter;
+statistics show each link's packets per network.
+
 ## Nodes are announced across links
 
 Live packets cross a link the moment the radio hears them. A node that stays quiet while the link is up would never

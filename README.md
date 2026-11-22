@@ -8,8 +8,9 @@ shows up in your Meshtastic app like any local node — in the node list and on 
 you message it the normal way: open it, *Send message*. Public channels, private messages,
 private groups, positions, telemetry and traceroute all work across the bridge.
 
-**Status:** Meshtastic — working and tested end-to-end with real radios between two countries.
-MeshCore — planned next.
+**Status:** Meshtastic and MeshCore — both working and tested end-to-end with real radios between two
+countries. A hub can run one radio of each; one link between two hubs carries both networks, each hub
+decides per link which it sends and accepts. The two networks stay separate (they cannot talk to each other).
 
 ![A Ura network: hubs on several continents, their links, and packets moving live along them](docs/img/map-world.jpg)
 

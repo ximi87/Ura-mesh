@@ -10,7 +10,7 @@ You need about 30 minutes.
 | | |
 |---|---|
 | Computer | Raspberry Pi 3/4/5, a mini PC or a virtual machine — Debian, Ubuntu or Raspberry Pi OS, always on |
-| Radio | A Meshtastic radio (tested: Heltec V3, Heltec Wireless Tracker; other ESP32 boards work the same) on **USB** (recommended) or Wi-Fi/IP |
+| Radio | A Meshtastic radio (tested: Heltec V3, Heltec Wireless Tracker; other ESP32 boards work the same) on **USB** (recommended) or Wi-Fi/IP — and/or a **MeshCore** radio with **companion firmware (USB)** (tested: Heltec V3 v1.16, RAK3401 v1.17) |
 | Firmware | Meshtastic 2.7.x **with the Ura patch** on the hub radio — see [FIRMWARE.md](FIRMWARE.md) |
 | Network | Internet access to the Ura server (TCP port 8100 and 8443) |
 | From the server | Its address (e.g. `ura.example.org:8100`) and its certificate fingerprint — both on the server's **Register a hub** page |
@@ -192,6 +192,28 @@ hub C. Each hub decides for itself:
 A packet travels one hop further only if the hub it started at allowed that distance (and, at the
 first step, ticked that link of its partner), the passing hub offers it, the receiver accepts
 packets from further away, and the passing hub's own chain limit is not exceeded. Packets never return to a hub they already passed.
+
+## MeshCore radio (optional, or instead of Meshtastic) — *MeshCore → Radio & contacts*
+
+1. Flash the radio with **MeshCore companion firmware, USB variant** (the official web flasher
+   flasher.meshcore.co.uk, or the release files on MeshCore's GitHub). Same rule as for Meshtastic:
+   nothing else may be connected to it while the hub runs.
+2. Plug it in, open *MeshCore → Radio & contacts*: the port list names the device ("MeshCore radio “…”");
+   choose it, **Connect**. The page shows its name, firmware, radio settings, channels and contacts.
+3. **Prepare for Ura**: give it a name, press *Prepare and announce* — it gets the hub's approximate
+   location (≈ 1 km) shared in its adverts, and announces itself once. The radio must not repeat
+   packets itself (companion default).
+4. On the link (*Links & rules*), the **MeshCore** tick box (send / receive) is on by default.
+
+What crosses: every MeshCore packet the hub radio hears — adverts, Public, channels, private messages
+and their confirmations — unchanged, each only once. The hub also announces its own radio's advert and
+those of the contacts its radio knows from its own mesh (one every 15 s, each again every 6 h), so the
+other side knows them before they speak. Use the same radio settings as your local MeshCore group
+(EU: 869.618 MHz · 62.5 kHz · SF8 · CR8).
+
+**Limit:** a hub radio cannot be the *recipient* of a message from the other side — it is the radio
+that transmits it, and a radio does not receive its own transmission. Messages to the nodes around it
+work (and are confirmed); a private message *to the hub radio itself* shows "failed".
 
 ## 9. Check that it works — *Radio → Diagnostics*
 
