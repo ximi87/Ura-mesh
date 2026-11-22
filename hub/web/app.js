@@ -497,7 +497,7 @@ async function pageStatus() {
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
         [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
         [t("wd.last"), r.connected ? ago(now - r.silent_s) : "–"],
-        ...(unk.length ? [["", B("warn", t("uc.short"))]] : []),
+        
         ...((r.watchdog || []).length ? [["", B("warn", t("wd.short", { n: r.watchdog.length }))]] : [])] : [["", B("bad", t("err.no_radio"))]], radioBody),
     secBox("status", "airtime", `<b>${t("st.airtime")}</b>`,
       [[t("st.hour"), lim(a.used_hour, 3600, a.limits.pct_hour)], [t("st.day"), lim(a.used_day, 86400, a.limits.pct_day)],
