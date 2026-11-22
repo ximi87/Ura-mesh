@@ -364,3 +364,12 @@ details.about > summary { cursor: pointer; }
 
 .hm-fold > summary { cursor: pointer; list-style: none; } .hm-fold > summary::-webkit-details-marker { display: none; }
 .hm-fold > summary::before { content: "▸ "; color: var(--muted); } .hm-fold[open] > summary::before { content: "▾ "; }
+
+/* a label always stays with its box */
+.fld { display: flex; flex-direction: column; min-width: 0; }
+.fld label { margin-top: .5rem; }
+.pickmap-box { height: 260px; border-radius: 8px; border: 1px solid var(--line); }
+@media (max-width: 760px) { .pickmap-box { height: 220px; } }
+
+/* phones: two-column field rows become one column (no box sticks out on the right) */
+@media (max-width: 760px) { .grid.g2, .grid.g3 { grid-template-columns: 1fr; } .fld input, .fld select { width: 100%; min-width: 0; box-sizing: border-box; } }

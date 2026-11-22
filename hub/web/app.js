@@ -196,7 +196,7 @@ Ura.add({
   "chk.debug_log_off": { en: "Radio debug log off", sq: "Regjistri i debug-ut joaktiv" },
   "s.hub": { en: "Hub details", sq: "Të dhënat e hub-it" },
   "s.name": { en: "Hub name", sq: "Emri i hub-it" }, "s.email": { en: "Your e-mail address", sq: "Adresa juaj e e-mail-it" },
-  "s.country": { en: "Country code (2–3 letters)", sq: "Kodi i shtetit (2–3 shkronja)" }, "s.city": { en: "Place code (2–3 letters)", sq: "Kodi i vendit (2–3 shkronja)" },
+  "s.country": { en: "Country code (2–3 letters)", sq: "Kodi i shtetit (2–3 shkronja)" }, "s.city": { en: "City / region code (2–3 letters)", sq: "Kodi i qytetit / rajonit (2–3 shkronja)" },
   "s.lat": { en: "Latitude", sq: "Gjerësia gjeografike" }, "s.lon": { en: "Longitude", sq: "Gjatësia gjeografike" },
   "s.desc": { en: "Description (public)", sq: "Përshkrimi (publik)" },
   "s.locked": { en: "Registered details are kept by the server. To change them, ask the administrator.", sq: "Të dhënat e regjistruara ruhen nga serveri. Për t'i ndryshuar, pyesni administratorin." },
@@ -585,6 +585,30 @@ async function hubMap(el, net, opts) {
 async function pageHome() {
   app().innerHTML = `<div id="homemap" class="homemap"></div>`;
   await hubMap($("#homemap"), null, { main: true, height: "calc(100vh - 7rem)" });
+}
+
+
+/* Click on a small map to fill latitude and longitude (rounded to 2 decimals ≈ 1 km — the hub's approximate location) */
+function bindPickMaps(root) {
+  $$(".pickmap", root || document).forEach(el => {
+    if (el._map) return;
+    const la = $("#" + el.dataset.lat), lo = $("#" + el.dataset.lon);
+    if (!la || !lo) return;
+    el.innerHTML = `<div class="small muted" style="margin:.4rem 0 .2rem">${t("loc.pick")}</div><div class="pickmap-box"></div>`;
+    const start = la.value && lo.value ? [+la.value, +lo.value] : null;
+    const m = makeMap($(".pickmap-box", el), start || [45, 15], start ? 9 : 3, { guard: false });   // a tap must place the point (also on phones)
+    m.scrollWheelZoom.disable();                       // the mouse wheel still scrolls the page
+    el._map = m;
+    let mk = start ? L.marker(start).addTo(m) : null;
+    const put = (a, b) => { const pa = Math.round(a * 100) / 100, pb = Math.round(b * 100) / 100;
+      if (mk) mk.setLatLng([pa, pb]); else mk = L.marker([pa, pb]).addTo(m); };
+    m.on("click", e => { if (la.disabled) return; const a = e.latlng.lat, b = ((e.latlng.lng + 540) % 360) - 180;
+      la.value = (Math.round(a * 100) / 100).toFixed(2); lo.value = (Math.round(b * 100) / 100).toFixed(2); put(a, b);
+      la.dispatchEvent(new Event("input")); });
+    const sync = () => { const a = parseFloat(la.value), b = parseFloat(lo.value); if (a >= -90 && a <= 90 && b >= -180 && b <= 180) { put(a, b); m.setView([a, b], Math.max(m.getZoom(), 8)); } };
+    la.addEventListener("change", sync); lo.addEventListener("change", sync);
+  });
+  $$("input[data-upper]", root || document).forEach(i => i.addEventListener("input", () => { const p = i.selectionStart; i.value = i.value.toUpperCase().replace(/[^A-Z]/g, ""); i.setSelectionRange(p, p); }));
 }
 
 /* ───────── status ───────── */
@@ -1195,7 +1219,7 @@ async function pageSettings(want, opts) {
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}${ruleRow(t("rule.public"), dir, "public", rule)}${ruleRow(t("rule.private"), dir, "private", rule)}${ruleRow(t("rule.positions"), dir, "positions", rule)}
       ${dir === "send" ? ruleRow(t("rule.transit"), dir, "transit", rule) : ruleRow(t("rule.from_beyond"), dir, "from_beyond", rule)}</div>`;
-  const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
+  const inp = (id, key, type, val, dis, extra) => `<div class="fld"><label for="${id}">${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""} ${extra || ""}></div>`;
   const spec = await api("GET", "/api/advanced_spec");
   spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
   const HUB_ADV = ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min", "tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s", "location_follow_m", "location_check_s"];
@@ -1211,7 +1235,8 @@ async function pageSettings(want, opts) {
       [[t("s.name"), `<b>${esc(h.name || "–")}</b>`], [t("code"), h.country && h.city ? esc(h.country + "-" + h.city) : "–"], [t("s.email"), esc(h.email || "–")],
        ...(reg ? [["", B("", "🔒 " + t("s.locked_short"))]] : [])],
       `${inp("hname", "s.name", "text", h.name, reg)}${inp("hemail", "s.email", "email", h.email, reg)}
-      <div class="grid g2" style="gap:.5rem">${inp("hcountry", "s.country", "text", h.country, reg)}${inp("hcity", "s.city", "text", h.city, reg)}</div>
+      <div class="grid g2" style="gap:.5rem">${inp("hcountry", "s.country", "text", h.country, reg, 'maxlength="3" data-upper')}${inp("hcity", "s.city", "text", h.city, reg, 'maxlength="3" data-upper')}</div>
+      <div class="hint">${t("wz.hub.code")}</div>
       <label>${t("s.desc")}</label><textarea id="hdesc" ${reg ? "disabled" : ""}>${esc(h.description || "")}</textarea>
       ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}`),
     secBox("settings", "server", `<b>${t("s.server")}</b>`,
@@ -1231,7 +1256,9 @@ async function pageSettings(want, opts) {
       <label class="check"><input type="radio" name="lmode" value="radio" ${h.location_mode !== "manual" ? "checked" : ""}> ${t("loc.radio")}</label>
       <label class="check"><input type="radio" name="lmode" value="manual" ${h.location_mode === "manual" ? "checked" : ""}> ${t("loc.manual")}</label>
       <p class="small">${t("loc.radio_pos")}: ${s.radio_position ? `<b>${fmtPos(s.radio_position.lat, s.radio_position.lon)}</b> <button class="small" id="luse">${t("loc.use")}</button>` : `<span class="muted">${t("loc.no_radio_pos")}</span>`}</p>
-      <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat)}${inp("hlon", "s.lon", "number", h.lon)}</div>
+      <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat, false, 'step="any" inputmode="decimal"')}${inp("hlon", "s.lon", "number", h.lon, false, 'step="any" inputmode="decimal"')}</div>
+      <div class="hint">${t("loc.format")}</div>
+      <div class="pickmap" data-lat="hlat" data-lon="hlon"></div>
       <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button>`),
     secBox("settings", "limits", `<b>${t("s.linkset")}</b>`,
       [[t("tr.title") + " MT", onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
@@ -1264,6 +1291,8 @@ async function pageSettings(want, opts) {
   (opts.into || app()).innerHTML = secCard(opts.title || t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + shown.join(""));
   bindSecs();
   if ($("#pgctl")) programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
+  const locBox = $('details.secline[data-sec="loc"]');
+  if (locBox) { if (locBox.open) bindPickMaps(locBox); locBox.addEventListener("toggle", () => { if (locBox.open) bindPickMaps(locBox); }); }
   if (want && $(`details.secline[data-sec="${want}"]`)) $(`details.secline[data-sec="${want}"]`).scrollIntoView({ block: "start" });
   if ($("#frgo")) $("#frgo").onclick = async () => {
     if ($("#frconfirm").value.trim() !== "RESET") return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.type_bad")}</div>`;
@@ -1581,15 +1610,18 @@ async function wzBody(k, el, s, c) {
     return;
   }
   if (k === "hub") {
-    const h = c.hub, f = (id, key, val, type, extra) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val || "")}" ${extra || ""}>`;
+    const h = c.hub, f = (id, key, val, type, extra) => `<div class="fld"><label for="${id}">${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${extra || ""}></div>`;
     el.innerHTML = `<p class="small">${t("wz.hub.hint")}</p>
       ${f("wzhn", "s.name", h.name)}${f("wzhe", "s.email", h.email, "email")}
-      <div class="grid g2" style="gap:.5rem">${f("wzhc", "s.country", h.country, "text", 'maxlength="3"')}${f("wzhy", "s.city", h.city, "text", 'maxlength="3"')}</div>
+      <div class="grid g2" style="gap:.5rem">${f("wzhc", "s.country", h.country, "text", 'maxlength="3" autocapitalize="characters" data-upper')}${f("wzhy", "s.city", h.city, "text", 'maxlength="3" autocapitalize="characters" data-upper')}</div>
       <div class="hint">${t("wz.hub.code")}</div>
       <h3 style="margin-top:1rem">${t("wz.hub.loc")}</h3><p class="small">${t("wz.hub.loc_hint")}</p>
-      <div class="grid g2" style="gap:.5rem">${f("wzhlat", "s.lat", h.lat, "number", 'step="0.01"')}${f("wzhlon", "s.lon", h.lon, "number", 'step="0.01"')}</div>
+      <div class="grid g2" style="gap:.5rem">${f("wzhlat", "s.lat", h.lat, "number", 'step="any" min="-90" max="90" inputmode="decimal"')}${f("wzhlon", "s.lon", h.lon, "number", 'step="any" min="-180" max="180" inputmode="decimal"')}</div>
+      <div class="hint">${t("loc.format")}</div>
+      <div class="pickmap" data-lat="wzhlat" data-lon="wzhlon"></div>
       <label>${t("s.desc")}</label><textarea id="wzhd">${esc(h.description || "")}</textarea>
       <div class="row" style="margin-top:.6rem"><button class="primary" id="wzhgo">${t("wz.next")}</button></div><div id="wzhmsg"></div>`;
+    bindPickMaps(el);
     $("#wzhgo").onclick = async () => {
       const v = { name: $("#wzhn").value.trim(), email: $("#wzhe").value.trim(), country: $("#wzhc").value.trim().toUpperCase(),
                   city: $("#wzhy").value.trim().toUpperCase(), description: $("#wzhd").value.trim(),
@@ -1715,7 +1747,8 @@ Ura.add({
   "wz.prep.restart": { en: "The radio is restarting — waiting for it to come back…", sq: "Radio po rindizet — po pritet të kthehet…" },
   "wz.hub.hint": { en: "How this hub appears to the others. The e-mail is seen only by the server's administrator. After registering, these are locked.",
                    sq: "Si duket ky hub për të tjerët. E-mail-i shihet vetëm nga administratori i serverit. Pas regjistrimit, këto kyçen." },
-  "wz.hub.code": { en: "Country and place: 2–3 letters each. Together they are the hub's short code, e.g. AB-CDE.", sq: "Shteti dhe vendi: 2–3 shkronja secili. Së bashku janë kodi i shkurtër i hub-it, p.sh. AB-CDE." },
+  "wz.hub.code": { en: "First the country (2–3 letters), then the city, province or district you are in (2–3 letters, as you know it). Together they are the hub's short code, e.g. AB-CDE.",
+                  sq: "Së pari shteti (2–3 shkronja), pastaj qyteti, krahina ose rrethi ku jeni (2–3 shkronja, siç e dini). Së bashku janë kodi i shkurtër i hub-it, p.sh. AB-CDE." },
   "wz.hub.loc": { en: "Approximate location (required)", sq: "Vendndodhja e përafërt (e detyrueshme)" },
   "wz.hub.loc_hint": { en: "Every radio that is part of Ura has a location, so that it can be shown on the maps. Approximate is enough — e.g. the middle of the town. Ura keeps it to about 1 km (2 decimals) and never sends it more exactly. A radio without GPS gets it as its fixed position.",
                        sq: "Çdo radio që është pjesë e Ura ka një vendndodhje, që të shfaqet në harta. Mjafton e përafërt — p.sh. qendra e qytetit. Ura e mban në rreth 1 km (2 shifra dhjetore) dhe nuk e dërgon kurrë më saktë. Një radio pa GPS e merr si pozicion fiks." },
@@ -1924,6 +1957,9 @@ Ura.add({
   "hm.links_online": { en: "links: {n} of {m} online", sq: "lidhjet: {n} nga {m} online" },
   "hm.legend": { en: "Colours: green = this hub; linked hubs:", sq: "Ngjyrat: jeshile = ky hub; hub-et e lidhura:" },
   "hm.no_server": { en: "Nodes of linked hubs: the server is not reachable right now.", sq: "Nyjet e hub-eve të lidhura: serveri nuk arrihet tani." },
+  "loc.format": { en: "Decimal degrees with a point. Latitude −90 … 90 (north positive), longitude −180 … 180 (east positive). Approximate is enough; Ura keeps 2 decimals (≈ 1 km).",
+                  sq: "Gradë dhjetore me pikë. Gjerësia −90 … 90 (veriu pozitiv), gjatësia −180 … 180 (lindja pozitive). Mjafton e përafërt; Ura mban 2 shifra dhjetore (≈ 1 km)." },
+  "loc.pick": { en: "Or click on the map — both values are filled in:", sq: "Ose klikoni në hartë — të dyja vlerat plotësohen:" },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
@@ -2050,7 +2086,7 @@ async function pageMcDevice() {
     app().innerHTML = `<div class="card"><h2>MeshCore — ${t("nav.sub.device")}</h2><p>${r ? t("r.not_connected") : t("mc.none")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a></div>`;
     return airtimeCard("mc");
   }
-  const f = (id, key, val, type, extra) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${extra || ""}>`;
+  const f = (id, key, val, type, extra) => `<div class="fld"><label for="${id}">${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${extra || ""}></div>`;
   app().innerHTML = `<div class="card"><h2>MeshCore — ${t("nav.sub.device")}: ${esc(r.name)}</h2>
     <p class="small">${t("mcdev.hint")}</p>
     ${f("mdname", "mc.name", r.name, "text", 'maxlength="31"')}
