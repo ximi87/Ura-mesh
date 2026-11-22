@@ -299,7 +299,7 @@ Ura.add({ "dt.search": { en: "Search name or ID…", sq: "Kërko emër ose ID…
 
 /* Log viewer (hub: /api/logs, server: /api/admin/logs): newest lines, filter, search, auto-refresh, download. */
 let logTimer = null;
-function logViewer(el, base) {
+function logViewer(el, base, extra) {
   clearInterval(logTimer);
   el.innerHTML = `<div class="row logbar">
       <label class="small">${t("lg.lines")} <select id="lglines"><option>200</option><option selected>500</option><option>2000</option><option>10000</option></select></label>
@@ -311,7 +311,7 @@ function logViewer(el, base) {
     <pre class="logbox" id="lgbox"></pre>`;
   const load = async () => {
     if (!document.body.contains(el)) { clearInterval(logTimer); return; }
-    const q = new URLSearchParams({ lines: $("#lglines").value, level: $("#lglevel").value, q: $("#lgq").value });
+    const q = new URLSearchParams(Object.assign({ lines: $("#lglines").value, level: $("#lglevel").value, q: $("#lgq").value }, extra || {}));
     const d = await api("GET", base + "?" + q);
     if (!document.body.contains(el) || !$("#lgbox")) return;        // the page was left meanwhile
     const box = $("#lgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;

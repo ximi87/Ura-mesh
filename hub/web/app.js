@@ -89,7 +89,7 @@ Ura.add({
   "l.rules": { en: "My rules for this link", sq: "Rregullat e mia për këtë lidhje" },
   "l.rules.hint": { en: "“Send” = what this hub passes to {x}. “Receive” = what this hub lets onto the air from {x}. The other hub has its own rules too.",
                     sq: "“Dërgo” = çfarë kalon ky hub te {x}. “Merr” = çfarë lejon ky hub të dalë në ajër nga {x}. Hub-i tjetër ka gjithashtu rregullat e veta." },
-  "l.link_on": { en: "Link open in this direction", sq: "Lidhja e hapur në këtë drejtim" },
+  "l.link_on": { en: "Meshtastic on this link (this direction)", sq: "Meshtastic në këtë lidhje (ky drejtim)" },
   "l.public.hint": { en: "the default public channel ({x})", sq: "kanali publik i parazgjedhur ({x})" },
   "l.groups.hint": { en: "Other groups (channels) of your radio. A group crosses only if the other hub accepts it too.",
                      sq: "Grupet e tjera (kanalet) e radios suaj. Një grup kalon vetëm nëse e pranon edhe hub-i tjetër." },
@@ -393,14 +393,12 @@ Ura.add({
   "err.address_required": { en: "Please enter the server address.", sq: "Ju lutem vendosni adresën e serverit." },
 });
 
-const MENU = [["#/", "nav.overview"],
-  { key: "nav.mt", items: [["#/radio", "nav.mt.radio"], ["#/device", "nav.mt.device"]] },
-  { key: "nav.mc", items: [["#/mc", "nav.mc.radio"]] },
+const MENU = [
+  { key: "nav.mt", items: [["#/mt", "nav.sub.overview"], ["#/radio", "nav.sub.radio"], ["#/device", "nav.sub.device"], ["#/mt/logs", "nav.sub.logs"]] },
+  { key: "nav.mc", items: [["#/mc/overview", "nav.sub.overview"], ["#/mc", "nav.sub.radio"], ["#/mc/device", "nav.sub.device"], ["#/mc/logs", "nav.sub.logs"]] },
   ["#/links", "nav.links"],
-  { key: "nav.settings", items: [["#/settings/hub", "s.hub"], ["#/settings/server", "s.server"], ["#/settings/loc", "loc.title"], ["#/settings/limits", "s.limits"],
-                                 ["#/settings/pw", "s.password"], ["#/settings/program", "pg.title"], ["#/settings/adv", "adv.title"], ["#/settings/reset", "fr.title"],
-                                 ["#/setup", "nav.setup"]] },
-  ["#/logs", "nav.logs"]];
+  { key: "nav.settings", items: [["#/settings/hub", "s.hub"], ["#/settings/loc", "loc.title"], ["#/settings/pw", "s.password"], ["#/settings/program", "pg.title"],
+                                 ["#/settings/adv", "adv.title"], ["#/settings/reset", "fr.title"], ["#/setup", "nav.setup"], ["#/logs", "nav.fulllog"]] }];
 const mtConf = c => (c.radios || []).find(x => (x.net || "mt") === "mt");      // the Meshtastic radio (a MeshCore one may exist too)
 const app = () => document.getElementById("app");
 let mapObj = null, timer = null;
@@ -490,21 +488,11 @@ async function pageStatus() {
         ${(r.watchdog_events || []).length ? `<h3>${t("wd.log")}</h3><div class="small">${r.watchdog_events.slice().reverse().map(e => `<div>${ago(e.time)} — ${esc(e.finding)}</div>`).join("")}</div>` : ""}`
       : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`;
   const lines = [
-    secBox("status", "hub", `<b>${t("st.hub")}</b>`,
-      [[t("name"), `<b>${esc(s.hub.name || "–")}</b>`], [t("code"), s.hub.country && s.hub.city ? esc(s.hub.country + "-" + s.hub.city) : "–"], [t("s.registration"), regText(s.server.status)]],
-      `<dl class="kv"><dt>${t("name")}</dt><dd><b>${esc(s.hub.name || "–")}</b></dd>
-        <dt>${t("code")}</dt><dd>${s.hub.country && s.hub.city ? esc(s.hub.country + "-" + s.hub.city) : "–"}</dd>
-        <dt>${t("s.registration")}</dt><dd>${regText(s.server.status)}</dd></dl><p class="small"><a href="#/settings">${t("nav.settings")} →</a></p>`),
-    secBox("status", "server", `<b>${t("st.server")}</b>`,
-      [[t("status"), B(srvBadge, t(srvState(s)))], [t("s.address"), `<span class="mono small">${esc(s.server.address || "–")}</span>`],
-       [t("links"), active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")]],
-      `<dl class="kv"><dt>${t("status")}</dt><dd>${B(srvBadge, t(srvState(s)))} <span class="muted small">${esc(s.link_detail || "")}</span></dd>
-        <dt>${t("s.address")}</dt><dd class="mono">${esc(s.server.address || "–")}</dd>
-        <dt>${t("links")}</dt><dd>${active.map(l => esc(l.peer_code) + (l.e2e && l.e2e.state === "ok" ? " 🔒" : " ⚠️")).join(", ") || t("none")} · <a href="#/links">${t("nav.links")} →</a></dd></dl>`),
-    ...(s.mc_radio ? [secBox("status", "mc", `<b>${t("st.mc")}</b>`, [
-        [t("status"), s.mc_radio.connected ? B("ok", t("r.connected")) : B("bad", s.mc_radio.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
-        [t("name"), esc(s.mc_radio.name || "–")], [t("mc.contacts"), s.mc_radio.connected ? s.mc_radio.contacts : "–"], [t("mc.last_hour"), s.mc_radio.connected ? s.mc_radio.rx_hour : "–"]],
-      `<p class="small">${t("mc.stage")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.mc.radio")}</a>`)] : []),
+    secBox("status", "mtlinks", `<b>${t("mtov.links")}</b>`, [["", `${active.length}`], [t("status"), B(s.link_state === "connected" ? "ok" : "bad", t(srvState(s)))]],
+      active.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+        ${active.map(l => { const p = (s.counters.peers || {})[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${l.e2e && l.e2e.state === "ok" ? "🔒" : "⚠️"}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+        <p class="small muted">${t("mtov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p> <a href="#/links">${t("nav.links")} →</a>`),
     secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
         [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
@@ -554,7 +542,7 @@ async function pageStatus() {
       <div id="map" class="minimap" style="height:440px"></div>
       <div class="legend"><span><span class="dot big" style="background:${LOCAL_COLOR}"></span>${t("map.this_radio")}</span>
         <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
-    ${secCard(t("st.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
+    ${secCard("Meshtastic — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
   bindSecs();
   const cols = [
     { key: "name", label: t("name"), render: n => `${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
@@ -597,6 +585,7 @@ async function pageLinks() {
   const peerCounts = s.counters.peers;
   const rulesOf = peer => { const x = c.rules[peer] || c.defaults; return { send: Object.assign({}, x.send), receive: Object.assign({}, x.receive) }; };
   const dirCol = (peer, dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
+      <div class="small muted" style="margin-top:.2rem"><b>Meshtastic</b></div>
       ${ruleRow(t("l.link_on"), dir, "on", rule)}
       ${ruleRow(t("rule.public") + ` <span class="muted small">${t("l.public.hint", { x: esc(pubName) })}</span>`, dir, "public", rule)}
       ${ruleRow(t("rule.private"), dir, "private", rule)}
@@ -1007,7 +996,8 @@ function chForm(c) {
 }
 
 /* ───────── settings ───────── */
-async function pageSettings(want) {
+async function pageSettings(want, opts) {
+  opts = opts || {};
   const [s, c] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
   const reg = !!c.server.hub_id, h = c.hub;
   const ruleBox = (dir, rule) => `<div><h3>${t(dir === "send" ? "rule.send" : "rule.receive")}</h3>
@@ -1050,13 +1040,10 @@ async function pageSettings(want) {
       <p class="small">${t("loc.radio_pos")}: ${s.radio_position ? `<b>${fmtPos(s.radio_position.lat, s.radio_position.lon)}</b> <button class="small" id="luse">${t("loc.use")}</button>` : `<span class="muted">${t("loc.no_radio_pos")}</span>`}</p>
       <div class="grid g2" style="gap:.5rem">${inp("hlat", "s.lat", "number", h.lat)}${inp("hlon", "s.lon", "number", h.lon)}</div>
       <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button>`),
-    secBox("settings", "limits", `<b>${t("s.limits")}</b>`,
-      [[t("st.hour"), c.airtime.pct_hour ? c.airtime.pct_hour + " %" : t("st.nolimit")], [t("st.day"), c.airtime.pct_day ? c.airtime.pct_day + " %" : t("st.nolimit")],
-       [t("tr.title"), onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
+    secBox("settings", "limits", `<b>${t("s.linkset")}</b>`,
+      [[t("tr.title"), onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
        [t("s.share_pos_short"), onoff(c.share_positions_on_map)]],
-      `${inp("ahour", "s.air_hour", "number", c.airtime.pct_hour)}${inp("aday", "s.air_day", "number", c.airtime.pct_day)}
-      <p class="hint">${t("s.air_hint")}</p>
-      <label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
+      `<label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
       <h3>${t("tr.title")}</h3><p class="hint">${t("tr.hint")}</p>
       <label class="check"><input type="checkbox" id="tron" ${c.transit && c.transit.enabled ? "checked" : ""}> ${t("tr.on")}</label>
       <label>${t("tr.hops")}</label><input type="number" id="trhops" min="2" max="8" value="${esc((c.transit && c.transit.max_hops) || 2)}"><div class="hint">${t("tr.hops.hint")}</div>
@@ -1075,11 +1062,12 @@ async function pageSettings(want) {
     secBox("settings", "adv", `<b>${t("adv.title")}</b>`, [["", advChanged ? B("warn", t("adv.changed_n", { n: advChanged })) : `<span class="muted small">${t("adv.all_default")}</span>`]],
       `<p class="muted small">${t("adv.intro")}</p><div id="advform"></div>
       <div id="advmsg"></div><button class="primary" id="advsave">${t("save")}</button>`)];
-  app().innerHTML = secCard(t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
+  const shown = opts.only ? lines.filter(h => opts.only.includes((h.match(/data-sec="([^"]+)"/) || [])[1])) : lines;
+  (opts.into || app()).innerHTML = secCard(opts.title || t("nav.settings"), `<p class="muted small">${t("sec.hint")}</p>` + shown.join(""));
   bindSecs();
-  programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
+  if ($("#pgctl")) programControl($("#pgctl"), "/api/program", SESS.started, SESS.version, "ura-hub");
   if (want && $(`details.secline[data-sec="${want}"]`)) $(`details.secline[data-sec="${want}"]`).scrollIntoView({ block: "start" });
-  $("#frgo").onclick = async () => {
+  if ($("#frgo")) $("#frgo").onclick = async () => {
     if ($("#frconfirm").value.trim() !== "RESET") return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.type_bad")}</div>`;
     if (!confirm(t("fr.q"))) return;
     $("#frgo").disabled = true; $("#frconfirm").disabled = true;
@@ -1096,49 +1084,49 @@ async function pageSettings(want) {
       if ($("#frmsg")) $("#frmsg").innerHTML = `<div class="msg info"><span class="spin"></span> ${t("fr.running")}<ul class="small">${steps.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`;
     }
   };
-  const af = advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
+  const af = !$("#advform") ? null : advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
     groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
              ["adv.g.nodes", ["node_sync", "node_sync_hours", "node_sync_gap_s", "node_sync_age_h", "node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
              ["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
              ["adv.g.security", ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
              ["adv.g.web", ["tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s"]]],
     depends: { clock_sync_min: "clock_sync", node_sync_hours: "node_sync", node_sync_gap_s: "node_sync", node_sync_age_h: "node_sync" } });
-  $("#advsave").onclick = async () => {
+  if ($("#advsave")) $("#advsave").onclick = async () => {
     const all = af.read(), port = all.server_web_port; delete all.server_web_port;
     try { await api("POST", "/api/advanced", { advanced: all, server_web_port: port }); af.mark([]); $("#advmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
     catch (e) { af.mark((e.data && e.data.fields) || []); $("#advmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
-  const hubBody = () => ({ hub: { name: $("#hname").value, email: $("#hemail").value, country: $("#hcountry").value, city: $("#hcity").value,
+  const hubBody = () => !$("#hname") ? {} : ({ hub: { name: $("#hname").value, email: $("#hemail").value, country: $("#hcountry").value, city: $("#hcity").value,
                                   description: $("#hdesc").value } });
   const lmode = () => ($$("input[name=lmode]").find(i => i.checked) || {}).value;
-  const syncMode = () => { const auto = lmode() === "radio"; $("#hlat").disabled = auto; $("#hlon").disabled = auto; };
+  const syncMode = () => { if (!$("#hlat")) return; const auto = lmode() === "radio"; $("#hlat").disabled = auto; $("#hlon").disabled = auto; };
   $$("input[name=lmode]").forEach(i => i.onchange = syncMode); syncMode();
   if ($("#luse")) $("#luse").onclick = () => { $("#hlat").value = s.radio_position.lat; $("#hlon").value = s.radio_position.lon; };
-  $("#locsave").onclick = async () => {
+  if ($("#locsave")) $("#locsave").onclick = async () => {
     try { await api("POST", "/api/hub", { hub: { location_mode: lmode(), lat: $("#hlat").value, lon: $("#hlon").value } });
-          $("#locmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(pageSettings, 1500); }
+          $("#locmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(route, 1500); }
     catch (e) { $("#locmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   if ($("#hsave")) $("#hsave").onclick = async () => { await api("POST", "/api/hub", hubBody()); $("#hmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; };
-  $("#scheck").onclick = async () => {
+  if ($("#scheck")) $("#scheck").onclick = async () => {
     $("#sfp").innerHTML = `<p class="muted">…</p>`;
     try {
       const r = await api("POST", "/api/server/check", { address: $("#saddr").value });
       $("#sfp").innerHTML = `<label>${t("s.fp")}</label><div class="mono small">${esc(r.fingerprint)}</div><p class="hint">${t("s.fp_hint")}</p>
         <button class="primary" id="strust">${t("s.trust")}</button>`;
-      $("#strust").onclick = async () => { await api("POST", "/api/server/trust", { address: r.address, fingerprint: r.fingerprint }); pageSettings(); };
+      $("#strust").onclick = async () => { await api("POST", "/api/server/trust", { address: r.address, fingerprint: r.fingerprint }); route(); };
     } catch (e) { $("#sfp").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   // the registration button only appears while the address field shows exactly the trusted server
   const norm = a => { a = (a || "").trim().replace(/^[a-z]+:\/\//i, "").replace(/\/+$/, ""); return a && !a.includes(":") ? a + ":8100" : a; };
   const syncJoin = () => { if (!$("#sjoinbox")) return; const ok = norm($("#saddr").value) === c.server.address;
                            $("#sjoinbox").classList.toggle("hidden", !ok); $("#sjoinwarn").classList.toggle("hidden", ok); };
-  $("#saddr").addEventListener("input", syncJoin); syncJoin();
+  if ($("#saddr")) { $("#saddr").addEventListener("input", syncJoin); syncJoin(); }
   if ($("#sjoin")) $("#sjoin").onclick = async () => {
     try {
-      await api("POST", "/api/hub", hubBody());
+      if ($("#hname")) await api("POST", "/api/hub", hubBody());
       const r = await api("POST", "/api/server/join", { address: $("#saddr").value });
-      $("#jmsg").innerHTML = `<div class="msg ok">${t("s.joined", { x: esc(r.hub_id) })}</div>`; setTimeout(pageSettings, 2500);
+      $("#jmsg").innerHTML = `<div class="msg ok">${t("s.joined", { x: esc(r.hub_id) })}</div>`; setTimeout(route, 2500);
     } catch (e) { $("#jmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   if ($("#sforget")) $("#sforget").onclick = async () => {
@@ -1148,17 +1136,17 @@ async function pageSettings(want) {
       if (e.message !== "leave_not_confirmed" || !confirm(t("s.forget_force_q"))) { $("#jmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; return; }
       await api("POST", "/api/server/forget", { force: true });
     }
-    pageSettings();
+    route();
   };
-  $("#lsave").onclick = async () => {
+  if ($("#lsave")) $("#lsave").onclick = async () => {
     const defaults = { send: { groups: [] }, receive: { groups: [] } };
     $$("#defs input[data-k]").forEach(i => defaults[i.dataset.dir][i.dataset.k] = i.checked);
-    try { await api("POST", "/api/hub", { airtime: { pct_hour: $("#ahour").value, pct_day: $("#aday").value }, share_positions_on_map: $("#spos").checked, defaults,
+    try { await api("POST", "/api/hub", { share_positions_on_map: $("#spos").checked, defaults,
                                            transit: { enabled: $("#tron").checked, max_hops: $("#trhops").value } });
           $("#lmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#lmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
-  $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: SESS.password_min })}</div>`; } };
-  $("#logout").onclick = async () => { await api("POST", "/api/logout", {}); route(); };
+  if ($("#pwsave")) $("#pwsave").onclick = async () => { try { await api("POST", "/api/password", { password: $("#npw").value }); $("#pwmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; } catch (e) { $("#pwmsg").innerHTML = `<div class="msg bad">${t("password.min", { n: SESS.password_min })}</div>`; } };
+  if ($("#logout")) $("#logout").onclick = async () => { await api("POST", "/api/logout", {}); route(); };
 }
 
 /* ───────── login / router ───────── */
@@ -1173,9 +1161,10 @@ async function pageLogin(setup) {
   $("#lbtn").onclick = go; $("#pw").onkeydown = e => { if (e.key === "Enter") go(); };
 }
 
-function pageLogs() {
-  app().innerHTML = `<div class="card"><h2>${t("lg.title")} — ura-hub</h2><p class="muted small">${t("lg.hint")}</p><div id="logs"></div></div>`;
-  logViewer($("#logs"), "/api/logs");
+function pageLogs(net) {
+  app().innerHTML = `<div class="card"><h2>${net === "mt" ? "Meshtastic — " + t("lg.title") : net === "mc" ? "MeshCore — " + t("lg.title") : t("lg.full")}</h2>
+    <p class="muted small">${t(net ? "lg.hint_net" : "lg.hint")}</p><div id="logs"></div></div>`;
+  logViewer($("#logs"), "/api/logs", net ? { net } : null);
 }
 
 async function route() {
@@ -1189,17 +1178,27 @@ async function route() {
     SESS = sess;
     if (sess.setup_needed || !sess.logged_in) return pageLogin(sess.setup_needed);
     const page = location.hash.replace(/^#\/?/, "").split("/")[0];
-    if (page === "links") return await pageLinks();
+    const sub = location.hash.split("/")[2] || "";
+    if (page === "links") { await pageLinks(); return await linkSettings(); }
+    if (page === "mt" && sub === "logs") return pageLogs("mt");
+    if (page === "mc" && sub === "overview") return await pageMcOverview();
+    if (page === "mc" && sub === "device") return await pageMcDevice();
+    if (page === "mc" && sub === "logs") return pageLogs("mc");
     if (page === "radio") return await pageRadio();
-    if (page === "device") return await pageDevice();
-    if (page === "settings") return await pageSettings(location.hash.split("/")[2]);
+    if (page === "device") { await pageDevice(); return await airtimeCard("mt"); }
+    if (page === "settings") return await pageSettings(location.hash.split("/")[2], { only: ["hub", "loc", "pw", "program", "adv", "reset"] });
     if (page === "mc") return await pageMc();
-    if (page === "logs") return pageLogs();
+    if (page === "logs") return pageLogs("");
     if (page === "setup") return await pageSetup();
     if (!SESS.setup_skipped && !SESS.setup_done) {   // never fully set up yet: the wizard first (it can be skipped)
       const [s0, c0] = await Promise.all([api("GET", "/api/status"), api("GET", "/api/config")]);
       if (!wzState(s0, c0).done) { history.replaceState(null, "", "#/setup"); return await pageSetup(); }
       SESS.setup_done = true; api("POST", "/api/wizard", { done: true }).catch(() => {});   // set up (on any page): remembered
+    }
+    if (page === "" && !location.hash.startsWith("#/mt")) {
+      const c1 = await api("GET", "/api/config");
+      if (!mtConf(c1) && (c1.radios || []).some(x => x.net === "mc")) { history.replaceState(null, "", "#/mc/overview"); return await pageMcOverview(); }
+      history.replaceState(null, "", "#/mt");
     }
     await pageStatus();
     timer = setInterval(() => { if (!document.hidden && !document.querySelector("input:focus,select:focus,textarea:focus")) { if (mapObj) { mapObj.remove(); mapObj = null; } pageStatus().catch(() => {}); } }, (SESS.page_refresh_s || 30) * 1000);
@@ -1697,7 +1696,7 @@ Ura.add({
   "mc.msgs_hint": { en: "Messages this hub radio received from ITS OWN mesh (its channels, e.g. Public, and private messages to it). Messages arriving over Ura are not shown here: this radio is the one that SENDS them out, and a radio does not receive its own transmissions — so a hub radio cannot be the recipient of a message from the other side; the nodes around it are.",
                     sq: "Mesazhet që kjo radio e hub-it mori nga RRJETI I VET (kanalet e saj, p.sh. Public, dhe mesazhe private për të). Mesazhet që vijnë nëpër Ura nuk shfaqen këtu: kjo radio është ajo që i DËRGON, dhe një radio nuk merr transmetimet e veta — ndaj një radio hub-i nuk mund të jetë marrësi i një mesazhi nga ana tjetër; nyjet përreth saj po." },
   "mc.private": { en: "private", sq: "privat" }, "mc.hops_n": { en: "{n} hops", sq: "{n} hope" },
-  "rule.mc.hint": { en: "all MeshCore packets (adverts, Public, channels, private messages) — only if both hubs have a MeshCore radio", sq: "të gjitha paketat MeshCore (reklama, Public, kanale, mesazhe private) — vetëm nëse të dy hub-et kanë radio MeshCore" },
+  "rule.mc.hint": { en: "MeshCore on this link (this direction): all MeshCore packets — independent of Meshtastic; only if both hubs have a MeshCore radio", sq: "MeshCore në këtë lidhje (ky drejtim): të gjitha paketat MeshCore — e pavarur nga Meshtastic; vetëm nëse të dy hub-et kanë radio MeshCore" },
   "mc.prep": { en: "Prepare for Ura", sq: "Përgatit për Ura" },
   "mc.prep_hint": { en: "Like every radio in Ura, it gets the hub's approximate location (≈ 1 km) and shares it in its adverts; it does not repeat packets itself (Ura carries them). Then it announces itself once.", sq: "Si çdo radio në Ura, merr vendndodhjen e përafërt të hub-it (≈ 1 km) dhe e ndan në reklamat e saj; nuk i përsërit vetë paketat (Ura i bart). Pastaj njoftohet një herë." },
   "mc.name": { en: "Name of this radio (seen by other MeshCore nodes)", sq: "Emri i kësaj radioje (i dukshëm për nyjet e tjera MeshCore)" },
@@ -1708,6 +1707,132 @@ Ura.add({
   "mcchk.position_approx": { en: "… only approximate (≈ 1 km)", sq: "… vetëm e përafërt (≈ 1 km)" },
   "mcchk.position_shared": { en: "… shared in its adverts (so it appears on maps)", sq: "… e ndarë në reklamat e saj (që të shfaqet në harta)" },
   "mcchk.no_repeat": { en: "It does not repeat packets itself (Ura carries them)", sq: "Nuk i përsërit vetë paketat (Ura i bart)" },
+});
+
+
+/* ───────── Links page: the link settings below the links (Ura server, defaults, multi-hop, positions on the map) ───────── */
+async function linkSettings() {
+  const box = document.createElement("div"); box.id = "linkset"; app().appendChild(box);
+  await pageSettings(null, { only: ["server", "limits"], into: box, title: t("l.settings_title") });
+}
+
+/* ───────── airtime limit per network (in its device settings) ───────── */
+async function airtimeCard(net) {
+  const [c, s] = await Promise.all([api("GET", "/api/config"), api("GET", "/api/status")]);
+  const lim = (net === "mc" ? c.airtime_mc : c.airtime) || { pct_hour: 10, pct_day: 0 };
+  const used = net === "mc" ? s.mc_airtime : s.airtime;
+  const div = document.createElement("div"); div.className = "card"; div.id = "aircard";
+  div.innerHTML = `<h2>${t("air.title")}</h2><p class="small">${t("air.hint_" + net)}</p>
+    <p class="small">${t("air.used", { h: (used && used.used_hour ? used.used_hour.toFixed(1) : 0), d: (used && used.used_day ? used.used_day.toFixed(1) : 0) })}</p>
+    <div class="grid g2" style="gap:.5rem"><div><label>${t("s.air_hour")}</label><input type="number" id="airh" value="${esc(lim.pct_hour)}"></div>
+      <div><label>${t("s.air_day")}</label><input type="number" id="aird" value="${esc(lim.pct_day)}"></div></div>
+    <p class="hint">${t("s.air_hint")}</p><div id="airmsg"></div><button class="primary" id="airsave">${t("save")}</button>`;
+  app().appendChild(div);
+  $("#airsave").onclick = async () => {
+    try { await api("POST", "/api/hub", { [net === "mc" ? "airtime_mc" : "airtime"]: { pct_hour: $("#airh").value, pct_day: $("#aird").value } });
+          $("#airmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
+    catch (e) { $("#airmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
+}
+
+/* ───────── MeshCore overview ───────── */
+async function pageMcOverview() {
+  const [st, s, contacts] = await Promise.all([api("GET", "/api/mc/status"), api("GET", "/api/status"), api("GET", "/api/mc/contacts").catch(() => [])]);
+  const r = st.radio, pc = (s.mc_counters || {}).peers || {}, act = (s.links || []).filter(l => l.state === "active");
+  const mcOn = l => { const rr = (s.rules || {})[l.peer]; return true; };
+  secs("mcov", ["radio", "links"]);
+  const lines = [
+    secBox("mcov", "radio", `<b>${t("st.mc")}</b>`, r ? [
+        [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))],
+        [t("name"), esc(r.name || "–")], [t("r.ready"), r.connected ? (r.ready ? B("ok", t("yes")) : B("warn", t("r.not_ready"))) : "–"],
+        [t("mc.contacts"), r.connected ? r.contacts : "–"], [t("mc.last_hour"), r.connected ? r.rx_hour : "–"]] : [["", B("", t("mc.none"))]],
+      r ? `<p class="small">${t("mc.stage")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>` : `<p>${t("mc.none")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>`),
+    secBox("mcov", "links", `<b>${t("mcov.links")}</b>`, [["", `${act.length}`]],
+      act.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+        ${act.map(l => { const p = pc[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+        <p class="small muted">${t("mcov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p>`),
+    secBox("mcov", "air", `<b>${t("air.title")}</b>`, [[t("st.hour"), `${((s.mc_airtime || {}).used_hour || 0).toFixed(1)} s`], [t("st.day"), `${((s.mc_airtime || {}).used_day || 0).toFixed(1)} s`]],
+      `<p class="small">${t("air.hint_mc")}</p><a href="#/mc/device">${t("nav.mc")} → ${t("nav.sub.device")}</a>`),
+    secBox("mcov", "map", `<b>${t("mcov.map")}</b>`, [["", `${contacts.filter(x => x.lat != null && x.lon != null).length}`]], `<div id="mcmap" style="height:420px;border-radius:8px"></div>`)];
+  app().innerHTML = secCard("MeshCore — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
+  bindSecs();
+  const drawMap = () => {
+    if (!$("#mcmap") || $("#mcmap")._done) return;
+    const d = $("details.secline[data-sec=map]"); if (!d || !d.open) return;
+    $("#mcmap")._done = true;
+    const m = makeMap("mcmap", null, null, { guard: true }), pts = [];
+    contacts.filter(x => x.lat != null && x.lon != null).forEach(x => {
+      L.circleMarker([x.lat, x.lon], { radius: 6, color: "#b45309", weight: 3, fillColor: "#0f7b6c", fillOpacity: .9 })
+        .bindPopup(`<b>${esc(x.name)}</b><br>${esc(x.type)}<br>${t("mc.last_advert")}: ${x.last_advert ? ago(x.last_advert) : "–"}`).addTo(m);
+      pts.push([x.lat, x.lon]);
+    });
+    if (r && r.lat) { L.circleMarker([r.lat, r.lon], { radius: 10, color: "#b45309", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(`<b>${esc(r.name)}</b> (${t("mcov.this")})`).addTo(m); pts.push([r.lat, r.lon]); }
+    if (pts.length) m.fitBounds(pts, { padding: [30, 30], maxZoom: 11 });
+  };
+  const md = $("details.secline[data-sec=map]"); if (md) md.addEventListener("toggle", drawMap); drawMap();
+}
+
+/* ───────── MeshCore device settings ───────── */
+async function pageMcDevice() {
+  const st = await api("GET", "/api/mc/status"), r = st.radio;
+  if (!r || !r.connected) {
+    app().innerHTML = `<div class="card"><h2>MeshCore — ${t("nav.sub.device")}</h2><p>${r ? t("r.not_connected") : t("mc.none")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a></div>`;
+    return airtimeCard("mc");
+  }
+  const f = (id, key, val, type, extra) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${extra || ""}>`;
+  app().innerHTML = `<div class="card"><h2>MeshCore — ${t("nav.sub.device")}: ${esc(r.name)}</h2>
+    <p class="small">${t("mcdev.hint")}</p>
+    ${f("mdname", "mc.name", r.name, "text", 'maxlength="31"')}
+    <h3>${t("mc.radio_params")}</h3>
+    <div class="grid g2" style="gap:.5rem">${f("mdfreq", "mcdev.freq", r.freq_mhz, "number", 'step="0.001"')}${f("mdbw", "mcdev.bw", r.bw_khz, "number", 'step="0.1"')}
+      ${f("mdsf", "mcdev.sf", r.sf, "number", 'min="5" max="12"')}${f("mdcr", "mcdev.cr", r.cr, "number", 'min="5" max="8"')}
+      ${f("mdtx", "mcdev.tx", r.tx_power, "number", `min="-9" max="${r.max_tx_power || 22}"`)}</div>
+    <div class="hint">${t("mcdev.radio_hint")}</div>
+    <label class="check" style="margin-top:.6rem"><input type="checkbox" id="mdloc" ${r.advert_location === 1 ? "checked" : ""}> ${t("mcdev.share_loc")}</label>
+    <p class="small muted">${t("position")}: ${r.lat || r.lon ? fmtPos(r.lat, r.lon) : "–"} · ${t("mcdev.loc_from_hub")}</p>
+    <div id="mdmsg"></div><button class="primary" id="mdsave">${t("save")}</button></div>`;
+  $("#mdsave").onclick = async () => {
+    const v = {};
+    if ($("#mdname").value.trim() && $("#mdname").value.trim() !== r.name) v.name = $("#mdname").value.trim();
+    const changed = (id, cur) => String(+$(id).value) !== String(+cur);
+    if (changed("#mdfreq", r.freq_mhz) || changed("#mdbw", r.bw_khz) || changed("#mdsf", r.sf) || changed("#mdcr", r.cr))
+      Object.assign(v, { freq_mhz: +$("#mdfreq").value, bw_khz: +$("#mdbw").value, sf: +$("#mdsf").value, cr: +$("#mdcr").value });
+    if (changed("#mdtx", r.tx_power)) v.tx_power = +$("#mdtx").value;
+    if ($("#mdloc").checked !== (r.advert_location === 1)) v.share_location = $("#mdloc").checked;
+    if (!Object.keys(v).length) return $("#mdmsg").innerHTML = `<div class="msg info">${t("dev.nochange")}</div>`;
+    if ((v.freq_mhz || v.bw_khz || v.sf || v.cr) && !confirm(t("mcdev.radio_q"))) return;
+    try { await api("POST", "/api/mc/settings", { values: v }); $("#mdmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; setTimeout(route, 1500); }
+    catch (e) { $("#mdmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
+  await airtimeCard("mc");
+}
+
+Ura.add({
+  "nav.sub.overview": { en: "Overview", sq: "Përmbledhje" }, "nav.sub.radio": { en: "Radio", sq: "Radio" },
+  "nav.sub.device": { en: "Device settings", sq: "Cilësimet e pajisjes" }, "nav.sub.logs": { en: "Logs", sq: "Regjistrat" },
+  "nav.fulllog": { en: "Full log", sq: "Regjistri i plotë" }, "lg.full": { en: "Full log — ura-hub", sq: "Regjistri i plotë — ura-hub" },
+  "lg.hint_net": { en: "Only the lines of this network. Settings → Full log has everything (also the hub and the server connection). Download links: the complete log files.", sq: "Vetëm rreshtat e këtij rrjeti. Cilësimet → Regjistri i plotë ka gjithçka (edhe hub-in dhe lidhjen me serverin). Lidhjet e shkarkimit: skedarët e plotë." },
+  "l.settings_title": { en: "Link settings", sq: "Cilësimet e lidhjeve" },
+  "s.linkset": { en: "Defaults for new links · multi-hop · positions on the map", sq: "Parazgjedhjet për lidhjet e reja · multi-hop · pozicionet në hartë" },
+  "air.title": { en: "Airtime limit (packets from links)", sq: "Kufiri i kohës në ajër (paketat nga lidhjet)" },
+  "air.hint_mt": { en: "How much of the air the Meshtastic radio may use to put packets from linked hubs on air. MeshCore has its own limit.", sq: "Sa nga ajri mund të përdorë radio Meshtastic për të transmetuar paketat nga hub-et e lidhura. MeshCore ka kufirin e vet." },
+  "air.hint_mc": { en: "How much of the air the MeshCore radio may use to put packets from linked hubs on air. Meshtastic has its own limit.", sq: "Sa nga ajri mund të përdorë radio MeshCore për të transmetuar paketat nga hub-et e lidhura. Meshtastic ka kufirin e vet." },
+  "air.used": { en: "Used: {h} s in the last hour, {d} s in the last 24 h.", sq: "Përdorur: {h} s në orën e fundit, {d} s në 24 orët e fundit." },
+  "mtov.links": { en: "Meshtastic traffic per link", sq: "Trafiku Meshtastic për lidhje" },
+  "mtov.links_hint": { en: "Which links carry Meshtastic, and what exactly, is set on each link.", sq: "Cilat lidhje bartin Meshtastic, dhe çfarë saktësisht, caktohet te çdo lidhje." },
+  "mcov.links": { en: "MeshCore traffic per link", sq: "Trafiku MeshCore për lidhje" },
+  "mcov.blocked": { en: "Not passed (reason: count)", sq: "Të pakaluara (arsyeja: numri)" },
+  "mcov.links_hint": { en: "Which links carry MeshCore is set on each link (tick box MeshCore).", sq: "Cilat lidhje bartin MeshCore caktohet te çdo lidhje (kutia MeshCore)." },
+  "mcov.map": { en: "Map of contacts", sq: "Harta e kontakteve" }, "mcov.this": { en: "this hub's radio", sq: "radio e këtij hub-i" },
+  "mcdev.hint": { en: "Settings of the MeshCore radio itself. Use the same radio settings as your local MeshCore group (EU: 869.618 MHz · 62.5 kHz · SF8 · CR8).", sq: "Cilësimet e vetë radios MeshCore. Përdorni të njëjtat cilësime radio si grupi juaj lokal MeshCore (EU: 869.618 MHz · 62.5 kHz · SF8 · CR8)." },
+  "mcdev.freq": { en: "Frequency (MHz)", sq: "Frekuenca (MHz)" }, "mcdev.bw": { en: "Bandwidth (kHz)", sq: "Gjerësia e brezit (kHz)" },
+  "mcdev.sf": { en: "Spreading factor (5–12)", sq: "Spreading factor (5–12)" }, "mcdev.cr": { en: "Coding rate (5–8)", sq: "Coding rate (5–8)" },
+  "mcdev.tx": { en: "Transmit power (dBm)", sq: "Fuqia e transmetimit (dBm)" },
+  "mcdev.radio_hint": { en: "Radio settings apply at once. With other settings than the nodes around it, the radio hears none of them.", sq: "Cilësimet e radios zbatohen menjëherë. Me cilësime të ndryshme nga nyjet përreth, radio nuk dëgjon asnjë prej tyre." },
+  "mcdev.radio_q": { en: "Change the radio settings? With other settings than the local group, the radio no longer hears it.", sq: "Të ndryshohen cilësimet e radios? Me cilësime të ndryshme nga grupi lokal, radio nuk e dëgjon më." },
+  "mcdev.share_loc": { en: "Share the (approximate) location in adverts", sq: "Ndaj vendndodhjen (e përafërt) në reklama" },
+  "mcdev.loc_from_hub": { en: "set by “Prepare for Ura” from the hub's location", sq: "vendoset nga “Përgatit për Ura” nga vendndodhja e hub-it" },
 });
 
 // start only after every part of this file (pages, wizard, texts) is loaded — otherwise the menu shows raw keys

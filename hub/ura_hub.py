@@ -139,7 +139,8 @@ DEFAULT_CONFIG = {
             "location_mode": "radio"},            # radio = follow the connected radio's position, manual = typed in
     "server": {"address": "", "fingerprint": "", "hub_id": "", "key": "", "status": "", "web_port": 8443},
     "radios": [],                 # [{"id","net":"mt","transport":"serial|tcp","address","enabled"}]
-    "airtime": {"pct_hour": 10.0, "pct_day": 0.0},
+    "airtime": {"pct_hour": 10.0, "pct_day": 0.0},        # Meshtastic radio: limit for packets from links
+    "airtime_mc": {"pct_hour": 10.0, "pct_day": 0.0},     # MeshCore radio: its own limit
     "defaults": {"send": dict(RULE_DEFAULT), "receive": dict(RULE_DEFAULT)},
     "rules": {},                  # peer hub id -> {"send": {...}, "receive": {...}}
     "share_positions_on_map": True,
@@ -2040,6 +2041,29 @@ class McRadio:
         self._ok(bytes([7, 1]))                          # advert, flooded: the mesh learns name + location
         log.info("MeshCore radio prepared for Ura: %s, location %s, %s (shared in adverts)", self.self_info.get("name"), lat, lon)
 
+    def set_settings(self, v):
+        """MeshCore → Device settings: name, radio (frequency, bandwidth, SF, CR), power, location sharing.
+        Radio settings apply at once; the hub radio never repeats packets itself (Ura carries them)."""
+        si = self.self_info
+        if v.get("name"):
+            self._ok(bytes([8]) + str(v["name"]).strip().encode("utf-8")[:31])
+        if any(k in v for k in ("freq_mhz", "bw_khz", "sf", "cr")):
+            f = int(round(float(v.get("freq_mhz", si.get("freq_mhz"))) * 1000))
+            bw = int(round(float(v.get("bw_khz", si.get("bw_khz"))) * 1000))
+            sf, cr = int(v.get("sf", si.get("sf"))), int(v.get("cr", si.get("cr")))
+            if not (150000 <= f <= 2500000 and 7000 <= bw <= 500000 and 5 <= sf <= 12 and 5 <= cr <= 8):
+                raise ValueError("radio")
+            self._ok(bytes([11]) + f.to_bytes(4, "little") + bw.to_bytes(4, "little") + bytes([sf, cr, 0]))
+        if "tx_power" in v:
+            pw = int(v["tx_power"])
+            if not -9 <= pw <= int(si.get("max_tx_power") or 22):
+                raise ValueError("tx_power")
+            self._ok(bytes([12, pw & 0xFF]))
+        if "share_location" in v:
+            self._ok(bytes([38, si.get("manual_add", 0), si.get("telemetry_byte", 0), 1 if v["share_location"] else 0, si.get("multi_acks", 0)]))
+        self._read_self()
+        log.info("MeshCore radio settings changed by the operator: %s", ", ".join(sorted(v)))
+
     def checks(self):
         si, d = self.self_info, self.device
         return {"position_known": bool(si.get("lat") or si.get("lon")),
@@ -2595,6 +2619,7 @@ def mc_parse(raw):
 
 
 mc_remote_keys = set()     # MeshCore nodes whose adverts came over Ura (never announced back)
+counters_mc = Counters()   # MeshCore traffic is counted on its own (Meshtastic keeps `counters`)
 
 
 def mc_send_to_peers(raw, announce=None):
@@ -2608,23 +2633,23 @@ def mc_send_to_peers(raw, announce=None):
     boxes = {}
     for peer in active_peers():
         rule = cfg.rules_for(peer)["send"]
-        if not rule.get("on") or not rule.get("mc", True):
-            counters.peer_add(peer, "blocked_send", "meshcore_off")
+        if not rule.get("mc", True):                   # MeshCore has its own switch per link (independent of Meshtastic)
+            counters_mc.peer_add(peer, "blocked_send", "meshcore_off")
             continue
         keys, state = identity.keys_for(peer)
         if keys is None:
-            counters.peer_add(peer, "blocked_send", "key_" + state)
+            counters_mc.peer_add(peer, "blocked_send", "key_" + state)
             continue
         inner = json.dumps({"net": "mc", "data": base64.b64encode(raw).decode(), "path": [my_id()]}).encode()
         boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
-        counters.peer_add(peer, "sent")
+        counters_mc.peer_add(peer, "sent")
     names = {h["id"]: h.get("code") for h in link.directory}
     if announce:
         log.info("MeshCore advert of “%s” announced to %s", announce, ", ".join(names.get(x, x) for x in boxes) or "nobody")
     else:
         log.info("MeshCore radio -> %s %s (%d hops): sent to %s", p["route"], p["type"], p["hops"], ", ".join(names.get(x, x) for x in boxes) or "nobody")
     if boxes:
-        counters.add("sent")
+        counters_mc.add("sent")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mc", "boxes": boxes}), loop)
 
 
@@ -2633,23 +2658,23 @@ def mc_receive_box(peer, box):
     on air unchanged with this hub's MeshCore radio."""
     keys, state = identity.keys_for(peer)
     if keys is None:
-        counters.peer_add(peer, "blocked_recv", "key_" + state)
+        counters_mc.peer_add(peer, "blocked_recv", "key_" + state)
         return
     try:
         inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
         m = json.loads(inner)
         raw = base64.b64decode(m["data"])
     except Exception:
-        counters.peer_add(peer, "blocked_recv", "bad_box")
+        counters_mc.peer_add(peer, "blocked_recv", "bad_box")
         return
     if seen_cache.seen(b"n" + nonce):
         return
     p = mc_parse(raw)
     if p is None:
-        counters.peer_add(peer, "blocked_recv", "invalid")
+        counters_mc.peer_add(peer, "blocked_recv", "invalid")
         return
     frm = next((h.get("code") for h in link.directory if h["id"] == peer), peer)
-    counters.add("received")
+    counters_mc.add("received")
     if p["type"] == "advert":                          # remember: this node lives on the other side
         try:
             i_ = 1 + (4 if (raw[0] & 3) in (0, 3) else 0)
@@ -2661,28 +2686,28 @@ def mc_receive_box(peer, box):
         return
     r = mc_radio()
     if r is None or r.ser is None:
-        counters.peer_add(peer, "blocked_recv", "no_radio")
+        counters_mc.peer_add(peer, "blocked_recv", "no_radio")
         log.info("from %s MeshCore %s: not put on air (no MeshCore radio connected)", frm, p["type"])
         return
     rr = cfg.rules_for(peer)["receive"]
-    if not rr.get("on") or not rr.get("mc", True):
-        counters.peer_add(peer, "blocked_recv", "meshcore_off")
+    if not rr.get("mc", True):
+        counters_mc.peer_add(peer, "blocked_recv", "meshcore_off")
         log.info("from %s MeshCore %s: not put on air (MeshCore off on this link)", frm, p["type"])
         return
-    a = cfg.get()["airtime"]
+    a = cfg.get().get("airtime_mc") or {"pct_hour": 10.0, "pct_day": 0.0}
     si = r.self_info
     toa = time_on_air(len(raw) + 2, si.get("sf") or 8, si.get("bw_khz") or 62.5, si.get("cr") or 8)
     if (a.get("pct_hour") and r.air_used(3600) + toa > 3600 * a["pct_hour"] / 100) or \
        (a.get("pct_day") and r.air_used(86400) + toa > 86400 * a["pct_day"] / 100):
-        counters.peer_add(peer, "blocked_recv", "airtime")
+        counters_mc.peer_add(peer, "blocked_recv", "airtime")
         log.info("from %s MeshCore %s: not put on air (airtime limit)", frm, p["type"])
         return
     try:
         r.send_raw(raw)
-        counters.peer_add(peer, "received")
+        counters_mc.peer_add(peer, "received")
         log.info("from %s MeshCore %s %s (%d hops): put on air", frm, p["route"], p["type"], p["hops"])
     except Exception as e:
-        counters.peer_add(peer, "blocked_recv", "radio_error")
+        counters_mc.peer_add(peer, "blocked_recv", "radio_error")
         log.warning("from %s MeshCore %s: the radio did not take it (%s)", frm, p["type"], e)
 
 
@@ -2756,6 +2781,9 @@ def status_payload():
     return {"version": VERSION, "hub": c["hub"], "server": {k: c["server"][k] for k in ("address", "fingerprint", "hub_id", "status")},
             "link_state": link.state, "link_detail": link.detail, "radio": r.info() if r else None,
             "mc_radio": mc_radio().info() if mc_radio() else None,
+            "mc_counters": counters_mc.snapshot(),
+            "mc_airtime": {"used_hour": mc_radio().air_used(3600) if mc_radio() else 0, "used_day": mc_radio().air_used(86400) if mc_radio() else 0,
+                           "limit": cfg.get().get("airtime_mc") or {"pct_hour": 10.0, "pct_day": 0.0}},
             "counters": counters.snapshot(), "airtime": {"used_hour": counters.air_used(3600), "used_day": counters.air_used(86400),
                                                        "limits": c["airtime"]},
             "links": [dict(l, e2e=identity.safety(l["peer"])) for l in link.links], "directory": link.directory,
@@ -2843,8 +2871,13 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/logs":
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 n = max(10, min(20000, int((q.get("lines") or ["500"])[0] or 500)))
-                return self.reply({"files": log_files(DATA_DIR), "started": int(STARTED), "version": VERSION,
-                                   "lines": log_tail(DATA_DIR, n, (q.get("level") or [""])[0], (q.get("q") or [""])[0])})
+                lines = log_tail(DATA_DIR, n * 4 if q.get("net") else n, (q.get("level") or [""])[0], (q.get("q") or [""])[0])
+                net = (q.get("net") or [""])[0]
+                if net == "mc":                            # MeshCore lines only
+                    lines = [l for l in lines if "MeshCore" in l][-n:]
+                elif net == "mt":                          # everything else (Meshtastic radio, its traffic, the hub)
+                    lines = [l for l in lines if "MeshCore" not in l][-n:]
+                return self.reply({"files": log_files(DATA_DIR), "started": int(STARTED), "version": VERSION, "lines": lines})
             if p == "/api/logs/file":
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 name = (q.get("name") or [""])[0]
@@ -3020,9 +3053,10 @@ class Web(http.server.BaseHTTPRequestHandler):
                             pass
                 if "share_positions_on_map" in b:
                     d["share_positions_on_map"] = bool(b["share_positions_on_map"])
-                if "airtime" in b:
-                    d["airtime"] = {"pct_hour": max(0.0, min(100.0, float(b["airtime"].get("pct_hour") or 0))),
-                                    "pct_day": max(0.0, min(100.0, float(b["airtime"].get("pct_day") or 0)))}
+                for k_ in ("airtime", "airtime_mc"):
+                    if k_ in b:
+                        d[k_] = {"pct_hour": max(0.0, min(100.0, float(b[k_].get("pct_hour") or 0))),
+                                 "pct_day": max(0.0, min(100.0, float(b[k_].get("pct_day") or 0)))}
                 if "defaults" in b:
                     d["defaults"] = clean_rules(b["defaults"])
                 if "transit" in b:
@@ -3182,6 +3216,17 @@ class Web(http.server.BaseHTTPRequestHandler):
             name = str(b.get("name") or "").strip()[:31]
             try:
                 r.prepare(name or None)
+            except Exception as e:
+                return self.reply({"error": "radio", "detail": str(e)}, 400)
+            return self.reply({"ok": True, "radio": r.info()})
+        if p == "/api/mc/settings":
+            r = mc_radio()
+            if r is None or r.ser is None:
+                return self.reply({"error": "no_radio"}, 400)
+            try:
+                r.set_settings(b.get("values") or {})
+            except ValueError as e:
+                return self.reply({"error": "invalid", "fields": [str(e)]}, 400)
             except Exception as e:
                 return self.reply({"error": "radio", "detail": str(e)}, 400)
             return self.reply({"ok": True, "radio": r.info()})
