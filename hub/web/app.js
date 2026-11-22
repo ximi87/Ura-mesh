@@ -572,9 +572,9 @@ async function pageStatus() {
       : `<p class="muted">${t("err.no_radio")} <a href="#/radio">${t("nav.radio")} →</a></p>`;
   const lines = [
     secBox("status", "mtlinks", `<b>${t("mtov.links")}</b>`, [["", `${active.length}`], [t("status"), B(s.link_state === "connected" ? "ok" : "bad", t(srvState(s)))]],
-      active.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("ns.carried")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+      active.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
         ${active.map(l => { const p = (s.counters.peers || {})[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
-          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${l.e2e && l.e2e.state === "ok" ? "🔒" : "⚠️"}</td><td>${netSwitch(cfgS, l.peer, "mt")}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${l.e2e && l.e2e.state === "ok" ? "🔒" : "⚠️"}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
         <p class="small muted">${t("mtov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p> <a href="#/links">${t("nav.links")} →</a>`),
     secBox("status", "radio", `<b>${t("st.radio")}</b>`, r ? [
         [t("status"), r.connected ? B("ok", t("r.connected")) : B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))], [t("name"), esc(r.name || "–")],
@@ -627,7 +627,6 @@ async function pageStatus() {
         <span><span class="dot" style="background:${LOCAL_COLOR}"></span>${t("nl.local")}</span></div></div>
     ${secCard("Meshtastic — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""))}`;
   bindSecs();
-  bindNetSwitches(cfgS);
   const cols = [
     { key: "name", label: t("name"), render: n => `${esc(n.name || "–")} <span class="muted">${esc(n.short || "")}</span>`, sort: n => (n.name || "").toLowerCase() },
     { key: "id", label: t("id"), render: n => `<span class="mono small">${esc(n.id)}</span>` },
@@ -1138,8 +1137,10 @@ async function pageSettings(want, opts) {
   const inp = (id, key, type, val, dis) => `<label>${t(key)}</label><input type="${type || "text"}" id="${id}" value="${esc(val == null ? "" : val)}" ${dis ? "disabled" : ""}>`;
   const spec = await api("GET", "/api/advanced_spec");
   spec.server_web_port = { default: 8443, min: 1, max: 65535 };   // stored with the server address, edited here
+  const HUB_ADV = ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min", "tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s", "location_follow_m", "location_check_s"];
+  Object.keys(spec).forEach(k => { if (!HUB_ADV.includes(k)) delete spec[k]; });   // radio and link settings live with the radio / the links
   const advChanged = Object.entries(c.advanced || {}).filter(([k, v]) => spec[k] && String(v) !== String(spec[k].default)).length
-                   + ((c.server.web_port || 8443) !== 8443 ? 1 : 0);
+;
   const sb = s.link_state === "connected" ? "ok" : (s.link_state === "connecting" ? "warn" : "bad");
   secs("settings", [!reg ? "hub" : null, !reg || s.link_state !== "connected" ? "server" : null]);
   if (want) openSecs.settings.add(want);                      // opened from the Settings menu: that section
@@ -1221,9 +1222,7 @@ async function pageSettings(want, opts) {
     }
   };
   const af = !$("#advform") ? null : advancedForm($("#advform"), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), {
-    groups: [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]],
-             ["adv.g.nodes", ["node_sync", "node_sync_hours", "node_sync_gap_s", "node_sync_age_h", "node_max_age_days", "nodes_check_s", "nodes_report_min", "location_follow_m", "location_check_s"]],
-             ["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
+    groups: [["adv.g.location", ["location_follow_m", "location_check_s"]],
              ["adv.g.security", ["replay_window_s", "session_hours", "lockout_attempts", "lockout_minutes", "password_min"]],
              ["adv.g.web", ["tile_source", "tile_cache_days", "tile_backoff_s", "page_refresh_s"]]],
     depends: { clock_sync_min: "clock_sync", node_sync_hours: "node_sync", node_sync_gap_s: "node_sync", node_sync_age_h: "node_sync" } });
@@ -1323,7 +1322,8 @@ async function route() {
     if (page === "mc" && sub === "device") return await pageMcDevice();
     if (page === "mc" && sub === "logs") return pageLogs("mc");
     if (page === "radio") return await pageRadio();
-    if (page === "device") { await pageDevice(); return await airtimeCard("mt"); }
+    if (page === "device") { await pageDevice(); await airtimeCard("mt");
+      return await advCard("adv.title_mt", [["adv.g.radio", ["clock_sync", "clock_sync_min", "radio_watchdog_min", "diag_timeout_s", "mqtt_address"]]], { depends: { clock_sync_min: "clock_sync" } }); }
     if (page === "settings") return await pageSettings(location.hash.split("/")[2], { only: ["hub", "loc", "pw", "program", "adv", "reset"] });
     if (page === "mc") return await pageMc();
     if (page === "logs") return pageLogs("");
@@ -1854,6 +1854,10 @@ Ura.add({
   "ab.partner_rules": { en: "Rules of {x}", sq: "Rregullat e {x}" },
   "ab.mc_none": { en: "{x} has not published MeshCore rules (older version or no MeshCore radio).", sq: "{x} nuk ka publikuar rregulla MeshCore (version më i vjetër ose pa radio MeshCore)." },
   "ab.mc_transit": { en: "{x} passes MeshCore traffic between its links", sq: "{x} kalon trafikun MeshCore ndërmjet lidhjeve të veta" },
+  "adv.title_mt": { en: "Advanced settings — Meshtastic radio", sq: "Cilësime të avancuara — radio Meshtastic" },
+  "adv.title_links": { en: "Advanced settings — links and server", sq: "Cilësime të avancuara — lidhjet dhe serveri" },
+  "adv.g.nodes_links": { en: "Nodes: announcing and reporting", sq: "Nyjet: njoftimi dhe raportimi" },
+  "adv.g.location": { en: "Location of this hub", sq: "Vendndodhja e këtij hub-i" },
   "ns.title": { en: "Which network goes over which link", sq: "Cili rrjet kalon nëpër cilën lidhje" },
   "ns.hint": { en: "Switch Meshtastic and MeshCore on or off for each link (both directions; saved at once). What exactly passes is set in each link's rules below.", sq: "Ndizni ose fikni Meshtastic dhe MeshCore për çdo lidhje (të dy drejtimet; ruhet menjëherë). Çfarë saktësisht kalon caktohet te rregullat e çdo lidhjeje më poshtë." },
   "ns.nets": { en: "Networks", sq: "Rrjetet" }, "ns.carried": { en: "Over this link", sq: "Nëpër këtë lidhje" },
@@ -1889,6 +1893,29 @@ Ura.add({
 async function linkSettings() {
   const box = document.createElement("div"); box.id = "linkset"; app().appendChild(box);
   await pageSettings(null, { only: ["server", "limits"], into: box, title: t("l.settings_title") });
+  await advCard("adv.title_links", [["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
+                                    ["adv.g.nodes_links", ["node_sync", "node_sync_hours", "node_sync_gap_s", "node_sync_age_h", "node_max_age_days", "nodes_check_s", "nodes_report_min"]]],
+                { into: box, depends: { node_sync_hours: "node_sync", node_sync_gap_s: "node_sync", node_sync_age_h: "node_sync" } });
+}
+
+
+/* Advanced settings shown where they belong (radio → its device settings, links/server → Links, hub → Settings) */
+async function advCard(titleKey, groups, opts) {
+  opts = opts || {};
+  const [spec0, c] = await Promise.all([api("GET", "/api/advanced_spec"), api("GET", "/api/config")]);
+  spec0.server_web_port = { default: 8443, min: 1, max: 65535 };
+  const keys = new Set(groups.flatMap(g => g[1])), spec = {};
+  Object.keys(spec0).forEach(k => { if (keys.has(k)) spec[k] = spec0[k]; });
+  const div = document.createElement("div"); div.className = "card";
+  div.innerHTML = `<h2>${t(titleKey)}</h2><p class="muted small">${t("adv.intro")}</p><div class="advbox"></div><div class="advmsg"></div><button class="primary advsave">${t("save")}</button>`;
+  (opts.into || app()).appendChild(div);
+  const af = advancedForm($(".advbox", div), spec, Object.assign({}, c.advanced || {}, { server_web_port: c.server.web_port || 8443 }), { groups, depends: opts.depends || {} });
+  $(".advsave", div).onclick = async () => {
+    const all = af.read(), body = { advanced: all };
+    if ("server_web_port" in all) { body.server_web_port = all.server_web_port; delete all.server_web_port; }
+    try { await api("POST", "/api/advanced", body); af.mark([]); $(".advmsg", div).innerHTML = `<div class="msg ok">${t("saved")}</div>`; }
+    catch (e) { af.mark((e.data && e.data.fields) || []); $(".advmsg", div).innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
+  };
 }
 
 /* ───────── airtime limit per network (in its device settings) ───────── */
@@ -1923,16 +1950,15 @@ async function pageMcOverview() {
         [t("mc.contacts"), r.connected ? r.contacts : "–"], [t("mc.last_hour"), r.connected ? r.rx_hour : "–"]] : [["", B("", t("mc.none"))]],
       r ? `<p class="small">${t("mc.stage")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>` : `<p>${t("mc.none")}</p><a href="#/mc">${t("nav.mc")} → ${t("nav.sub.radio")}</a>`),
     secBox("mcov", "links", `<b>${t("mcov.links")}</b>`, [["", `${act.length}`]],
-      act.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("ns.carried")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
+      act.length ? `<div class="tablewrap"><table><tr><th>${t("links")}</th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th><th>${t("mcov.blocked")}</th></tr>
         ${act.map(l => { const p = pc[l.peer] || {}; const bl = Object.entries(Object.assign({}, p.blocked_send || {}, p.blocked_recv || {})).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
-          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${netSwitch(cfgS, l.peer, "mc")}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
+          return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${p.sent || 0}</td><td>${p.received || 0}</td><td class="small">${bl || "–"}</td></tr>`; }).join("")}</table></div>
         <p class="small muted">${t("mcov.links_hint")} <a href="#/links">${t("nav.links")} →</a></p>` : `<p class="muted">${t("l.none")}</p>`),
     secBox("mcov", "air", `<b>${t("air.title")}</b>`, [[t("st.hour"), `${((s.mc_airtime || {}).used_hour || 0).toFixed(1)} s`], [t("st.day"), `${((s.mc_airtime || {}).used_day || 0).toFixed(1)} s`]],
       `<p class="small">${t("air.hint_mc")}</p><a href="#/mc/device">${t("nav.mc")} → ${t("nav.sub.device")}</a>`),
     secBox("mcov", "map", `<b>${t("mcov.map")}</b>`, [["", `${contacts.filter(x => x.lat != null && x.lon != null).length}`]], `<div id="mcmap" style="height:420px;border-radius:8px"></div>`)];
   app().innerHTML = secCard("MeshCore — " + t("nav.sub.overview"), `<p class="muted small">${t("sec.hint")}</p>` + lines.join(""));
   bindSecs();
-  bindNetSwitches(cfgS);
   const drawMap = () => {
     if (!$("#mcmap") || $("#mcmap")._done) return;
     const d = $("details.secline[data-sec=map]"); if (!d || !d.open) return;
