@@ -44,10 +44,12 @@ by itself when it is really done:
    out. *Connect* answers with the radio's name and how many nodes it holds.
 3. **Prepare the radio for Ura** — one click per radio (a Meshtastic radio restarts once; a MeshCore
    radio announces itself once). Includes the approximate location.
-4. **Register on the server** — address (`host:port`), *Check server* (shows its fingerprint),
-   *Trust this server and send the registration*. The step is done when the registration is sent; the
-   approval by the administrator follows later and is shown.
-5. **Link with another hub** — *Ask for a link* (the other operator accepts on their hub), or
+4. **Connect to the server** — the server's address is already filled in (it can be changed); press
+   *Connect*: the hub reaches the server, takes its certificate and sends the registration in one step
+   (the fingerprint is shown and can be compared with the server's *Register a hub* page). The approval by
+   the server's administrator follows later and is shown.
+5. **Connect a tunnel** — per hub and tunnel of the same kind *Ask to connect* (the other operator
+   accepts on their hub), or
    *Finish setup — link later*.
 6. **Ready** — summary, *Ask neighbours to answer*, *Link with more hubs*.
 
@@ -104,26 +106,40 @@ everything.
 
 ## Links & rules
 
-1. **Which network goes over which link** — one row per link with a **Meshtastic** and a **MeshCore**
-   switch. One click switches that network on or off for the link, both directions, saved at once.
-   Switching a network off tells the partner to forget your nodes of that network (and you forget
-   theirs).
-2. **My links** — one line per link: partner, online, 🔒, and per network ✓ / off with packets ↑ ↓.
-   Click a line for **what exactly passes**:
+**Tunnels.** A hub connected to the Ura server has one **tunnel per radio** it has set up: a
+**Meshtastic tunnel** (male) and/or a **MeshCore tunnel** (female). A tunnel connects only with a tunnel
+**of the same kind** on another hub — Meshtastic with Meshtastic, MeshCore with MeshCore — on request,
+once the other hub accepts. Each connection stands on its own: requested, accepted and ended separately,
+also with the same hub (a hub with both radios can be connected to another hub with one tunnel or with
+both). A hub with only Meshtastic connects with the Meshtastic tunnels of others; a hub with only MeshCore
+with the MeshCore tunnels; a hub with both with either.
+
+Every connection is encrypted **from hub to hub** (peer to peer): the keys are made only in the two hubs
+(X25519), each tunnel type has its own key, and the server — like a torrent tracker — only shows who has
+which tunnel and passes on sealed boxes it cannot open.
+
+1. **Requests** — requests from other hubs to connect one of their tunnels with yours (the tunnel type
+   is shown; *Accept* / *Decline*) and your own (Cancel).
+2. **My tunnels** — the Meshtastic tunnel and the MeshCore tunnel of this hub (*ready* or *not
+   available* — no radio of that kind), each with its **connections**: one line per connected hub
+   (online, 🔒, packets ↑ ↓). Click a line for **what exactly passes**:
    - **Meshtastic — my rules** (table: *Send to …* / *Receive from …*): basic rules (public channel,
      private messages, positions) · groups (one per private channel of your radio) · multi-hop (how far
      my packets may go through this partner, pass other hubs' packets on to it, accept packets from
      hubs beyond it).
    - **MeshCore — my rules**: basic rules (adverts, Public channel, private messages) · groups ·
      other (other people's channels — off by default —, traceroute/control) · multi-hop.
-   - *Save*, *End link*, and folded below: the partner's rules (both networks), traffic per network,
-     the end-to-end safety code (compare it with the other operator).
-3. **Requests** — incoming requests (Accept / Decline) and your own (Cancel).
-4. **Other hubs on the server** — *Ask for a link*.
-5. **Link settings** — the **Ura server** (address, check, trust, register, leave), **defaults for new
-   links** (one table per network), **multi-hop** per network (does this hub pass traffic between its
-   links, and over how many links at most), positions on the public map.
-6. **Advanced settings — links and server** — reconnect / keep-alive / timeout to the server, packets
+   - *Save* (only this connection's rules), *End this connection* (only this tunnel's connection; a
+     connection of the other tunnel with the same hub stays — both hubs forget each other's nodes of
+     that network), and folded below: the partner's rules, traffic, the end-to-end safety code (compare
+     it with the other operator).
+3. **Tunnels on the server** — one row per tunnel of the other hubs: *Ask to connect* for a tunnel of
+   the same kind as yours; "connected", "waiting", or "you have no … tunnel".
+4. **Link settings** — the **Ura server** (address filled in, *Connect*; later its state and *Leave*),
+   **defaults for new connections** (one table per network), **multi-hop** per network (does this hub
+   pass traffic between its connections, and over how many at most), positions on the public map.
+5. **Advanced settings — links and server** — the **Ura server offered to a new hub** (filled in on
+   the Connect field; also set by the installer with `URA_SERVER=…`), reconnect / keep-alive / timeout to the server, packets
    kept while it is unreachable, the server's web port; node announcements to linked hubs (on/off, each
    node again every … hours, one node every … seconds, only nodes heard within …), node reports.
 

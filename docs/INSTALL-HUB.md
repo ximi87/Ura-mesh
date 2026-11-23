@@ -41,6 +41,13 @@ cd Ura-mesh
 sudo bash contrib/install-hub.sh
 ```
 
+If you know the Ura server you will use, give it to the installer — it is then already filled in on the
+hub's website and the operator only presses *Connect*:
+
+```bash
+URA_SERVER=ura.example.org:8100 sudo -E bash contrib/install-hub.sh
+```
+
 The script shows what it will change and asks first. It installs `git`, `python3-venv` and
 `openssl`, creates a system user `ura` (in the `dialout` group for USB), puts Ura in
 `/opt/ura` with the Meshtastic package in `/opt/ura/venv`, keeps the hub's data in
@@ -144,10 +151,12 @@ and turns green by itself when it is done; then the next one opens. You never ne
    every USB device what it is and shows its real name; *Connect* shows the radio's name and how
    many nodes it holds — or what else is on the port.
 3. **Prepare the radio for Ura** — one click; the radio restarts once.
-4. **Register on the server** — address, *Check server* (shows its fingerprint), *Trust and send the
-   registration*, then it waits for the administrator's approval and connects.
-5. **Link with another hub** — every hub on the server with *Ask for a link*; requests from others
-   with *Accept*. Done when one link is active.
+4. **Connect to the server** — the address is filled in (change it if you use another server); press
+   *Connect*. The hub reaches the server, takes its certificate and sends the registration, then waits
+   for the administrator's approval.
+5. **Connect a tunnel** — every tunnel of the same kind on the server with *Ask to connect*; requests
+   from others with *Accept*. Done when one connection is active. (A Meshtastic tunnel connects only with
+   Meshtastic tunnels, a MeshCore tunnel only with MeshCore tunnels.)
 6. **Ready** — summary, *Ask neighbours to answer*, and *Link with more hubs*.
 
 Once everything has been done, the wizard no longer opens by itself (problems show on the home map and the *Overview* pages); it

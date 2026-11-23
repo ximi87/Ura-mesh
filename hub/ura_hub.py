@@ -51,6 +51,7 @@ ADV_SPEC = {
     "lockout_attempts":    (5, 3, 50),
     "lockout_minutes":     (15, 1, 1440),
     "password_min":        (8, 8, 64),
+    "default_server":      (os.environ.get("URA_DEFAULT_SERVER", ""), None, None),   # filled in for a hub that has no server yet
     "server_retry_s":      (5, 2, 600),
     "refused_retry_s":     (120, 10, 3600),
     "keepalive_s":         (30, 5, 300),
@@ -238,6 +239,9 @@ def clean_advanced(new):
             errors.append(k)
             continue
         if k == "mqtt_address" and not re.match(r"^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+(\.\d+)?$", v):
+            errors.append(k)
+            continue
+        if k == "default_server" and v and not re.match(r"^[A-Za-z0-9.\-]+(:\d{1,5})?$", re.sub(r"^[a-z]+://", "", v).strip("/")):
             errors.append(k)
             continue
         if k == "tile_source" and v != "server" and not (v.startswith("https://") and "{z}" in v and "{x}" in v and "{y}" in v):
@@ -3484,6 +3488,37 @@ class Web(http.server.BaseHTTPRequestHandler):
             cfg.update(upd)
             loop.call_soon_threadsafe(link.reconnect.set)
             return self.reply({"ok": True})
+        if p == "/api/server/connect":
+            # One step for the operator: reach the server, take its certificate, trust it and send the registration.
+            # The fingerprint is shown afterwards (it can still be compared with the server's page); the server's
+            # administrator still has to approve the hub.
+            c = cfg.get()
+            if c["server"]["hub_id"]:
+                return self.reply({"error": "already_registered"}, 400)
+            h = c["hub"]
+            if not all(h.get(k) not in (None, "") for k in ("name", "email", "country", "city", "lat", "lon")):
+                return self.reply({"error": "hub_details_missing"}, 400)
+            try:
+                addr = normalize_addr(b.get("address") or adv("default_server"))
+            except ValueError:
+                return self.reply({"error": "address_required"}, 400)
+            try:
+                fp = run_coro(server_check(addr))
+            except Exception as e:
+                return self.reply({"error": "unreachable", "detail": f"{addr}: {e.__class__.__name__} {e}".strip()}, 400)
+            cfg.update(lambda d: d["server"].update(address=addr, fingerprint=fp.upper(), hub_id="", key="", status=""))
+            try:
+                reply = run_coro(server_join(addr, fp.upper(), {k: h[k] for k in ("name", "email", "country", "city", "lat", "lon", "description")}))
+            except FingerprintMismatch:
+                return self.reply({"error": "fingerprint_mismatch"}, 400)
+            except Exception as e:
+                return self.reply({"error": "unreachable", "detail": f"{e.__class__.__name__} {e}".strip()}, 400)
+            if reply.get("t") != "joined":
+                return self.reply({"error": reply.get("reason", "refused")}, 400)
+            cfg.update(lambda d: d["server"].update(hub_id=reply["hub"], key=reply["key"], status=reply["status"]))
+            loop.call_soon_threadsafe(link.reconnect.set)
+            log.info("connected to the Ura server %s (fingerprint %s) — registration sent", addr, fp.upper())
+            return self.reply({"ok": True, "address": addr, "fingerprint": fp.upper(), "hub_id": reply["hub"], "status": reply["status"]})
         if p == "/api/server/join":
             c = cfg.get()
             h = c["hub"]

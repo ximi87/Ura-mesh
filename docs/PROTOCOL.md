@@ -37,12 +37,12 @@ After `welcome`, messages in any order:
 | hub → srv | `{"t":"info","info":{…}}` | rules / radios / public key changed |
 | hub → srv | `{"t":"location","lat":…,"lon":…}` | hub position changed |
 | hub → srv | `{"t":"nodes","net":"mt","nodes":[{id,name,short,hw,role,lat,lon,alt,last_heard,hops,own}]}` | full list of the hub's local nodes (replaces the previous list) |
-| hub → srv | `{"t":"link_request","to":"h_…"}` | ask another approved hub for a link |
-| hub → srv | `{"t":"link_accept","link":12}` / `{"t":"link_remove","link":12}` | accept / end a link |
+| hub → srv | `{"t":"link_request","to":"h_…","net":"mt"}` | ask another approved hub to connect one tunnel (`net`: `mt` Meshtastic or `mc` MeshCore). Refused unless BOTH hubs declare that network in their `radios`. |
+| hub → srv | `{"t":"link_accept","link":12}` / `{"t":"link_remove","link":12}` | accept / end one connection (one tunnel type) |
 | hub → srv | `{"t":"mesh","net":"mt","boxes":{"h_peer":"<base64 box>", …}}` | sealed packets, one box per partner |
 | srv → hub | `{"t":"mesh","net":"mt","from":"h_…","box":"<base64>"}` | a sealed packet from a partner |
 | srv → hub | `{"t":"directory","hubs":[…]}` | approved hubs changed (incl. their public rules and keys) |
-| srv → hub | `{"t":"links","links":[…]}` | this hub's links changed |
+| srv → hub | `{"t":"links","links":[…]}` | this hub's connections changed — each entry has `net`; two hubs can have one connection per network |
 | srv → hub | `{"t":"peer_nodes","hub":"h_…","ids":["!…",…]}` | which nodes belong to a partner hub |
 | srv → hub | `{"t":"status","status":"approved|removed"}` | registration changed |
 
@@ -55,6 +55,13 @@ its rate limit.
 approved, version, rules, radios, pubkey, e2e}`.
 **Link entry (as seen by one hub):** `{id, peer, peer_name, peer_code, peer_online, state:
 "pending|active", requested_by, i_accepted, peer_accepted, created, activated}`.
+
+## Tunnels and connections
+
+A hub's **tunnels** are the networks it declares in `info.radios` (Meshtastic `mt`, MeshCore `mc`).
+A **connection** (a row in the server's `links` table) always belongs to ONE network: it is requested,
+accepted and ended on its own. The server relays a `mesh` box only along an active connection of the
+box's network (`net`); control boxes (`ctl`) along any active connection between the two hubs.
 
 ## Sealed box (hub ↔ hub, end-to-end)
 

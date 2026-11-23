@@ -128,23 +128,41 @@ Ura.add({
                    sq: "⚠️ {x} ende nuk ka çelës skaj-më-skaj (program më i vjetër). Asgjë nuk i dërgohet derisa të përditësohet." },
   "why.key_missing": { en: "no end-to-end key", sq: "pa çelës skaj-më-skaj" }, "why.key_changed": { en: "key changed", sq: "çelësi ndryshoi" },
   "why.bad_box": { en: "box could not be opened", sq: "kutia nuk u hap" },
-  "nl.my_rules": { en: "{n} tunnel — my rules", sq: "Tuneli {n} — rregullat e mia" },
-  "nl.end": { en: "End this {n} tunnel", sq: "Mbyll këtë tunel {n}" },
-  "nl.end_q": { en: "End the {n} tunnel with {x}? Only {n} stops — the other tunnel with {x} (if there is one) stays. Both hubs forget each other's {n} nodes.", sq: "Të mbyllet tuneli {n} me {x}? Ndalon vetëm {n} — tuneli tjetër me {x} (nëse ka) mbetet. Të dy hub-et harrojnë nyjet {n} të njëri-tjetrit." },
-  "nl.wait_peer": { en: "{n} tunnel: waiting for {x} to accept", sq: "Tuneli {n}: në pritje që {x} të pranojë" },
-  "nl.wait_me": { en: "{x} asks for a {n} tunnel", sq: "{x} kërkon një tunel {n}" },
+  "nl.my_rules": { en: "Connection of my {n} tunnel with this hub — my rules", sq: "Lidhja e tunelit tim {n} me këtë hub — rregullat e mia" },
+  "nl.end": { en: "End this connection", sq: "Mbyll këtë lidhje" },
+  "nl.end_q": { en: "End the {n} connection with {x}? Only this connection stops — any other connection with {x} stays. Both hubs forget each other's {n} nodes.", sq: "Të mbyllet lidhja {n} me {x}? Ndalon vetëm kjo lidhje — çdo lidhje tjetër me {x} mbetet. Të dy hub-et harrojnë nyjet {n} të njëri-tjetrit." },
+  "nl.wait_peer": { en: "{n}: waiting for {x} to accept", sq: "{n}: në pritje që {x} të pranojë" },
+  "nl.wait_me": { en: "{x} asks to connect its {n} tunnel with yours", sq: "{x} kërkon të lidhë tunelin e vet {n} me tuajin" },
   "nl.links_of": { en: "{n} tunnels", sq: "Tunelet {n}" },
-  "nl.none": { en: "No {n} tunnel yet — ask a hub below that also has {n}.", sq: "Ende pa tunel {n} — kërkoni një hub më poshtë që ka edhe {n}." },
-  "nl.hint": { en: "This hub is connected to the server; each network is its own tunnel to another hub — Meshtastic only with Meshtastic, MeshCore only with MeshCore, each with its own keys. Each tunnel is requested, accepted and ended on its own, also with the same hub. Which tunnels this hub offers follows from its radios.", sq: "Ky hub është i lidhur me serverin; çdo rrjet është tuneli i vet drejt një hub-i tjetër — Meshtastic vetëm me Meshtastic, MeshCore vetëm me MeshCore, secili me çelësat e vet. Çdo tunel kërkohet, pranohet dhe mbyllet më vete, edhe me të njëjtin hub. Cilat tunele ofron ky hub varet nga radiot e tij." },
-  "nl.ask": { en: "Ask: {n} tunnel", sq: "Kërko: tunel {n}" },
-  "err.net_not_both": { en: "That network is not on both hubs — a tunnel for it is not possible (Meshtastic only with Meshtastic, MeshCore only with MeshCore).", sq: "Ky rrjet nuk është në të dy hub-et — tuneli për të nuk është i mundur (Meshtastic vetëm me Meshtastic, MeshCore vetëm me MeshCore)." },
+  "nl.none": { en: "Ready — not connected yet. Send a request to a {n} tunnel in the list below.", sq: "Gati — ende pa lidhje. Dërgoni një kërkesë te një tunel {n} në listën më poshtë." },
+  "nl.hint": { en: "This hub is connected to the Ura server. For every radio set up here it has a tunnel: Meshtastic (male) and/or MeshCore (female). A tunnel connects only with a tunnel of the same kind on another hub — male with male, female with female — on request, once the other hub accepts. Every connection stands on its own, with its own keys.", sq: "Ky hub është i lidhur me serverin Ura. Për çdo radio të konfiguruar këtu ka një tunel: Meshtastic (mashkull) dhe/ose MeshCore (femër). Një tunel lidhet vetëm me një tunel të të njëjtit lloj në një hub tjetër — mashkull me mashkull, femër me femër — me kërkesë, pasi hub-i tjetër pranon. Çdo lidhje qëndron më vete, me çelësat e vet." },
+  "nl.ask": { en: "Ask to connect · {n}", sq: "Kërko lidhje · {n}" },
+  "err.net_not_both": { en: "Only tunnels of the same kind connect: Meshtastic with Meshtastic, MeshCore with MeshCore — this hub or the other one has no such tunnel.", sq: "Lidhen vetëm tunele të të njëjtit lloj: Meshtastic me Meshtastic, MeshCore me MeshCore — ky hub ose tjetri nuk e ka këtë tunel." },
   "err.bad_net": { en: "Choose Meshtastic or MeshCore for the link.", sq: "Zgjidhni Meshtastic ose MeshCore për lidhjen." },
+  "tn.mt": { en: "Meshtastic tunnel", sq: "Tuneli Meshtastic" }, "tn.mc": { en: "MeshCore tunnel", sq: "Tuneli MeshCore" },
+  "tn.ready": { en: "ready", sq: "gati" }, "tn.none": { en: "not available", sq: "jo i disponueshëm" },
+  "tn.conns": { en: "connected with {n} hub(s)", sq: "i lidhur me {n} hub" },
+  "tn.dir": { en: "Tunnels on the server", sq: "Tunelet në server" },
+  "tn.dir_hint": { en: "The other hubs' tunnels. Ask to connect a tunnel of the same kind as yours; the connection is made when that hub accepts.", sq: "Tunelet e hub-eve të tjera. Kërkoni lidhje me një tunel të të njëjtit lloj si i juaji; lidhja bëhet kur ai hub pranon." },
+  "tn.dir_none": { en: "No other tunnels on the server yet.", sq: "Ende nuk ka tunele të tjera në server." },
+  "tn.col": { en: "Tunnel", sq: "Tuneli" }, "tn.of_hub": { en: "Hub", sq: "Hub-i" },
+  "tn.ask": { en: "Ask to connect", sq: "Kërko lidhje" },
+  "tn.connected": { en: "connected", sq: "i lidhur" }, "tn.waiting": { en: "request sent — waiting", sq: "kërkesa u dërgua — në pritje" },
+  "tn.asks_you": { en: "asks you — see requests above", sq: "ju kërkon — shihni kërkesat më lart" },
+  "tn.not_mine": { en: "you have no {n} tunnel", sq: "nuk keni tunel {n}" },
+  "sc.hint": { en: "The address of the Ura server is filled in. Press “Connect”: the hub reaches the server, takes its certificate and sends the registration. The server's administrator then approves the hub.", sq: "Adresa e serverit Ura është plotësuar. Shtypni “Lidhu”: hub-i arrin serverin, merr certifikatën e tij dhe dërgon regjistrimin. Administratori i serverit pastaj e miraton hub-in." },
+  "sc.connect": { en: "Connect", sq: "Lidhu" },
+  "sc.working": { en: "Connecting to the server…", sq: "Duke u lidhur me serverin…" },
+  "sc.done": { en: "Connected to {x} — registration sent; waiting for the administrator's approval.", sq: "U lidh me {x} — regjistrimi u dërgua; në pritje të miratimit nga administratori." },
+  "sc.fp_hint": { en: "You can compare this fingerprint with the one on the server's “Register a hub” page.", sq: "Mund ta krahasoni këtë gjurmë me atë në faqen “Regjistro një hub” të serverit." },
+  "err.hub_details_missing": { en: "Fill in the hub details first (name, e-mail, codes, location).", sq: "Plotësoni fillimisht të dhënat e hub-it (emri, e-mail, kodet, vendndodhja)." },
+  "adv.default_server": { en: "Ura server offered to a new hub (host:port)", sq: "Serveri Ura që i ofrohet një hub-i të ri (host:port)" },
   "why.no_pipe": { en: "this network is not on both hubs — refused", sq: "ky rrjet nuk është në të dy hub-et — u refuzua" },
   "pipe.col": { en: "Networks", sq: "Rrjetet" },
   "pipe.no_radio": { en: "no radio yet", sq: "ende pa radio" },
-  "pipe.carries": { en: "possible tunnels: {x}", sq: "tunele të mundshme: {x}" },
-  "pipe.none": { en: "no network in common — no tunnel possible", sq: "asnjë rrjet i përbashkët — asnjë tunel i mundur" },
-  "pipe.no_mine": { en: "this hub has no {n} radio", sq: "ky hub nuk ka radio {n}" },
+  "pipe.carries": { en: "same kind: {x}", sq: "i njëjti lloj: {x}" },
+  "pipe.none": { en: "no tunnel of the same kind — no connection possible", sq: "asnjë tunel i të njëjtit lloj — asnjë lidhje e mundur" },
+  "pipe.no_mine": { en: "No {n} tunnel — this hub has no {n} radio set up.", sq: "Pa tunel {n} — ky hub nuk ka radio {n} të konfiguruar." },
   "pipe.no_peer": { en: "{x} has no {n}", sq: "{x} nuk ka {n}" },
   "pipe.not_both": { en: "not on both", sq: "jo në të dy" },
   "pipe.no_pipe_here": { en: "This link carries no {n}", sq: "Kjo lidhje nuk mbart {n}" },
@@ -793,6 +811,8 @@ async function pageLinks() {
   const linked = new Set(s.links.map(l => l.peer));
   const others = s.directory.filter(h => h.id !== s.server.hub_id);
   const dirOf = id => s.directory.find(x => x.id === id);
+  // every other hub's tunnels: one row per tunnel (a hub has a Meshtastic tunnel, a MeshCore tunnel, or both)
+  const tunnels = others.flatMap(h => ["mt", "mc"].filter(n => hubNets(h).has(n)).map(n => Object.assign({}, h, { net: n })));
   const peerCounts = s.counters.peers;
   const rulesOf = peer => { const x = c.rules[peer] || c.defaults; return { send: Object.assign({}, x.send), receive: Object.assign({}, x.receive) }; };
   const mcGroups = ((s.mc_radio && s.mc_radio.channels) || []).filter(ch => !ch.public).map(ch => ch.name);
@@ -923,9 +943,10 @@ async function pageLinks() {
       <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}" ${commonNets(c, dirOf(l.peer)).includes(net) ? "" : `disabled title="${esc(pipeWhy(c, dirOf(l.peer), net))}"`}>${t("l.accept")}</button>`}
       <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}" data-net="${net}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`; };
   // every link carries ONE network: the Meshtastic links and the MeshCore links are listed apart
-  const netSection = net => { const ls = active.filter(l => (l.net || "mt") === net);
-    return `<div class="netsec ${net}"><h3><span class="netpill ${net}">${NETNAME[net]}</span> ${t("nl.links_of", { n: NETNAME[net] })} (${ls.length})</h3>
-      ${!myNets(c).has(net) ? `<p class="muted small">${t("pipe.no_mine", { n: NETNAME[net] })}</p>`
+  const netSection = net => { const ls = active.filter(l => (l.net || "mt") === net), has = myNets(c).has(net);
+    return `<div class="netsec ${net}"><h3><span class="netpill ${net} ${has ? "" : "off"}">${t(net === "mc" ? "tn.mc" : "tn.mt")}</span>
+        ${has ? `<span class="badge ok">${t("tn.ready")}</span> <span class="muted small">${t("tn.conns", { n: ls.length })}</span>` : `<span class="badge">${t("tn.none")}</span>`}</h3>
+      ${!has ? `<p class="muted small">${t("pipe.no_mine", { n: NETNAME[net] })}</p>`
         : ls.length ? ls.map(l => `
       <div class="linkwrap">
       <details class="linkbox" data-link="${l.id}" data-peer="${l.peer}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openLinks.has(l.id) ? "open" : ""}>
@@ -933,26 +954,24 @@ async function pageLinks() {
         : `<p class="muted small">${t("nl.none", { n: NETNAME[net] })}</p>`}</div>`; };
   app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
     ${incoming.length ? `<div class="card attention"><h2>${t("ls.incoming")} (${incoming.length})</h2>${incoming.map(l => reqRow(l, false)).join("")}</div>` : ""}
-    <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${active.length})</h2>
+    <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${myNets(c).size})</h2>
       ${active.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("adv.open_all")}</button><button class="small" data-lall="0">${t("adv.close_all")}</button></div>` : ""}</div>
       ${active.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
       <p class="muted small">${t("nl.hint")}</p>
       ${netSection("mt")}${netSection("mc")}
       ${outgoing.length ? `<h3>${t("ls.outgoing")} (${outgoing.length})</h3>${outgoing.map(l => reqRow(l, true)).join("")}` : ""}</div>
-    <div class="card"><h2>${t("l.dir")} (${others.length})</h2><div id="hubdir"></div></div>`;
-  dataTable($("#hubdir"), others, [
-    { key: "code", label: t("code"), render: h => `<b>${esc(h.code)}</b>` },
-    { key: "name", label: t("name"), render: h => esc(h.name) },
-    { key: "online", label: t("status"), render: h => onlineBadge(h.online), sort: h => h.online ? 1 : 0 },
-    { key: "radios", label: t("pipe.col"), render: h => netPills(h), sort: h => hubNets(h).size },
-    { key: "lat", label: t("position"), render: h => fmtPos(h.lat, h.lon), sort: h => h.lat },
-    { key: "id", label: "", render: h => { const cm = commonNets(c, h);
-        if (!cm.length) return linkOffer(c, h);
-        return cm.map(net => { const l = s.links.find(x => x.peer === h.id && (x.net || "mt") === net);
-          return l ? `<span class="netpill ${net}">${NETNAME[net]} · ${t(l.state === "active" ? "ls.linked" : "l.state.pending")}</span>`
-            : `<button class="small" data-ask="${h.id}" data-net="${net}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("nl.ask", { n: NETNAME[net] })}</button>`; }).join(" "); },
-      sort: h => s.links.filter(l => l.peer === h.id).length }],
-    { searchKeys: ["code", "name"], initialSort: "online", pageSize: 25, empty: t("l.dir.none") });
+    <div class="card"><h2>${t("tn.dir")} (${tunnels.length})</h2><p class="muted small">${t("tn.dir_hint")}</p><div id="hubdir"></div></div>`;
+  dataTable($("#hubdir"), tunnels, [
+    { key: "net", label: t("tn.col"), render: x => `<span class="netpill ${x.net}">${t(x.net === "mc" ? "tn.mc" : "tn.mt")}</span>` },
+    { key: "code", label: t("tn.of_hub"), render: x => `<b>${esc(x.code)}</b> · ${esc(x.name)}`, sort: x => x.code },
+    { key: "online", label: t("status"), render: x => onlineBadge(x.online), sort: x => x.online ? 1 : 0 },
+    { key: "lat", label: t("position"), render: x => fmtPos(x.lat, x.lon), sort: x => x.lat },
+    { key: "id", label: "", render: x => { const l = s.links.find(y => y.peer === x.id && (y.net || "mt") === x.net);
+        if (l) return `<span class="muted small">${t(l.state === "active" ? "tn.connected" : (l.i_accepted ? "tn.waiting" : "tn.asks_you"))}</span>`;
+        if (!myNets(c).has(x.net)) return `<span class="muted small">${t("tn.not_mine", { n: NETNAME[x.net] })}</span>`;
+        return `<button class="small" data-ask="${x.id}" data-net="${x.net}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("tn.ask")}</button>`; },
+      sort: x => s.links.some(y => y.peer === x.id && (y.net || "mt") === x.net) ? 1 : 0 }],
+    { searchKeys: ["code", "name", "net"], initialSort: "online", pageSize: 25, empty: t("tn.dir_none") });
   $$("details.linkbox").forEach(d => d.addEventListener("toggle", () => { if (d.open) openLinks.add(+d.dataset.link); else openLinks.delete(+d.dataset.link); }));
   $$("button[data-lall]").forEach(b => b.onclick = () => $$("details.linkbox").forEach(d => d.open = b.dataset.lall === "1"));
   if ($("#lfilter")) $("#lfilter").oninput = e => { const q = e.target.value.toLowerCase(); $$("details.linkbox").forEach(d => d.style.display = d.dataset.q.includes(q) ? "" : "none"); };
@@ -1296,15 +1315,16 @@ async function pageSettings(want, opts) {
       ${reg ? `<p class="muted small">${t("s.locked")}</p>` : `<div id="hmsg"></div><button class="primary" id="hsave">${t("save")}</button>`}`),
     secBox("settings", "server", `<b>${t("s.server")}</b>`,
       [[t("s.address"), `<span class="mono small">${esc(c.server.address || "–")}</span>`], [t("status"), B(sb, t(srvState(s)))], [t("s.registration"), regText(c.server.status)]],
-      `<label>${t("s.address")}</label><div class="row"><input type="text" id="saddr" value="${esc(c.server.address)}" style="flex:1"><button id="scheck">${t("s.check")}</button></div>
+      !reg ? `<p class="small">${t("sc.hint")}</p><label>${t("s.address")}</label>
+      <div class="row"><input type="text" id="sconaddr" value="${esc(c.server.address || (c.advanced || {}).default_server || "")}" style="flex:1" placeholder="server.example.org:8100">
+        <button class="primary" id="scon">${t("sc.connect")}</button></div><div id="sconmsg"></div>`
+      : `<label>${t("s.address")}</label><div class="row"><input type="text" id="saddr" value="${esc(c.server.address)}" style="flex:1"><button id="scheck">${t("s.check")}</button></div>
       ${c.server.fingerprint ? `<div class="msg info small" style="margin-top:.6rem">${t("s.trusted_server")} <b class="mono">${esc(c.server.address)}</b><br>${t("s.trusted")}: <span class="mono">${esc(c.server.fingerprint)}</span></div>` : ""}
       <div id="sfp"></div>
       <h3>${t("s.registration")}</h3><p>${regText(c.server.status)} ${reg ? `<span class="muted small mono">${esc(c.server.hub_id)}</span>` : ""}</p>
       <p class="muted small">${t("st.server")}: ${t(srvState(s))} ${esc(s.link_detail || "")}</p>
       <div id="jmsg"></div>
-      ${!reg && c.server.fingerprint ? `<div id="sjoinbox"><p class="small">${t("s.join_to", { x: `<b class="mono">${esc(c.server.address)}</b>` })}</p><button class="primary" id="sjoin">${t("s.join")}</button></div>
-        <p class="msg warn small hidden" id="sjoinwarn">${t("s.join_check_first")}</p>` : ""}
-      ${reg ? `<button class="danger" id="sforget">${t("s.forget")}</button>` : ""}`),
+      <button class="danger" id="sforget">${t("s.forget")}</button>`),
     secBox("settings", "loc", `<b>${t("loc.title")}</b>`,
       [[t("loc.mode"), h.location_mode === "manual" ? t("loc.mode.manual") : t("loc.mode.radio")], [t("position"), h.lat != null && h.lat !== "" ? fmtPos(h.lat, h.lon) : "–"]],
       `<p class="muted small">${t("loc.hint")}</p>
@@ -1390,6 +1410,15 @@ async function pageSettings(want, opts) {
     catch (e) { $("#locmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; }
   };
   if ($("#hsave")) $("#hsave").onclick = async () => { await api("POST", "/api/hub", hubBody()); $("#hmsg").innerHTML = `<div class="msg ok">${t("saved")}</div>`; };
+  if ($("#scon")) $("#scon").onclick = async () => {                 // one step: reach, trust, register
+    const m = $("#sconmsg"); $("#scon").disabled = true; m.innerHTML = `<div class="msg info">${t("sc.working")}</div>`;
+    try {
+      if ($("#hname")) await api("POST", "/api/hub", hubBody());
+      const r = await api("POST", "/api/server/connect", { address: $("#sconaddr").value });
+      m.innerHTML = `<div class="msg ok">${t("sc.done", { x: `<b class="mono">${esc(r.address)}</b>` })}<br>${t("s.trusted")}: <span class="mono small">${esc(r.fingerprint)}</span><div class="small">${t("sc.fp_hint")}</div></div>`;
+      setTimeout(route, 3000);
+    } catch (e) { m.innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#scon").disabled = false; }
+  };
   if ($("#scheck")) $("#scheck").onclick = async () => {
     $("#sfp").innerHTML = `<p class="muted">…</p>`;
     try {
@@ -1708,9 +1737,19 @@ async function wzBody(k, el, s, c) {
       wz.live(s);
       return;
     }
-    el.innerHTML = `<p class="small">${t("wz.srv.hint")}</p>
-      <label>${t("s.address")}</label><div class="row"><input type="text" id="wzsaddr" value="${esc(sv.address)}" style="flex:1" placeholder="server.example.org:8100">
-      <button class="primary" id="wzscheck">${t("wz.srv.check")}</button></div><div id="wzsmsg"></div>`;
+    el.innerHTML = `<p class="small">${t("sc.hint")}</p>
+      <label>${t("s.address")}</label><div class="row"><input type="text" id="wzsaddr" value="${esc(sv.address || (c.advanced || {}).default_server || "")}" style="flex:1" placeholder="server.example.org:8100">
+      <button class="primary" id="wzscon">${t("sc.connect")}</button></div><div id="wzsmsg"></div>`;
+    $("#wzscon").onclick = async () => {
+      const addr = $("#wzsaddr").value.trim(), m = $("#wzsmsg");
+      $("#wzscon").disabled = true; wz.busy = true;
+      wzMsg(m, "info", wzSpin(t("sc.working")));
+      try { const r = await api("POST", "/api/server/connect", { address: addr });
+            wzMsg(m, "ok", `${t("sc.done", { x: `<b class="mono">${esc(r.address)}</b>` })}<br>${t("s.trusted")}: <span class="mono small">${esc(r.fingerprint)}</span>`); }
+      catch (e) { wzMsg(m, "bad", errText(e)); $("#wzscon").disabled = false; }
+      wz.busy = false; wz.tick(true);
+    };
+    if (true) return;
     const join = async addr => {
       const m = $("#wzsmsg"); wz.busy = true;
       wzMsg(m, "info", wzSpin(t("wz.srv.sending")));
@@ -2001,7 +2040,7 @@ Ura.add({
   "ls.hint2": { en: "One line per link: which networks go over it (✓ / off — switched in the table above) and the packets sent ↑ / received ↓ per network. Click the line for what exactly passes (the rules).",
                 sq: "Një rresht për çdo lidhje: cilat rrjete kalojnë (✓ / fikur — ndërrohen te tabela më lart) dhe paketat e dërguara ↑ / marra ↓ për rrjet. Klikoni rreshtin për çfarë saktësisht kalon (rregullat)." },
   "ab.mt_on": { en: "Meshtastic on this link", sq: "Meshtastic në këtë lidhje" },
-  "ab.title": { en: "About this tunnel: the rules of {x}, traffic, encryption", sq: "Rreth këtij tuneli: rregullat e {x}, trafiku, enkriptimi" },
+  "ab.title": { en: "About this connection: the rules of {x}, traffic, encryption", sq: "Rreth kësaj lidhjeje: rregullat e {x}, trafiku, enkriptimi" },
   "ab.sub": { en: "(click to show)", sq: "(klikoni për ta shfaqur)" },
   "ab.partner_rules": { en: "Rules of {x}", sq: "Rregullat e {x}" },
   "ab.mc_none": { en: "{x} has not published MeshCore rules (older version or no MeshCore radio).", sq: "{x} nuk ka publikuar rregulla MeshCore (version më i vjetër ose pa radio MeshCore)." },
@@ -2058,7 +2097,7 @@ Ura.add({
 async function linkSettings() {
   const box = document.createElement("div"); box.id = "linkset"; app().appendChild(box);
   await pageSettings(null, { only: ["server", "limits"], into: box, title: t("l.settings_title") });
-  await advCard("adv.title_links", [["adv.g.server", ["server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
+  await advCard("adv.title_links", [["adv.g.server", ["default_server", "server_retry_s", "refused_retry_s", "keepalive_s", "server_timeout_s", "queue_max", "server_web_port"]],
                                     ["adv.g.nodes_links", ["node_sync", "node_sync_hours", "node_sync_gap_s", "node_sync_age_h", "node_max_age_days", "nodes_check_s", "nodes_report_min"]]],
                 { into: box, depends: { node_sync_hours: "node_sync", node_sync_gap_s: "node_sync", node_sync_age_h: "node_sync" } });
 }
