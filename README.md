@@ -67,20 +67,21 @@ statistics. It holds no key that opens the traffic.
 ## Features
 
 **Hub website** (`https://<hub>:8091`, owner only)
-- **Status** — map of the nodes this hub's own radio hears first, then radio (with watchdog),
-  server connection, counters, airtime, and searchable lists of local nodes and of each partner
-  hub's nodes.
-- **Links & rules** — one compact line per link (any number of links), requests at the top,
-  searchable hub list; per link and direction: public channel, private
-  groups, private messages, positions, and how far your packets may go through that partner
-  (multi-hop, decided per link); end-to-end safety code.
-- **Radio** — USB or Wi-Fi/IP connection, one-click *Prepare radio for Ura*, **Diagnostics**
-  (private message with delivery check, traceroute, telemetry and position requests, channel test).
-- **Device settings** — program the radio from the browser: name, fixed position, channels with
-  secure random keys, and every Meshtastic setting.
-- **Settings** — hub details and location (from the radio or manual), server registration with
-  certificate check, airtime limit, multi-hop, and every operational value as an advanced setting
-  (grouped in sections, changed values marked).
+- **Home map** — this hub, its nodes, the linked hubs and their nodes (both networks), with a
+  small statistics box; **Meshtastic** and **MeshCore** menus each with *Overview* (the same map for
+  that network, radio, traffic per link, airtime, node lists), *Radio*, *Device settings*, *Logs*.
+- **Links & rules** — which network goes over which link (one switch per network and link);
+  per link a rules table for each network (send / receive: public channel, private messages,
+  positions or adverts, groups, multi-hop); the Ura server, defaults and multi-hop per network;
+  end-to-end safety code.
+- **Radio** (per network) — the USB port with the device's real name, one-click *Prepare radio for
+  Ura*, **Diagnostics** (private message with delivery check, traceroute, telemetry and position
+  requests, channel test); for MeshCore its contacts and the packets it hears.
+- **Device settings** (per network) — program the radio from the browser (Meshtastic: every setting,
+  channels with secure random keys; MeshCore: name, radio settings, power) and its own airtime limit.
+- **Settings** — only the hub itself: details and approximate location (typed in or clicked on a
+  map), password, restart/stop, advanced settings, factory reset, setup wizard, full log.
+- Every page explained: [docs/CONFIGURE-HUB.md](docs/CONFIGURE-HUB.md).
 
 **Server website** (`https://<server>`, public + admin)
 - World map of hubs, nodes and links with **live traffic**; hub and node pages; statistics per
@@ -125,16 +126,15 @@ Wi-Fi/IP, and the address of a Ura server.
    sudo bash contrib/install-hub.sh
    ```
 3. **Open** `https://<hub-ip>:8091`, accept the self-signed certificate once and choose a password.
-4. **Radio** — choose the USB port (or IP), save, then *Prepare radio for Ura* if anything is
-   not green.
-5. **Settings** — hub name, your e-mail, country code and place code (2–3 letters each, e.g.
-   `XX` + `YY`), location (from the radio or typed in). Enter the server address, press *Check
-   server*, compare the fingerprint with the one on the server's *Register a hub* page, trust it,
-   and *Send registration request*.
+4. The **setup wizard** opens: hub name, your e-mail, **country code** and **city / region code**
+   (2–3 letters each, e.g. `XX` + `YY`), approximate location (typed in or clicked on the map); the
+   radio (Meshtastic or MeshCore — the hub names each USB device); *Prepare*; the server address,
+   *Check server*, compare the fingerprint with the one on the server's *Register a hub* page, trust
+   it and send the registration. (Experienced? *Skip the wizard* and use the pages instead.)
 6. After the server admin approves you: **Links & rules** — ask other hubs for a link, set your
    rules per link, compare the safety code with the other operator.
-7. **Radio → Diagnostics** — send a private message to a remote node; *delivered* means both
-   directions work.
+7. **Meshtastic → Radio → Diagnostics** — send a private message to a remote node; *delivered*
+   means both directions work.
 
 > While the hub runs, **nothing else may be connected to the hub radio** (no app over
 > Bluetooth or Wi-Fi). Use a second radio for your phone.
@@ -168,7 +168,7 @@ Full guide: [docs/INSTALL-SERVER.md](docs/INSTALL-SERVER.md)
 
 | Where | What you decide |
 |---|---|
-| Hub → Links & rules | who you link with; per direction: public channel, groups, private messages, positions; where your packets may travel further (multi-hop); whether you accept traffic from further away |
+| Hub → Links & rules | who you link with; which network (Meshtastic / MeshCore) goes over each link; per network and direction: public channel, groups, private messages, positions or adverts; where your packets may travel further (multi-hop); whether you accept traffic from further away |
 | Hub → Settings | location, airtime limit (% per hour/day), multi-hop on/off and the longest chain it takes part in, whether your nodes' positions appear on the public map, default rules for new links, advanced values |
 | Hub → Device settings | the radio itself: name, position, channels and keys, LoRa region and preset, all modules |
 | Server → Admin | which hubs are approved, complaints, whether new registrations are accepted, limits and retention, map tiles, links to the documentation |

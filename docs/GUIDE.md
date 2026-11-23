@@ -56,7 +56,7 @@ git clone https://github.com/ximi87/Ura-mesh.git && cd Ura-mesh && sudo bash con
 ```
 Open `https://<hub>:8091`, choose a password.
 
-### Step 4 — Connect and prepare the radio (*Radio*)
+### Step 4 — Connect and prepare the radio (*Meshtastic → Radio*, or *MeshCore → Radio*)
 Choose the USB port (or the radio's IP). The page shows the radio's name, firmware and the
 checklist **Ready for Ura**. *Prepare radio for Ura* sets everything in one go (MQTT through the
 hub, encryption kept, uplink/downlink on every channel, *Ignore MQTT* off). The radio itself
@@ -66,17 +66,17 @@ region and preset, every module.
 **Channels and keys.** The hub radio can only pass on what it can read: it needs every channel it
 should pass on, **with the same name and the same key** as the nodes use. The public channel uses
 the default key `AQ==` — leave it so. If your mesh uses its own key, add that channel to the hub
-radio (*Device settings → Channels → Add channels from a Meshtastic link*, or type the key in). A
+radio (*Meshtastic → Device settings → Channels → Add channels from a Meshtastic link*, or type the key in). A
 group crosses between two hubs only when both hub radios have it with the same key and both
 operators tick it. Each channel shows its code (equal codes = the radios understand each other);
 the *Status* page warns when the radio hears a channel it cannot read, and the hub keeps a copy of
 the channels to write back to a new or reset radio. Details: [INSTALL-HUB.md](INSTALL-HUB.md#channels-and-keys--read-this-before-you-continue).
 
-### Step 5 — Describe the hub (*Settings*)
-Hub name, the operator's e-mail (only the server admin sees it), country code + place code
+### Step 5 — Describe the hub (*Settings → Hub details*)
+Hub name, the operator's e-mail (only the server admin sees it), country code + city / region code
 (`XX-YY`, one hub per place), and the location — automatically from the radio or typed in.
 
-### Step 6 — Register and wait for approval (*Settings → Ura server*)
+### Step 6 — Register and wait for approval (*Links & rules → Link settings → Ura server*)
 Enter the server address, press *Check server*, **compare the fingerprint** with the server's
 *Register a hub* page, trust it, *Send registration request*. The hub waits for the
 administrator. Once approved it appears on the public map with its nodes — **but no traffic
@@ -107,20 +107,20 @@ waiting for you appear at the top; the list of other hubs on the server is searc
 ![A hub's Links & rules page with four links, one opened: safety code, send and receive rules, how far packets may go](img/hub-links.jpg)
 
 ### Step 10 — Confirm that it works
-- **Diagnostics** (*Radio* page): pick any node — local or in the other mesh — and send a
+- **Diagnostics** (*Meshtastic → Radio*): pick any node — local or in the other mesh — and send a
   *private message with delivery check*. **"Delivered — the node confirmed it"** means the
   message reached the node and its acknowledgement came all the way back: both directions work.
   *Traceroute* shows the route (the bridge counts as one hop), *telemetry* and *position* requests
   get the node's answer.
 - **Phones:** remote nodes appear in the Meshtastic app's node list and, if they share a position,
   on its map. Tap one, *Send message* — the app shows *delivered* when the remote node confirms.
-- **Status page:** at the top a map of the nodes **your own radio** hears (nodes of other hubs are
-  in the lists below it), then the radio, server and link state, *last message from the radio*,
-  and counters (*sent, received, put on air,* and per link *why* anything was stopped). Inside
-  the page the mouse wheel scrolls the page; **Ctrl + wheel** (⌘ on a Mac) zooms the map, on a
-  phone **two fingers** move it.
+- **Home map** (click the Ura logo): this hub, its nodes, the linked hubs and their nodes, both
+  networks, with a small statistics box. **Meshtastic → Overview** and **MeshCore → Overview** show
+  the same map for one network, then radio state, traffic per link (and *why* anything was stopped),
+  airtime and node lists. Inside a page the mouse wheel scrolls the page; **Ctrl + wheel** (⌘ on a
+  Mac) zooms the map, on a phone **two fingers** move it.
 - **Radio watchdog:** a connected radio reports to its hub at least every minute. If it stays
-  silent for 10 minutes (adjustable), the hub restarts it and says so on the Status page.
+  silent for 10 minutes (adjustable), the hub restarts it and says so on the network's Overview.
 - **The server map** shows the link, and dots run along it whenever packets pass.
 
 ---
@@ -240,12 +240,14 @@ key in without the operators noticing — the safety codes would no longer match
 - Updates: `git pull` and restart the service — see the install guides.
 - Backups: the hub's `identity.key` and `config.json`; the server's database and certificate.
 - Troubleshooting, counters, airtime: [OPERATIONS.md](OPERATIONS.md).
-- **Advanced settings** (*Settings*, bottom): every operational value, grouped into sections
-  (radio, nodes and location, connection to the server, security and login, map and website).
-  Changed values are marked and can be reset to their default with one click.
+- **Advanced settings** — each where it belongs: radio values under *Meshtastic → Device settings*,
+  server and node-announcement values under *Links & rules*, hub values (location following, security
+  and login, map and website) under *Settings → Advanced settings*. One compact line per value, changed
+  values marked, reset to the default with one click.
+- Every page and setting: [CONFIGURE-HUB.md](CONFIGURE-HUB.md).
 
 ![Advanced settings on a hub: sections, units, ranges, changed values marked](img/hub-advanced.jpg)
-- MeshCore support is planned; the architecture (hubs decide, server relays sealed boxes) stays the
-  same.
+- **MeshCore** works the same way as Meshtastic: a hub can have one radio of each network, every link
+  carries both (switched per link and network), the server relays sealed boxes it cannot open.
 
 *The pictures in this guide show a demonstration network with made-up hubs.*

@@ -5,6 +5,8 @@ server, so you need no port forwarding and no public address at your site.
 
 You need about 30 minutes.
 
+> Every page and setting of the hub's website is explained in **[CONFIGURE-HUB.md](CONFIGURE-HUB.md)**.
+
 ## What you need
 
 | | |
@@ -75,7 +77,7 @@ Keep the website to your local network (a firewall rule, or simply no port forwa
 steps in order. Each step shows what is really happening (checking, connecting, waiting for approval…)
 and turns green by itself when it is done; then the next one opens. You never need another page.
 
-1. **Name this hub** — name, e-mail, country and place code (2–3 letters each). Also its **approximate location** (required): every radio that is part of Ura has one; Ura keeps it to about 1 km and never sends it more exactly. A radio without GPS gets it as its fixed position; a radio with GPS sends its own position only approximately (≈ 700 m).
+1. **Name this hub** — name, e-mail, **country code** and **city / region code** (2–3 letters each: the country, then the city, province or district). Latitude and longitude can be typed in or clicked on the small map. Also its **approximate location** (required): every radio that is part of Ura has one; Ura keeps it to about 1 km and never sends it more exactly. A radio without GPS gets it as its fixed position; a radio with GPS sends its own position only approximately (≈ 700 m).
 2. **Connect the radio** — radio type (Meshtastic; MeshCore later), then the USB port. The hub asks
    every USB device what it is and shows its real name; *Connect* shows the radio's name and how
    many nodes it holds — or what else is on the port.
@@ -92,7 +94,7 @@ stays in the menu under **Setup**. Leaving the server is a fresh start: the wiza
 **Set it up yourself (advanced).** *Skip the wizard* at the bottom of it, then use the pages below
 (sections 4–9) in any order.
 
-## 4. Connect the radio — *Radio*
+## 4. Connect the radio — *Meshtastic → Radio*
 
 - **Radio type:** Meshtastic. **Connection:** USB (pick the port from the list) or Wi-Fi/IP
   (the radio's address). Save.
@@ -115,8 +117,8 @@ between two nodes are the only exception — they use the nodes' own keys and al
   public messages, positions and telemetry cross Ura.
 - **If your mesh uses its own key** — for the main channel or for a group — the hub radio needs that
   channel too. Easiest: in the Meshtastic app open **Channels → share** (QR code / link), then on the
-  hub **Device settings → Channels → Add channels from a Meshtastic link** and paste the link.
-  You can also type a key in or let the radio generate one (**Device settings → Channels → channel →
+  hub **Meshtastic → Device settings → Channels → Add channels from a Meshtastic link** and paste the link.
+  You can also type a key in or let the radio generate one (**Meshtastic → Device settings → Channels → channel →
   Key**) and share it from there: each channel shows its key with a *Copy* button, and the page has
   the share link for all channels.
 - **For a group to cross between two hubs**, *both* hub radios need that channel with the same name
@@ -131,31 +133,31 @@ between two nodes are the only exception — they use the nodes' own keys and al
   knew it before — also on the other side of Ura — still hold the old key and answer its private
   messages with an error (the phone shows a key or channel mismatch). Ending and re-creating the link does this by
   itself (both radios forget the partner's nodes when a link ends); for a single node without touching
-  the link: **Radio → Diagnostics → Forget this node**. Then press **Ask neighbours to answer** on the hub
+  the link: **Meshtastic → Radio → Node list → Forget this node**. Then press **Ask neighbours to answer** on the hub
   where the node is: its name card with the new key crosses Ura in seconds. The same button helps
   after a node list was cleared: nodes learn each other again at once instead of after hours.
 - **The hub keeps a copy of the radio's channels.** If you replace or reset the radio, or change its
   channels with the phone app, *Device settings* tells you and offers **Write the saved channels to
   the radio** (or *Keep the radio's channels*).
 
-## 5. Hub details and location — *Settings*
+## 5. Hub details and location — *Settings → Hub details / Location of this hub*
 
 - **Hub details:** a name, your e-mail address (visible only to the server's
-  administrator), a **country code** and a **place code** (2–3 letters each, e.g.
+  administrator), a **country code** and a **city / region code** (2–3 letters each, e.g.
   `XX` + `YY` — use the ISO code of your country). Only one hub per place: a code always
   names exactly one hub.
 - **Location of this hub:** *take the position from the radio* (follows the radio) or
   *enter manually*. If the radio has no GPS fix and no fixed position, set a fixed position
   under Device settings, or enter it here.
 
-## 6. Register with the server — *Settings → Ura server*
+## 6. Register with the server — *Links & rules → Link settings → Ura server*
 
 1. Enter the server address (`host:8100`) and press **Check server**.
 2. **Compare the fingerprint** with the one on the server's *Register a hub* page. Only if
    they are identical press **Fingerprint matches – trust this server**. (This protects you
    against someone pretending to be the server.)
 3. Press **Send registration request**. The hub now waits for the administrator's approval
-   — the Status page shows *waiting for the administrator's approval*.
+   — the hub shows *waiting for the administrator's approval*.
 
 Once approved, your hub and its nodes appear on the server's map. **No traffic flows yet.**
 
@@ -193,7 +195,7 @@ A packet travels one hop further only if the hub it started at allowed that dist
 first step, ticked that link of its partner), the passing hub offers it, the receiver accepts
 packets from further away, and the passing hub's own chain limit is not exceeded. Packets never return to a hub they already passed.
 
-## MeshCore radio (optional, or instead of Meshtastic) — *MeshCore → Radio & contacts*
+## MeshCore radio (optional, or instead of Meshtastic) — *MeshCore → Radio*
 
 1. Flash the radio with **MeshCore companion firmware, USB variant** (the official web flasher
    flasher.meshcore.co.uk, or the release files on MeshCore's GitHub). Same rule as for Meshtastic:
@@ -215,7 +217,7 @@ other side knows them before they speak. Use the same radio settings as your loc
 that transmits it, and a radio does not receive its own transmission. Messages to the nodes around it
 work (and are confirmed); a private message *to the hub radio itself* shows "failed".
 
-## 9. Check that it works — *Radio → Diagnostics*
+## 9. Check that it works — *Meshtastic → Radio → Diagnostics*
 
 Pick a node — one of yours or one from another country — and send a **private message with
 delivery check**, a **traceroute**, or ask for **telemetry** or **position**. The answer

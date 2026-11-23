@@ -83,7 +83,7 @@ Each hub reports its **local** nodes — heard by its own radio over LoRa within
 age (default 7 days), plus the radio itself — to the server, at least every 10 minutes and
 within a minute of a change. Nodes that came over the bridge are never reported by the hub that
 received them (they belong to the hub that heard them). The server tells each hub which nodes
-belong to its partners, so a hub's Status page can group remote nodes by the hub that heard them.
+belong to its partners, so a hub's Overview pages can group remote nodes by the hub that heard them.
 
 The hub's own location follows its radio's **precise** position (from its settings or a GPS
 fix) — never the privacy-rounded copy the radio broadcasts — or a position entered by hand.

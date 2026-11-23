@@ -1,6 +1,6 @@
 # Running Ura day to day
 
-## The hub's counters (Status page)
+## The hub's counters (Meshtastic → Overview, MeshCore → Overview)
 
 | counter | meaning |
 |---|---|
@@ -36,7 +36,7 @@ older installations: add that line under `RestartSec=` and run `sudo systemctl d
 ## Deleting leaves nothing behind
 
 - **Ending a link:** see below.
-- **Leaving the server** (*Settings → Ura server → Forget*): the server address, its trusted fingerprint,
+- **Leaving the server** (*Links & rules → Link settings → Ura server → Forget*): the server address, its trusted fingerprint,
   the registration, all links, partner keys and the partners' nodes on the radio are deleted — the hub is
   as if it had never used that server.
 - **On the server:** a hub that leaves or is removed is deleted completely (the hub, its links, their
@@ -108,7 +108,7 @@ link starts from the defaults and a new key check (compare the safety code again
 - Status → *Last message from the radio*: a connected radio reports at least every minute. If this
   grows to minutes, the radio has stopped giving the hub its packets although the USB/IP connection
   is still open. The **watchdog** restarts such a radio after 10 minutes of silence (Advanced
-  settings → Radio) and shows a warning on the Status page. If the warning keeps coming back, make
+  settings → Radio) and shows a warning on Meshtastic → Overview. If the warning keeps coming back, make
   sure nothing else is connected to that radio (an app over Wi-Fi or Bluetooth takes the packets
   meant for the hub) and check its power supply.
 

@@ -74,7 +74,7 @@ layout, settings kept). Save the settings first anyway (`meshtastic --export-con
 
 ## Check
 
-In the hub's website, **Radio** shows the firmware version and **Ready for Ura**. The patch
+In the hub's website, **Meshtastic → Radio** shows the firmware version and **Ready for Ura**. The patch
 itself cannot be detected remotely; a quick test: a phone on a radio with *Ignore MQTT* on, near
 the hub, should see remote nodes.
 
