@@ -6,7 +6,8 @@
 
 1. **Does Ura run in a Proxmox container (CT / LXC)?** — **Yes.** Server and hub install and run
    unchanged. A USB radio needs one setting on the Proxmox host (*Device Passthrough* with **GID 20**);
-   with that, the hub recognised, connected and used a MeshCore radio, and real LoRa traffic crossed a
+   with that, the hub recognised, connected and used **both a MeshCore radio (RAK3401) and a Meshtastic
+   radio (Heltec Wireless Tracker) at the same time**, and real LoRa traffic of both networks crossed a
    link between two hubs in containers in two countries.
 2. **Does the installation work as the documents describe it?** — **Almost.** The install scripts and
    the wizard worked first try. A newcomer was stopped once (no `git` on a fresh system) and misled
@@ -23,7 +24,7 @@ where a newcomer would get stuck or be misled was written down. Real names are r
 |---|---|---|---|---|
 | test server | VE 9.0 (site A) | Ubuntu 24.04 standard, unprivileged, nesting on | ura-server | 1 core, 512 MB, 8 GB |
 | test hub A | VE 9.0 (site A) | same | ura-hub, **no radio** | 1 core, 1 GB, 8 GB |
-| test hub B | VE 9.1 (site B) | same | ura-hub, **MeshCore RAK3401** on USB | 1 core, 1 GB, 8 GB |
+| test hub B | VE 9.1 (site B) | same | ura-hub, **MeshCore RAK3401** + **Meshtastic Heltec Wireless Tracker** on USB | 1 core, 1 GB, 8 GB |
 
 All created with the normal *Create CT* defaults and a static address.
 
@@ -67,7 +68,9 @@ hub B with 239 MeshCore nodes and its radio connected.
 | radio unplugged / plugged in (simulated on the host) | ✅ comes back as the same device; the hub reconnects within 20 s |
 | passthrough by the fixed name `/dev/serial/by-id/…`, GID 20 | ✅ the device appears in the CT under that name; after choosing it once on the *Radio* page the hub connects; unplug/replug ✅ | 
 | passthrough with GID 0 (the Proxmox default) | ❌ `[Errno 13] Permission denied` — the hub cannot open the radio |
-| Meshtastic radio on USB in a CT | not tested (no spare radio); same serial code as MeshCore |
+| **Meshtastic** radio (Heltec Wireless Tracker) passed in by by-id name, GID 20, next to the MeshCore radio | ✅ *Meshtastic → Radio* lists both radios by their own names (the MeshCore one cannot be chosen there); *Save* → connected, firmware 2.7.26, **Ready for Ura: yes**, 37 nodes; within 3 s: `radio -> public LongFast nodeinfo from !db58f404: sent to XA-CTA` ([hde-13](screenshots/hde-13-mt-radio-ports.png), [hde-14](screenshots/hde-14-mt-radio-connected.png)) |
+| Meshtastic radio unplugged / plugged in | ✅ connection lost 20:38:05 → reconnected by itself 20:38:29 |
+| two radios on one host | on the host they became `ttyACM0` (RAK) and `ttyACM1` (tracker) — the by-id names kept them apart without any thought |
 
 Proxmox screens: [pve-01 Resources](screenshots/pve-01-ct-resources-passthrough.png),
 [pve-03 Add device](screenshots/pve-03-device-passthrough-dialog.png),
@@ -97,6 +100,9 @@ After switching the passthrough from `ttyACM0` to the by-id name, the hub's *Mes
 | 13 | *Links & rules → Ura server*: "not set up — go to Settings" (the server settings are on this page) | "not set up — enter the server address below" |
 | 14 | "Multi-hop (transit) MT / MC" — abbreviations | "— Meshtastic" / "— MeshCore" |
 | 15 | GID hidden behind *Advanced* in Proxmox → `Permission denied` | explained with a screenshot in the CT section |
+| 16 | *Meshtastic → Radio*: radio type list still said "MeshCore support comes next" | "set up under MeshCore → Radio" |
+| 17 | a radio that does not connect yet (port missing, still starting) left nothing in the log — it looked stuck | each new reason is logged once: `radio …: not connected yet — … (trying again)` |
+| 18 | a browser closing during a page load wrote a full error trace into the log | ignored quietly |
 
 Not changed (worth doing later): when the radio's port path changes, the hub could follow the same
 radio to its new path by itself instead of asking to choose it again.

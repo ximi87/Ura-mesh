@@ -118,7 +118,7 @@ What we tested in a CT:
 | MeshCore radio (RAK3401) on USB: packets heard → sent over the link → received by the other hub | ✅ |
 | radio unplugged and plugged in again | ✅ the hub reconnects by itself within ~20 s |
 | passthrough with GID 0 | ❌ `Permission denied` — use GID 20 |
-| Meshtastic radio on USB in a CT | not tested (same serial code as MeshCore; Meshtastic over Wi-Fi/IP needs no passthrough) |
+| Meshtastic radio (Heltec Wireless Tracker) on USB in the same CT, next to the MeshCore radio | ✅ recognised, connected, traffic over the link, unplug/replug |
 
 If you change the passthrough path later (e.g. from `/dev/ttyACM0` to the by-id name), choose the radio
 again on the hub's *Radio* page — the hub remembers the old path.

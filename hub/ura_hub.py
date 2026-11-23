@@ -697,6 +697,8 @@ class Radio:
                     if not cfg.get().get("channels_saved"):
                         self.save_channels()          # first radio: its channels become the hub's saved copy
                 except Exception as e:
+                    if str(e) != self.error:      # each new reason once: a radio that is still starting is visible in the log
+                        log.warning("radio %s: not connected yet — %s (trying again)", self.conf.get("address"), e)
                     self.error = str(e)
             # Radios without GPS/internet drift or keep an old clock; their "last heard" times and message
             # timestamps then go wrong. Give the radio this computer's clock on connect and every hour.
@@ -3101,6 +3103,11 @@ def status_payload():
 
 
 class Web(http.server.BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass                                  # the browser went away while a page was being sent — nothing to report
     server_version = "ura-hub"
 
     def log_message(self, fmt, *args):

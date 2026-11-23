@@ -165,7 +165,7 @@ Ura.add({
   "r.found_bad": { en: "Not saved — on this port the hub found: {x}. The hub works only with a Meshtastic radio.", sq: "Nuk u ruajt — në këtë portë hub-i gjeti: {x}. Hub-i punon vetëm me radio Meshtastic." },
   "r.not_mt_now": { en: "The device on the saved port is not a Meshtastic radio: {x}", sq: "Pajisja në portën e ruajtur nuk është radio Meshtastic: {x}" },
   "r.detected": { en: "Detected ports", sq: "Portat e gjetura" }, "r.none_detected": { en: "No USB radio found.", sq: "Nuk u gjet asnjë radio USB." },
-  "r.mc_soon": { en: "MeshCore support comes next.", sq: "Mbështetja për MeshCore vjen së shpejti." },
+  "r.mc_soon": { en: "set up under MeshCore → Radio", sq: "konfigurohet te MeshCore → Radio" },
   "r.state": { en: "Radio status", sq: "Gjendja e radios" }, "r.connected": { en: "connected", sq: "e lidhur" },
   "r.not_connected": { en: "not connected", sq: "e palidhur" }, "r.firmware": { en: "Firmware", sq: "Firmware" },
   "r.preset": { en: "LoRa preset", sq: "Preset LoRa" }, "r.region": { en: "Region", sq: "Rajoni" },
