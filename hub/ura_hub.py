@@ -21,9 +21,9 @@ import meshtastic.serial_interface, meshtastic.tcp_interface
 from google.protobuf.json_format import ParseDict
 from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, config_pb2
 
-from meshcrypto import expand_psk, decrypt_packet, new_private, x25519_public, link_keys, safety_code, seal, open_box
+from meshcrypto import expand_psk, decrypt_packet, new_private, x25519_public, link_keys, safety_code, seal, open_box, WrongPipe
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(HERE, "data"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8091"))
@@ -284,16 +284,17 @@ class Identity:
                     cfg.update(lambda d: d["peer_keys"].__setitem__(l["peer"], cur))
                     log.info("pinned end-to-end key of %s", l["peer"])
 
-    def keys_for(self, peer):
+    def keys_for(self, peer, pipe):
+        """The keys of one pipe (mt, mc, ctl) of the link with peer — each pipe has its own."""
         cur, state = self.peer_key(peer)
         if state == "new":
             self.pin_new()
             cur, state = self.peer_key(peer)
         if state != "ok":
             return None, state
-        k = self._keys.get(cur)
+        k = self._keys.get((cur, pipe))
         if k is None:
-            k = self._keys[cur] = link_keys(self.private, self.public, base64.b64decode(cur))
+            k = self._keys[(cur, pipe)] = link_keys(self.private, self.public, base64.b64decode(cur), pipe)
         return k, "ok"
 
     def safety(self, peer):
@@ -2508,7 +2509,7 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
         if not ok:
             counters.peer_add(peer, "blocked_send", why)
             continue
-        keys, state = identity.keys_for(peer)
+        keys, state = identity.keys_for(peer, "mt")
         if keys is None:                               # no end-to-end key (or it changed): never send in clear
             counters.peer_add(peer, "blocked_send", "key_" + state)
             continue
@@ -2523,7 +2524,7 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
             if len(path) == 2 and "*" not in meta.get("allow", []) and peer not in meta.get("allow", []):
                 continue                               # the origin did not allow this destination
         inner = json.dumps({"topic": topic, "data": base64.b64encode(data).decode(), "path": path, **meta}).encode()
-        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+        boxes[peer] = base64.b64encode(seal(keys, inner, "mt")).decode()
         counters.peer_add(peer, "sent" if len(path) == 1 else "transit")
     if own or boxes:
         names = {h["id"]: h.get("code") for h in link.directory}
@@ -2558,14 +2559,17 @@ def receive_box(peer, box):
     if TEST_MODE:
         test_boxes.append((peer, box))
         del test_boxes[:-50]
-    keys, state = identity.keys_for(peer)
+    keys, state = identity.keys_for(peer, "mt")
     if keys is None:
         counters.peer_add(peer, "blocked_recv", "key_" + state)
         return
     try:
-        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
+        inner, nonce = open_box(keys, box, "mt", max_age=adv("replay_window_s"))
         m = json.loads(inner)
         data = base64.b64decode(m["data"])
+    except WrongPipe:
+        counters.peer_add(peer, "blocked_recv", "wrong_pipe")
+        return
     except Exception:
         counters.peer_add(peer, "blocked_recv", "bad_box")
         return
@@ -2747,13 +2751,13 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
         if not ok:
             counters_mc.peer_add(peer, "blocked_send", why)
             continue
-        keys, state = identity.keys_for(peer)
+        keys, state = identity.keys_for(peer, "mc")
         if keys is None:
             counters_mc.peer_add(peer, "blocked_send", "key_" + state)
             continue
         mh = (int(mc_rule(peer, "send").get("reach") or 0) + 1) if own else int(max_hops or 2)   # the ORIGIN decides how far
         inner = json.dumps({"net": "mc", "data": base64.b64encode(raw).decode(), "path": path, "max_hops": mh}).encode()
-        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+        boxes[peer] = base64.b64encode(seal(keys, inner, "mc")).decode()
         counters_mc.peer_add(peer, "sent" if own else "transit")
     names = {h["id"]: h.get("code") for h in link.directory}
     if not own:
@@ -2771,14 +2775,17 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
 def mc_receive_box(peer, box):
     """A MeshCore packet from a linked hub: check the box, the link's receive rule and the airtime limit, then put it
     on air unchanged with this hub's MeshCore radio."""
-    keys, state = identity.keys_for(peer)
+    keys, state = identity.keys_for(peer, "mc")
     if keys is None:
         counters_mc.peer_add(peer, "blocked_recv", "key_" + state)
         return
     try:
-        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
+        inner, nonce = open_box(keys, box, "mc", max_age=adv("replay_window_s"))
         m = json.loads(inner)
         raw = base64.b64decode(m["data"])
+    except WrongPipe:
+        counters_mc.peer_add(peer, "blocked_recv", "wrong_pipe")
+        return
     except Exception:
         counters_mc.peer_add(peer, "blocked_recv", "bad_box")
         return
@@ -2987,11 +2994,11 @@ def send_forget(net, peers=None, origin=None, path=None, why="radio removed"):
     for peer in (peers if peers is not None else active_peers()):
         if peer in path:
             continue
-        keys, state = identity.keys_for(peer)
+        keys, state = identity.keys_for(peer, "ctl")
         if keys is None:
             continue
         inner = json.dumps({"ctl": "forget_net", "net": net, "origin": origin, "path": path, "why": why}).encode()
-        boxes[peer] = base64.b64encode(seal(keys, inner)).decode()
+        boxes[peer] = base64.b64encode(seal(keys, inner, "ctl")).decode()
     if boxes:
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "ctl", "boxes": boxes}), loop)
         log.info("told %s: forget the %s nodes of %s (%s)", ", ".join(hub_code(x) for x in boxes),
@@ -3000,11 +3007,11 @@ def send_forget(net, peers=None, origin=None, path=None, why="radio removed"):
 
 def ctl_receive_box(peer, box):
     """A control message from a linked hub (sealed): currently only "forget the nodes of network X from hub Y"."""
-    keys, state = identity.keys_for(peer)
+    keys, state = identity.keys_for(peer, "ctl")
     if keys is None:
         return
     try:
-        inner, nonce = open_box(keys, box, max_age=adv("replay_window_s"))
+        inner, nonce = open_box(keys, box, "ctl", max_age=adv("replay_window_s"))
         m = json.loads(inner)
     except Exception:
         return

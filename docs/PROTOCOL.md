@@ -21,10 +21,10 @@ server's fingerprint opens the TLS connection and closes it without sending anyt
 ### Session
 
 ```
-hub → {"t":"hello","hub":"h_…","key":"…","version":"0.3.0",
+hub → {"t":"hello","hub":"h_…","key":"…","version":"0.3.1",
        "info":{"rules":{…},"radios":[{"net":"mt","name":"…","hw":"…","firmware":"…","connected":true}],
                "pubkey":"<base64 X25519 public key, 32 bytes>"}}
-srv → {"t":"welcome","hub":"h_…","status":"pending|approved","server_version":"0.3.0",
+srv → {"t":"welcome","hub":"h_…","status":"pending|approved","server_version":"0.3.1",
        "hubs":[<directory>],"links":[<links>]}
    or {"t":"refused","reason":"unknown_hub|removed"}
 ```
@@ -58,17 +58,24 @@ approved, version, rules, radios, pubkey, e2e}`.
 
 ## Sealed box (hub ↔ hub, end-to-end)
 
-Keys per link: `shared = X25519(my_private, peer_public)`;
-`k = HKDF-SHA256(ikm=shared, salt="ura-link-v1", info="ura e2e " ‖ min(pubA,pubB) ‖ max(pubA,pubB), L=64)`;
-`enc = k[0:32]`, `mac = k[32:64]`. Both hubs derive the same keys.
+One link carries separate **pipes**: `mt` (Meshtastic, id 1), `mc` (MeshCore, id 2) and `ctl` (control
+messages between the two hubs, id 3). Each pipe has **its own keys**:
+`shared = X25519(my_private, peer_public)`;
+`k = HKDF-SHA256(ikm=shared, salt="ura-link-v1", info="ura e2e " ‖ pipe ‖ " " ‖ min(pubA,pubB) ‖ max(pubA,pubB), L=64)`
+with `pipe` = `mt`, `mc` or `ctl`; `enc = k[0:32]`, `mac = k[32:64]`. Both hubs derive the same keys.
+The safety code is computed from the two public keys, so it confirms all pipes at once.
 
 ```
-box = 0x01 | time (uint32 big-endian, unix seconds) | nonce (16 random bytes) | ciphertext | tag (16 bytes)
+box = 0x02 | pipe id (1 byte) | time (uint32 big-endian, unix seconds) | nonce (16 random bytes) | ciphertext | tag (16 bytes)
 ciphertext = AES-256-CTR(enc, counter block = nonce, counter = last 4 bytes big-endian, plaintext)
-tag        = HMAC-SHA256(mac, version|time|nonce|ciphertext)[0:16]
+tag        = HMAC-SHA256(mac, version|pipe|time|nonce|ciphertext)[0:16]
 ```
 
-Receivers reject boxes with a wrong tag, a time outside the replay window (default ±600 s) or a
+The receiver opens a box only with the keys of the pipe it arrived on (`net` of the `mesh` message)
+and only if the sealed pipe id is the same: a Meshtastic box can never be opened as MeshCore or as a
+control message, also not if the label outside the box is changed on the way (counted as
+*wrong_pipe*). Boxes of version 1 (one key for everything, before 0.3.1) are refused the same way.
+Receivers also reject boxes with a wrong tag, a time outside the replay window (default ±600 s) or a
 nonce seen before.
 
 **Plaintext** (JSON):

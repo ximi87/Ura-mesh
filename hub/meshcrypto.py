@@ -169,13 +169,21 @@ def hkdf(secret: bytes, info: bytes, length=64, salt=b"ura-link-v1") -> bytes:
     return out[:length]
 
 
-def link_keys(my_private: bytes, my_public: bytes, peer_public: bytes):
-    """Both hubs derive the same 32-byte AES key + 32-byte MAC key for their link."""
+# The pipes inside one link. Each has its own keys and its id is sealed into every box, so a box made for
+# one pipe can never be opened in another (Meshtastic and MeshCore never mix, not even if the label outside
+# the box is changed on the way).
+PIPES = {"mt": 1, "mc": 2, "ctl": 3}
+
+
+def link_keys(my_private: bytes, my_public: bytes, peer_public: bytes, pipe: str):
+    """Both hubs derive the same 32-byte AES key + 32-byte MAC key for one pipe of their link."""
+    if pipe not in PIPES:
+        raise ValueError("unknown pipe")
     shared = x25519(my_private, peer_public)
     if shared == bytes(32):
         raise ValueError("bad peer key")
     a, b = sorted([my_public, peer_public])
-    k = hkdf(shared, b"ura e2e " + a + b)
+    k = hkdf(shared, b"ura e2e " + pipe.encode() + b" " + a + b)
     return k[:32], k[32:]
 
 
@@ -187,26 +195,34 @@ def safety_code(pub_a: bytes, pub_b: bytes) -> str:
     return " ".join(digits[i:i + 5] for i in range(0, 20, 5))
 
 
-def seal(keys, plaintext: bytes) -> bytes:
-    """box = version(1) | time(4) | nonce(16) | ciphertext | mac(16)"""
+class WrongPipe(ValueError):
+    """A sealed box that was made for another pipe of the link (or by an old version without pipes)."""
+
+
+def seal(keys, plaintext: bytes, pipe: str) -> bytes:
+    """box = version 2 (1) | pipe (1) | time (4) | nonce (16) | ciphertext | mac (16); keys = that pipe's keys."""
     enc, mac = keys
-    head = b"\x01" + int(_time.time()).to_bytes(4, "big") + _os.urandom(16)
-    ct = aes_ctr(enc, head[5:21], plaintext)
+    head = b"\x02" + bytes([PIPES[pipe]]) + int(_time.time()).to_bytes(4, "big") + _os.urandom(16)
+    ct = aes_ctr(enc, head[6:22], plaintext)
     tag = _hmac.new(mac, head + ct, hashlib.sha256).digest()[:16]
     return head + ct + tag
 
 
-def open_box(keys, box: bytes, max_age=600):
-    """Returns (plaintext, nonce) or raises ValueError (wrong key, changed, too old)."""
+def open_box(keys, box: bytes, pipe: str, max_age=600):
+    """Returns (plaintext, nonce) or raises ValueError (wrong key, changed, too old) / WrongPipe."""
     enc, mac = keys
-    if len(box) < 37 or box[0] != 1:
+    if len(box) < 38:
         raise ValueError("bad box")
-    head, ct, tag = box[:21], box[21:-16], box[-16:]
+    if box[0] != 2:
+        raise WrongPipe("old box version")
+    if box[1] != PIPES[pipe]:
+        raise WrongPipe("box for another pipe")
+    head, ct, tag = box[:22], box[22:-16], box[-16:]
     if not _hmac.compare_digest(_hmac.new(mac, head + ct, hashlib.sha256).digest()[:16], tag):
         raise ValueError("bad mac")
-    if abs(_time.time() - int.from_bytes(head[1:5], "big")) > max_age:
+    if abs(_time.time() - int.from_bytes(head[2:6], "big")) > max_age:
         raise ValueError("too old")
-    return aes_ctr(enc, head[5:21], ct), head[5:21]
+    return aes_ctr(enc, head[6:22], ct), head[6:22]
 
 
 def _selftest_e2e():
@@ -220,13 +236,26 @@ def _selftest_e2e():
     assert A.hex() == "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
     assert B.hex() == "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
     assert x25519(a, B).hex() == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742" == x25519(b, A).hex()
-    ka, kb = link_keys(a, A, B), link_keys(b, B, A)
+    ka, kb = link_keys(a, A, B, "mt"), link_keys(b, B, A, "mt")
     assert ka == kb and safety_code(A, B) == safety_code(B, A)
-    box = seal(ka, b"hello mesh")
-    assert open_box(kb, box)[0] == b"hello mesh"
+    box = seal(ka, b"hello mesh", "mt")
+    assert open_box(kb, box, "mt")[0] == b"hello mesh"
     bad = bytearray(box); bad[25] ^= 1
     try:
-        open_box(kb, bytes(bad)); raise AssertionError("tamper not detected")
+        open_box(kb, bytes(bad), "mt"); raise AssertionError("tamper not detected")
+    except ValueError:
+        pass
+    # the pipes are separate: other keys, and a box for one pipe is refused by another
+    kc = link_keys(b, B, A, "mc")
+    assert kc != kb and link_keys(b, B, A, "ctl") not in (kb, kc)
+    for wrong in ("mc", "ctl"):
+        try:
+            open_box(kc, box, wrong); raise AssertionError("box opened in the wrong pipe")
+        except WrongPipe:
+            pass
+    relabeled = bytearray(box); relabeled[1] = PIPES["mc"]      # label changed on the way: the MAC no longer fits
+    try:
+        open_box(kc, bytes(relabeled), "mc"); raise AssertionError("relabeled box accepted")
     except ValueError:
         pass
     return True

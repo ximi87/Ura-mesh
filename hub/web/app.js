@@ -128,6 +128,7 @@ Ura.add({
                    sq: "⚠️ {x} ende nuk ka çelës skaj-më-skaj (program më i vjetër). Asgjë nuk i dërgohet derisa të përditësohet." },
   "why.key_missing": { en: "no end-to-end key", sq: "pa çelës skaj-më-skaj" }, "why.key_changed": { en: "key changed", sq: "çelësi ndryshoi" },
   "why.bad_box": { en: "box could not be opened", sq: "kutia nuk u hap" },
+  "why.wrong_pipe": { en: "box made for the other network's pipe (or an old version) — refused", sq: "kuti e bërë për tubin e rrjetit tjetër (ose version i vjetër) — u refuzua" },
   "err.locked": { en: "Too many wrong passwords. Try again in 15 minutes.", sq: "Shumë fjalëkalime të gabuara. Provoni përsëri pas 15 minutash." },
   "l.peer_rules.none": { en: "Not published yet.", sq: "Ende të papublikuara." },
   "l.counts": { en: "Traffic since start", sq: "Trafiku që nga nisja" },

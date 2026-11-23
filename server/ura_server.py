@@ -16,7 +16,7 @@ import socket
 
 from acme import Acme, parse_client_hello, ACME_TLS_ALPN
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 HUB_PORT = int(os.environ.get("URA_PORT", "8100"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8443"))
