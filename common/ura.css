@@ -393,3 +393,7 @@ details.about > summary { cursor: pointer; }
 .netpill.off { opacity: .5; border-style: dashed; }
 .linkrow.srv .lr-nets { display: flex; gap: .35rem; flex-wrap: wrap; }
 .gtable th { text-align: left; }
+
+/* networks a hub has / a link carries */
+.netbox.off { opacity: .65; }
+.bad-text { color: var(--bad, #b42318); }

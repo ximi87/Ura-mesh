@@ -2482,11 +2482,27 @@ def active_peers():
     return [l["peer"] for l in link.links if l["state"] == "active"]
 
 
+# Which networks a hub has = the radios it has set up (also while one is unplugged). The server passes every
+# hub's radios to all hubs; a link carries only the networks BOTH hubs have — a Meshtastic-only hub and a
+# MeshCore-only hub have no pipe in common and cannot link.
+def my_nets():
+    return {x.get("net", "mt") for x in cfg.get().get("radios", [])} & {"mt", "mc"}
+
+
+def peer_nets(peer):
+    h = next((x for x in link.directory if x.get("id") == peer), None)
+    return {r.get("net") for r in ((h or {}).get("radios") or [])} & {"mt", "mc"}
+
+
+def common_nets(peer):
+    return my_nets() & peer_nets(peer)
+
+
 def my_id():
     return cfg.get()["server"]["hub_id"]
 
 
-def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
+def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):   # Meshtastic pipe
     """Radio -> server (path None), or passing on traffic of another hub (transit): apply each link's
     SEND rule. `path` = hubs the packet already went through (origin first); it is sealed inside the box."""
     r = mt_radio()
@@ -2500,6 +2516,8 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):
     boxes = {}
     for peer in active_peers():
         if peer in exclude:
+            continue
+        if "mt" not in common_nets(peer):      # no Meshtastic pipe on this link
             continue
         rule = cfg.rules_for(peer)["send"]
         if not own and not rule.get("transit", True):
@@ -2559,6 +2577,9 @@ def receive_box(peer, box):
     if TEST_MODE:
         test_boxes.append((peer, box))
         del test_boxes[:-50]
+    if "mt" not in common_nets(peer):                  # this link has no Meshtastic pipe (one hub has no Meshtastic)
+        counters.peer_add(peer, "blocked_recv", "no_pipe")
+        return
     keys, state = identity.keys_for(peer, "mt")
     if keys is None:
         counters.peer_add(peer, "blocked_recv", "key_" + state)
@@ -2744,6 +2765,8 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
     for peer in active_peers():
         if peer in exclude:
             continue
+        if "mc" not in common_nets(peer):      # no MeshCore pipe on this link
+            continue
         if not own and not mc_rule(peer, "send").get("transit", True):
             counters_mc.peer_add(peer, "blocked_send", "transit_off")
             continue
@@ -2775,6 +2798,9 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
 def mc_receive_box(peer, box):
     """A MeshCore packet from a linked hub: check the box, the link's receive rule and the airtime limit, then put it
     on air unchanged with this hub's MeshCore radio."""
+    if "mc" not in common_nets(peer):                  # this link has no MeshCore pipe
+        counters_mc.peer_add(peer, "blocked_recv", "no_pipe")
+        return
     keys, state = identity.keys_for(peer, "mc")
     if keys is None:
         counters_mc.peer_add(peer, "blocked_recv", "key_" + state)
@@ -3471,8 +3497,12 @@ class Web(http.server.BaseHTTPRequestHandler):
             msg = {"t": "link_" + kind}
             if kind == "request":
                 msg["to"] = b.get("to")
+                peer = msg["to"]
             else:
                 msg["link"] = int(b.get("link") or 0)
+                peer = next((l["peer"] for l in link.links if l.get("id") == msg["link"]), None)
+            if kind in ("request", "accept") and peer and not common_nets(peer):
+                return self.reply({"error": "no_common_net", "mine": sorted(my_nets()), "theirs": sorted(peer_nets(peer))}, 400)
             if not run_coro(link.send(msg)):
                 return self.reply({"error": "not_connected"}, 400)
             return self.reply({"ok": True})
