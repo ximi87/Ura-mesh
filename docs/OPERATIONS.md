@@ -49,7 +49,7 @@ older installations: add that line under `RestartSec=` and run `sudo systemctl d
 
 ## Factory reset (hub)
 
-*Settings → Factory reset* brings the hub back to the state right after installing. Enter the current hub password, type `RESET`, confirm, and
+*Settings → Factory reset* brings the hub back to the state right after installing. Enter your login password for the hub, type `RESET`, confirm, and
 the page follows the steps until the hub is back in first-start mode:
 
 1. The server is told that the hub leaves: it deletes the hub, its links, statistics and nodes; partners are told

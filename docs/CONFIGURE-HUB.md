@@ -127,9 +127,9 @@ everything.
 - **Change hub password**, *Log out*.
 - **Program** — restart or stop the ura-hub program (not the computer).
 - **Advanced settings** — location following, security and login, map and website.
-- **Factory reset** — enter the **current hub password** and type `RESET` (a wrong password deletes nothing and counts like a wrong login): the server is told the hub leaves (it deletes the hub, its links,
+- **Factory reset** — enter your **login password** for this hub and type `RESET` (a wrong password deletes nothing and counts like a wrong login): the server is told the hub leaves (it deletes the hub, its links,
   statistics and nodes; partners clean up), the partners' nodes are removed from the radio, all hub data
-  is deleted — the old password too —, the program restarts in first-start mode and a **new password** must be chosen. The radio's own settings are not changed.
+  is deleted — the old password too —, the program restarts in first-start mode and a **new login password** must be chosen. The radio's own settings are not changed.
 - **Setup** — the wizard. **Full log** — every log line, with download.
 
 ## What happens when something goes away
