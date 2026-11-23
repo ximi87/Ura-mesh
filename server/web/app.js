@@ -59,8 +59,8 @@ Ura.add({
   "rule.from_beyond": { en: "Accepts packets from hubs further away", sq: "Pranon paketa nga hub-e më larg" },
   "live.on": { en: "Live traffic", sq: "Trafiku drejtpërdrejt" },
   "live.count": { en: "{n} packets since you opened the map", sq: "{n} paketa që kur hapët hartën" },
-  "hubs.codes": { en: "Code = country (ISO code, 2–3 letters) + place (2–3 letters chosen by the operator), written XX-YY. One hub per place, so a code always names exactly one hub. Remote nodes appear in your Meshtastic/MeshCore app like any other node — to message one, open it and choose “Send message”.",
-                  sq: "Kodi = shteti (kodi ISO, 2–3 shkronja) + vendi (2–3 shkronja të zgjedhura nga operatori), shkruar XX-YY. Një hub për vend, ndaj një kod tregon gjithmonë saktësisht një hub. Nyjet në distancë shfaqen në aplikacionin tuaj Meshtastic/MeshCore si çdo nyje tjetër — për t'i shkruar, hapeni dhe zgjidhni “Dërgo mesazh”." },
+  "hubs.codes": { en: "Code = country (2–3 letters) + city / region (2–3 letters chosen by the operator), written XX-YY. A code always names exactly one hub. Networks: which radios a hub has (greyed = not connected) and how many nodes each network has. Remote nodes appear in your Meshtastic/MeshCore app like any other node — to message one, open it and choose “Send message”.",
+                  sq: "Kodi = shteti (2–3 shkronja) + qyteti / rajoni (2–3 shkronja të zgjedhura nga operatori), shkruar XX-YY. Një kod emërton gjithmonë vetëm një hub. Rrjetet: cilat radio ka një hub (gri = e palidhur) dhe sa nyje ka çdo rrjet. Nyjet e largëta shfaqen në aplikacionin tuaj Meshtastic/MeshCore si çdo nyje tjetër — për t'i shkruar, hapeni dhe zgjidhni “Dërgo mesazh”." },
   "hub.transit": { en: "Passes traffic between its linked hubs (multi-hop)", sq: "Kalon trafikun ndërmjet hub-eve të lidhur (shumë-hop)" },
   "hub.transit_to": { en: "offered towards {n} linked hub(s)", sq: "ofruar drejt {n} hub-eve të lidhur" },
   "hub.transit.on": { en: "yes, up to {n} hops", sq: "po, deri në {n} kalime" },
@@ -187,6 +187,14 @@ Ura.add({
   "adv.offline_grey_h": { en: "Map: show nodes of a hub offline for longer than (hours) in grey", sq: "Harta: shfaq gri nyjet e një hub-i offline më shumë se (orë)" },
   "adv.offline_hide_days": { en: "Map: hide nodes of a hub offline for longer than (days)", sq: "Harta: fshih nyjet e një hub-i offline më shumë se (ditë)" },
     "map.nodes_short": { en: "nodes", sq: "nyje" },
+  "hub.radio_none": { en: "not used by this hub", sq: "nuk përdoret nga ky hub" },
+  "hub.radio_on": { en: "connected", sq: "e lidhur" }, "hub.radio_off": { en: "not connected", sq: "e palidhur" },
+  "hub.mt_on": { en: "Meshtastic on this link", sq: "Meshtastic në këtë lidhje" },
+  "hub.mc_rules.none": { en: "This hub has not published MeshCore rules (older version).", sq: "Ky hub nuk ka publikuar rregulla MeshCore (version më i vjetër)." },
+  "hubs.networks": { en: "Networks", sq: "Rrjetet" },
+  "mcr.on": { en: "MeshCore on this link", sq: "MeshCore në këtë lidhje" }, "mcr.adverts": { en: "Adverts", sq: "Reklamat" },
+  "mcr.public": { en: "Public channel", sq: "Kanali Public" }, "mcr.private": { en: "Private messages", sq: "Mesazhe private" },
+  "mcr.other_groups": { en: "Other people's channels", sq: "Kanalet e të tjerëve" },
   "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
 });
 
@@ -203,11 +211,24 @@ function nodeHref(n) { return `#/node/${encodeURIComponent(n.hub)}/${encodeURICo
 function netBadge(net) { return `<span class="badge ${net === "mc" ? "warn" : "info"}">${t("net." + net)}</span>`; }
 
 const ynBadge = v => v ? `<span class="badge ok">${t("rule.on")}</span>` : `<span class="badge bad">${t("rule.off")}</span>`;
+function mcRuleTable(m) {
+  if (!m) return `<p class="muted small">${t("hub.mc_rules.none")}</p>`;
+  const yn = ynBadge, s = m.send || {}, r = m.receive || {}, on = (x, k) => x.on !== false && x[k] !== false;
+  return `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
+      <tr><td>${t("mcr.on")}</td><td>${yn(s.on !== false)}</td><td>${yn(r.on !== false)}</td></tr>
+      <tr><td>${t("mcr.adverts")}</td><td>${yn(on(s, "adverts"))}</td><td>${yn(on(r, "adverts"))}</td></tr>
+      <tr><td>${t("mcr.public")}</td><td>${yn(on(s, "public"))}</td><td>${yn(on(r, "public"))}</td></tr>
+      <tr><td>${t("mcr.private")}</td><td>${yn(on(s, "private"))}</td><td>${yn(on(r, "private"))}</td></tr>
+      <tr><td>${t("rule.groups")}</td><td>${esc((s.groups || []).join(", ") || t("none"))}</td><td>${esc((r.groups || []).join(", ") || t("none"))}</td></tr>
+      <tr><td>${t("mcr.other_groups")}</td><td>${yn(s.on !== false && !!s.other_groups)}</td><td>${yn(r.on !== false && !!r.other_groups)}</td></tr>
+      <tr><td>${t("rule.transit")}</td><td>${yn(s.transit !== false)}</td><td></td></tr>
+      <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(r.from_beyond !== false)}</td></tr></table>`;
+}
 function ruleTable(x) {
   if (!x) return `<p class="muted small">${t("hub.rules.none")}</p>`;
   const yn = ynBadge;
   return `<table class="small"><tr><th></th><th>${t("rule.send")}</th><th>${t("rule.receive")}</th></tr>
-      <tr><td>${t("link")}</td><td>${yn(x.send && x.send.on)}</td><td>${yn(x.receive && x.receive.on)}</td></tr>
+      <tr><td>${t("hub.mt_on")}</td><td>${yn(x.send && x.send.on)}</td><td>${yn(x.receive && x.receive.on)}</td></tr>
       <tr><td>${t("rule.public")}</td><td>${yn(x.send && x.send.public)}</td><td>${yn(x.receive && x.receive.public)}</td></tr>
       <tr><td>${t("rule.groups")}</td><td>${esc(((x.send && x.send.groups) || []).join(", ") || t("none"))}</td><td>${esc(((x.receive && x.receive.groups) || []).join(", ") || t("none"))}</td></tr>
       <tr><td>${t("rule.private")}</td><td>${yn(x.send && x.send.private)}</td><td>${yn(x.receive && x.receive.private)}</td></tr>
@@ -216,12 +237,28 @@ function ruleTable(x) {
       <tr><td>${t("rule.transit")}</td><td>${yn(x.send && x.send.transit !== false)}</td><td></td></tr>
       <tr><td>${t("rule.from_beyond")}</td><td></td><td>${yn(!x.receive || x.receive.from_beyond !== false)}</td></tr></table>`;
 }
+/* A hub's radios: one row per network — name, hardware, firmware, connected or not; "not used" if it has none. */
+function radiosHtml(h) {
+  return ["mt", "mc"].map(net => {
+    const r = (h.radios || []).find(x => x.net === net);
+    const state = !r ? `<span class="muted">${t("hub.radio_none")}</span>`
+      : `${r.connected ? `<span class="badge ok"><span class="dot ok"></span>${t("hub.radio_on")}</span>` : `<span class="badge bad">${t("hub.radio_off")}</span>`}
+         ${r.name ? `<b>${esc(r.name)}</b>` : ""} <span class="muted small">${esc([r.hw, r.firmware].filter(Boolean).join(" · "))}</span>`;
+    return `<div class="radiorow ${net}"><span class="rr-net">${net === "mc" ? "MeshCore" : "Meshtastic"}</span> ${state}</div>`;
+  }).join("");
+}
+function netsCell(h) {
+  return ["mt", "mc"].map(net => { const r = (h.radios || []).find(x => x.net === net), n = (h.nodes_net || {})[net] || 0;
+    return r ? `<span class="netpill ${net} ${r.connected ? "" : "off"}" title="${esc(r.connected ? t("hub.radio_on") : t("hub.radio_off"))}">${net === "mc" ? "MeshCore" : "Meshtastic"} <b>${n}</b></span>` : ""; }).join(" ") || "–";
+}
 function generalRules(r) {
   if (!r) return `<p class="muted">${t("hub.rules.none")}</p>`;
   let s = "";
-  if (r.transit) s += `<p>${t("hub.transit")}: <b>${r.transit.enabled ? t("hub.transit.on", { n: r.transit.max_hops }) : t("rule.off")}</b>${(r.transit_to || []).length ? ` — ${t("hub.transit_to", { n: r.transit_to.length })}` : ""}</p>`;
-  if (r.airtime) s += `<p>${t("rule.airtime")}: <b>${r.airtime.pct_hour}${t("pct_hour")}</b>${r.airtime.pct_day ? `, <b>${r.airtime.pct_day}${t("pct_day")}</b>` : ""}</p>`;
-  return s;
+  const tr = (x, extra) => x ? `<b>${x.enabled ? t("hub.transit.on", { n: x.max_hops }) : t("rule.off")}</b>${extra || ""}` : "–";
+  const air = a => a ? `<b>${a.pct_hour}${t("pct_hour")}</b>${a.pct_day ? `, <b>${a.pct_day}${t("pct_day")}</b>` : ""}` : "–";
+  return `<div class="tablewrap"><table class="small gtable"><tr><th></th><th>Meshtastic</th><th>MeshCore</th></tr>
+    <tr><td>${t("hub.transit")}</td><td>${tr(r.transit, (r.transit_to || []).length ? ` — ${t("hub.transit_to", { n: r.transit_to.length })}` : "")}</td><td>${tr(r.transit_mc)}</td></tr>
+    <tr><td>${t("rule.airtime")}</td><td>${air(r.airtime)}</td><td>${air(r.airtime_mc)}</td></tr></table></div>`;
 }
 const chipsOf = r => !r ? `<span class="muted small">–</span>` : !r.on ? `<span class="badge bad">${t("rule.off")}</span>`
   : [r.public && t("ls.pub"), r.private && t("ls.priv"), r.positions && t("ls.pos"), (r.groups || []).length && t("ls.grp", { n: r.groups.length })]
@@ -376,7 +413,7 @@ async function pageHubs() {
     { key: "code", label: t("code"), render: h => `<a href="#/hub/${encodeURIComponent(h.id)}"><b>${esc(h.code)}</b></a>` },
     { key: "name", label: t("name"), render: h => esc(h.name), sort: h => (h.name || "").toLowerCase() },
     { key: "online", label: t("status"), render: h => onlineBadge(h.online), sort: h => h.online ? 1 : 0 },
-    { key: "nodes", label: `${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span>` },
+    { key: "nodes", label: `${t("hubs.networks")} · ${t("nodes")} <span class="muted small">(${INFO.node_max_age_days} d)</span>`, render: h => netsCell(h), sort: h => h.nodes },
     { key: "nlinks", label: t("hubs.links"), render: h => h.nlinks ? `<b>${h.nlinks}</b> <span class="muted small">${(h.links || []).slice(0, 4).map(l => `<a href="#/hub/${encodeURIComponent(l.peer)}">${esc(l.peer_code)}</a>`).join(", ")}${h.nlinks > 4 ? " …" : ""}</span>` : "–" },
     { key: "last_seen", label: t("hub.last_seen"), render: h => h.online ? t("online") : ago(h.last_seen), sort: h => h.online ? 9e12 : (h.last_seen || 0) }],
     { searchKeys: ["code", "name", "linkcodes"], initialSort: "online", pageSize: 50, empty: t("map.nohubs") });
@@ -394,8 +431,9 @@ async function pageHub(id) {
   let d;
   try { d = await api("GET", "/api/public/hub/" + encodeURIComponent(id)); } catch (e) { app().innerHTML = `<div class="card">${t("notfound")}</div>`; return; }
   const h = d.hub;
-  const tr = {}; d.stats30d.forEach(r => { const peer = r.src === h.id ? r.dst : r.src, k = r.src === h.id ? "sent" : "recv";
-    (tr[peer] = tr[peer] || { sent: 0, recv: 0 })[k] += r.frames; });
+  const tr = {}, trn = {}; d.stats30d.forEach(r => { const peer = r.src === h.id ? r.dst : r.src, k = r.src === h.id ? "sent" : "recv", net = r.net === "mc" ? "mc" : "mt";
+    (tr[peer] = tr[peer] || { sent: 0, recv: 0 })[k] += r.frames;
+    ((trn[peer] = trn[peer] || {})[net] = trn[peer][net] || { sent: 0, recv: 0 })[k] += r.frames; });
   const rulesBy = (h.rules && h.rules.links) || {};
   const links = d.links.slice().sort((x, y) => ((tr[y.peer] || {}).sent || 0) + ((tr[y.peer] || {}).recv || 0) - ((tr[x.peer] || {}).sent || 0) - ((tr[x.peer] || {}).recv || 0));
   if (links.length === 1) openHubLinks.add(h.id + ">" + links[0].peer);
@@ -404,9 +442,10 @@ async function pageHub(id) {
   const linkLine = l => { const x = rulesBy[l.peer_code], c = tr[l.peer] || { sent: 0, recv: 0 };
     return `<div class="linkrow srv">
       <div class="lr-peer"><a href="#/hub/${encodeURIComponent(l.peer)}"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)}</a> ${onlineBadge(l.peer_online)}</div>
-      <div class="lr-dir"><span class="lr-k">${t("rule.send")}</span>${chipsOf(x && x.send)}</div>
-      <div class="lr-dir"><span class="lr-k">${t("rule.receive")}</span>${chipsOf(x && x.receive)}</div>
-      <div class="lr-reach"><span class="lr-k">${t("ls.reach")}</span>${reachLine(x, l.peer_code)}</div>
+      <div class="lr-nets">${["mt", "mc"].map(net => { const on = net === "mt" ? !!(x && ((x.send && x.send.on) || (x.receive && x.receive.on)))
+            : !!(x && x.mc && ((x.mc.send && x.mc.send.on !== false) || (x.mc.receive && x.mc.receive.on !== false)));
+          const cc = (trn[l.peer] || {})[net] || { sent: 0, recv: 0 };
+          return `<span class="netpill ${net} ${on ? "" : "off"}">${net === "mc" ? "MeshCore" : "Meshtastic"} ${on ? "✓" : t("rule.off")} <span class="muted">↑ ${cc.sent} ↓ ${cc.recv}</span></span>`; }).join(" ")}</div>
       <div class="lr-tr"><span class="lr-k">${t("ls.30d")}</span><span title="${esc(t("hub.sent_to", { x: l.peer_code }))}">↑ ${c.sent}</span> <span title="${esc(t("hub.recv_from", { x: l.peer_code }))}">↓ ${c.recv}</span></div></div>`; };
   app().innerHTML = `
     <div class="spread"><h1>${t("hub.title", { code: esc(h.code) })} · ${esc(h.name)}</h1>${onlineBadge(h.online)}</div>
@@ -418,7 +457,7 @@ async function pageHub(id) {
         <dt>${t("hub.last_seen")}</dt><dd>${h.online ? t("online") : ago(h.last_seen)}</dd>
         <dt>${t("hub.version")}</dt><dd>${esc(h.version || "–")}</dd>
         <dt>${t("hub.e2e")}</dt><dd>${h.e2e ? `<span class="badge ok">🔒 ${t("yes")}</span> <span class="muted small">${t("hub.e2e.hint")}</span>` : `<span class="badge warn">${t("no")}</span>`}</dd>
-        <dt>${t("hub.radios")}</dt><dd>${(h.radios || []).map(r => `${netBadge(r.net)} ${esc(r.name || "")} <span class="muted">${esc(r.hw || "")} ${esc(r.firmware || "")}</span>`).join("<br>") || "–"}</dd>
+        <dt>${t("hub.radios")}</dt><dd>${radiosHtml(h)}</dd>
         <dt>${t("links")}</dt><dd>${d.links.length || t("none")}</dd>
       </dl>${h.description ? `<p>${esc(h.description)}</p>` : ""}</div>
       <div class="card"><div id="hubmap" class="minimap"></div></div>
@@ -429,7 +468,9 @@ async function pageHub(id) {
       ${links.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
       ${links.length ? `<p class="muted small">${t("ls.hint_srv")}</p>` + links.map(l => `
         <details class="linkbox" data-k="${esc(h.id + ">" + l.peer)}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openHubLinks.has(h.id + ">" + l.peer) ? "open" : ""}>
-          <summary>${linkLine(l)}</summary><div class="linkbody"><h3>${t("ls.rules_of", { x: esc(h.code), y: esc(l.peer_code) })}</h3>${ruleTable(rulesBy[l.peer_code])}</div></details>`).join("")
+          <summary>${linkLine(l)}</summary><div class="linkbody"><h3>${t("ls.rules_of", { x: esc(h.code), y: esc(l.peer_code) })}</h3>
+            <div class="grid g2"><div class="netbox mt"><div class="nb-head">Meshtastic</div><div class="nb-body">${ruleTable(rulesBy[l.peer_code])}</div></div>
+              <div class="netbox mc"><div class="nb-head">MeshCore</div><div class="nb-body">${mcRuleTable(rulesBy[l.peer_code] && rulesBy[l.peer_code].mc)}</div></div></div></div></details>`).join("")
         : `<p class="muted">${t("none")}</p>`}</div>
     <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2><div id="hubnodes"></div></div>
     <div class="card"><h2>${t("hub.complaints")}</h2>${d.complaints.length ? d.complaints.map(c => `<div>#${c.id} · ${dt(c.created)} · ${cStatus(c.status)}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}
@@ -450,7 +491,8 @@ async function pageHub(id) {
   const b = [];
   if (h.lat != null) { L.circleMarker([h.lat, h.lon], { radius: 11, color: "#0f7b6c", weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindPopup(esc(h.name)).addTo(m); b.push([h.lat, h.lon]); }
   d.nodes.forEach(n => { if (n.lat != null) { L.circleMarker([n.lat, n.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: "#0f7b6c", fillOpacity: .95 }).bindPopup(`<a href="${nodeHref(n)}">${esc(n.name || n.id)}</a>`).addTo(m); b.push([n.lat, n.lon]); } });
-  if (b.length > 1) m.fitBounds(b, { padding: [30, 30], maxZoom: 13 });
+  const near = h.lat != null ? b.filter(x => L.latLng(h.lat, h.lon).distanceTo(x) < 600000) : b;   // far-away nodes don't zoom it out
+  if (near.length > 1) m.fitBounds(near, { padding: [30, 30], maxZoom: 13 });
 }
 
 async function pageNode(hub, net, id) {

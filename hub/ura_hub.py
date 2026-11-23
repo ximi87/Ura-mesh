@@ -2171,7 +2171,8 @@ class Link:
     def public_rules(self):
         c = cfg.get()
         peers = {h["id"]: h.get("code") for h in self.directory}
-        out = {"airtime": c["airtime"], "default": c["defaults"], "links": {}, "transit": c["transit"], "transit_to": [],
+        out = {"airtime": c["airtime"], "airtime_mc": c.get("airtime_mc") or {"pct_hour": 10.0, "pct_day": 0.0},
+               "default": c["defaults"], "links": {}, "transit": c["transit"], "transit_to": [],
                "transit_mc": c.get("transit_mc") or {"enabled": False, "max_hops": 2}}
         for l in self.links:
             if l["state"] == "active":
@@ -2369,6 +2370,7 @@ class Link:
         Never report while the radio is down (an empty list would wipe the hub's nodes from the map)."""
         last, last_sig, checked = 0, None, 0
         mc_last, mc_sig, mc_checked = 0, None, 0
+        radios_sig = None
         while True:
             r = mt_radio()
             if r and r.iface is not None and time.time() - checked >= adv("nodes_check_s"):
@@ -2381,6 +2383,10 @@ class Link:
                 if nodes and (sig != last_sig or time.time() - last >= adv("nodes_report_min") * 60):
                     await self.send({"t": "nodes", "net": "mt", "nodes": nodes})
                     last, last_sig = time.time(), sig
+            rs = json.dumps(self.radio_summary(), sort_keys=True, default=str)
+            if rs != radios_sig:                  # a radio (dis)connected or was renamed: the server's hub page follows
+                radios_sig = rs
+                await self.push_info()
             mr = mc_radio()
             if mr and mr.ser is not None and mr.self_info and time.time() - mc_checked >= adv("nodes_check_s"):
                 mc_checked = time.time()

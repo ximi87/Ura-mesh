@@ -688,8 +688,12 @@ class Web(http.server.BaseHTTPRequestHandler):
             if p == "/api/public/hubs":
                 hubs = directory()
                 counts = {r["hub"]: r["n"] for r in db.q("SELECT hub, COUNT(*) n FROM nodes GROUP BY hub")}
+                by_net = {}
+                for r in db.q("SELECT hub, net, COUNT(*) n FROM nodes GROUP BY hub, net"):
+                    by_net.setdefault(r["hub"], {})[r["net"]] = r["n"]
                 for h in hubs:
                     h["nodes"] = counts.get(h["id"], 0)
+                    h["nodes_net"] = by_net.get(h["id"], {})
                     h["links"] = [l for l in links_for(h["id"]) if l["state"] == "active"]
                 return self.reply(hubs)
             if p == "/api/public/nodes":
