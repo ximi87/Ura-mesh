@@ -82,7 +82,7 @@ Ura.add({
   "l.dir.none": { en: "No other approved hub yet.", sq: "Ende nuk ka hub tjetër të miratuar." },
   "l.ask": { en: "Ask for a link", sq: "Kërko lidhje" }, "l.accept": { en: "Accept", sq: "Prano" },
   "l.remove": { en: "End link", sq: "Mbyll lidhjen" }, "l.decline": { en: "Decline", sq: "Refuzo" },
-  "l.mylinks": { en: "My links", sq: "Lidhjet e mia" }, "l.none": { en: "No links yet.", sq: "Ende nuk ka lidhje." },
+  "l.mylinks": { en: "My tunnels", sq: "Tunelet e mia" }, "l.none": { en: "No links yet.", sq: "Ende nuk ka lidhje." },
   "l.state.active": { en: "active", sq: "aktive" }, "l.state.pending": { en: "waiting", sq: "në pritje" },
   "l.wait_peer": { en: "waiting for {x} to accept", sq: "në pritje që {x} të pranojë" },
   "l.wait_me": { en: "{x} asks to link with you", sq: "{x} kërkon të lidhet me ju" },
@@ -128,11 +128,22 @@ Ura.add({
                    sq: "⚠️ {x} ende nuk ka çelës skaj-më-skaj (program më i vjetër). Asgjë nuk i dërgohet derisa të përditësohet." },
   "why.key_missing": { en: "no end-to-end key", sq: "pa çelës skaj-më-skaj" }, "why.key_changed": { en: "key changed", sq: "çelësi ndryshoi" },
   "why.bad_box": { en: "box could not be opened", sq: "kutia nuk u hap" },
+  "nl.my_rules": { en: "{n} tunnel — my rules", sq: "Tuneli {n} — rregullat e mia" },
+  "nl.end": { en: "End this {n} tunnel", sq: "Mbyll këtë tunel {n}" },
+  "nl.end_q": { en: "End the {n} tunnel with {x}? Only {n} stops — the other tunnel with {x} (if there is one) stays. Both hubs forget each other's {n} nodes.", sq: "Të mbyllet tuneli {n} me {x}? Ndalon vetëm {n} — tuneli tjetër me {x} (nëse ka) mbetet. Të dy hub-et harrojnë nyjet {n} të njëri-tjetrit." },
+  "nl.wait_peer": { en: "{n} tunnel: waiting for {x} to accept", sq: "Tuneli {n}: në pritje që {x} të pranojë" },
+  "nl.wait_me": { en: "{x} asks for a {n} tunnel", sq: "{x} kërkon një tunel {n}" },
+  "nl.links_of": { en: "{n} tunnels", sq: "Tunelet {n}" },
+  "nl.none": { en: "No {n} tunnel yet — ask a hub below that also has {n}.", sq: "Ende pa tunel {n} — kërkoni një hub më poshtë që ka edhe {n}." },
+  "nl.hint": { en: "This hub is connected to the server; each network is its own tunnel to another hub — Meshtastic only with Meshtastic, MeshCore only with MeshCore, each with its own keys. Each tunnel is requested, accepted and ended on its own, also with the same hub. Which tunnels this hub offers follows from its radios.", sq: "Ky hub është i lidhur me serverin; çdo rrjet është tuneli i vet drejt një hub-i tjetër — Meshtastic vetëm me Meshtastic, MeshCore vetëm me MeshCore, secili me çelësat e vet. Çdo tunel kërkohet, pranohet dhe mbyllet më vete, edhe me të njëjtin hub. Cilat tunele ofron ky hub varet nga radiot e tij." },
+  "nl.ask": { en: "Ask: {n} tunnel", sq: "Kërko: tunel {n}" },
+  "err.net_not_both": { en: "That network is not on both hubs — a tunnel for it is not possible (Meshtastic only with Meshtastic, MeshCore only with MeshCore).", sq: "Ky rrjet nuk është në të dy hub-et — tuneli për të nuk është i mundur (Meshtastic vetëm me Meshtastic, MeshCore vetëm me MeshCore)." },
+  "err.bad_net": { en: "Choose Meshtastic or MeshCore for the link.", sq: "Zgjidhni Meshtastic ose MeshCore për lidhjen." },
   "why.no_pipe": { en: "this network is not on both hubs — refused", sq: "ky rrjet nuk është në të dy hub-et — u refuzua" },
   "pipe.col": { en: "Networks", sq: "Rrjetet" },
   "pipe.no_radio": { en: "no radio yet", sq: "ende pa radio" },
-  "pipe.carries": { en: "a link carries: {x}", sq: "lidhja mbart: {x}" },
-  "pipe.none": { en: "no network in common — no link possible", sq: "asnjë rrjet i përbashkët — lidhja nuk është e mundur" },
+  "pipe.carries": { en: "possible tunnels: {x}", sq: "tunele të mundshme: {x}" },
+  "pipe.none": { en: "no network in common — no tunnel possible", sq: "asnjë rrjet i përbashkët — asnjë tunel i mundur" },
   "pipe.no_mine": { en: "this hub has no {n} radio", sq: "ky hub nuk ka radio {n}" },
   "pipe.no_peer": { en: "{x} has no {n}", sq: "{x} nuk ka {n}" },
   "pipe.not_both": { en: "not on both", sq: "jo në të dy" },
@@ -685,7 +696,7 @@ async function pageStatus() {
   const remote = nodes.filter(n => n.remote);
   secs("status", [!r || !r.connected || !r.ready ? "radio" : null, s.link_state !== "connected" ? "server" : null, "local"]);
   const lim = (used, win, l) => `<b>${pct(used, win)}</b> <span class="muted small">${l ? "/ " + l + " %" : ""}</span>`;
-  const active = s.links.filter(l => l.state === "active");
+  const active = s.links.filter(l => l.state === "active" && (l.net || "mt") === "mt");
   const radioBody = r ? `<dl class="kv">
         <dt>${t("status")}</dt><dd>${r.connected ? B("ok", t("r.connected")) : `${B("bad", r.error === "port not present" ? t("r.unplugged") : t("r.not_connected"))} <span class="muted small">${radioErr(r)}</span>`}</dd>
         <dt>${t("name")}</dt><dd>${esc(r.name || "–")} <span class="muted">${esc(r.short || "")}</span></dd>
@@ -863,7 +874,7 @@ async function pageLinks() {
   const active = s.links.filter(l => l.state === "active");
   const incoming = s.links.filter(l => l.state !== "active" && !l.i_accepted);
   const outgoing = s.links.filter(l => l.state !== "active" && l.i_accepted);
-  if (active.length === 1 && !openLinks.size) openLinks.add(active[0].peer);
+  if (active.length === 1 && !openLinks.size) openLinks.add(active[0].id);
   const chips = r => !r.on ? `<span class="badge bad">${t("rule.off")}</span>`
     : [r.public && t("ls.pub"), r.private && t("ls.priv"), r.positions && t("ls.pos"), (r.groups || []).length && t("ls.grp", { n: r.groups.length })]
         .filter(Boolean).map(x => `<span class="chip">${x}</span>`).join("") || `<span class="muted small">${t("ls.nothing")}</span>`;
@@ -875,9 +886,7 @@ async function pageLinks() {
       <span class="muted">↑ ${p.sent || 0} ↓ ${p.received || 0}</span>${nb ? ` <span class="badge warn" title="${esc(t("l.blocked"))}">${nb}</span>` : ""}</span>`; };
   const linkLine = l => `<div class="linkrow lrow2">
       <div class="lr-peer"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${lock(l)}</div>
-      <div class="lr-trf">${["mt", "mc"].map(net => commonNets(c, dirOf(l.peer)).includes(net)
-          ? trf(net === "mt" ? peerCounts[l.peer] : mcCounts[l.peer], net, netOn(c, l.peer, net))
-          : `<span class="trf ${net} off" title="${esc(pipeWhy(c, dirOf(l.peer), net))}"><b>${NETNAME[net]}</b> <span class="muted">${t("pipe.not_both")}</span></span>`).join(" ")}</div></div>`;
+      <div class="lr-trf">${trf((l.net || "mt") === "mc" ? mcCounts[l.peer] : peerCounts[l.peer], l.net || "mt", true)}</div></div>`;
   const e2eBox = l => `<div class="msg ${l.e2e.state === "ok" ? "ok" : "bad"} small"><b>${t("e2e.title")}</b><br>
           ${l.e2e.state === "ok" ? t("e2e.ok") : l.e2e.state === "changed" ? t("e2e.changed", { x: esc(l.peer_code) }) : t("e2e.missing", { x: esc(l.peer_code) })}
           ${l.e2e.code ? `<div style="margin-top:.4rem">${t("e2e.code")}: <b class="mono">${esc(l.e2e.code)}</b></div><div class="small">${t("e2e.code.hint", { x: esc(l.peer_code) })}</div>` : ""}
@@ -893,43 +902,42 @@ async function pageLinks() {
     const bl = o => Object.entries(o).map(([k, v]) => `${esc(k)}: ${v}`).join(", ");
     return `<p class="small">${p.transit ? `${t("st.transit")}: <b>${p.transit}</b><br>` : ""}${t("rule.send")}: <b>${p.sent}</b>${Object.keys(p.blocked_send).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_send)}` : ""}<br>
       ${t("rule.receive")}: <b>${p.received}</b>${Object.keys(p.blocked_recv).length ? ` · ${t("l.blocked")}: ${bl(p.blocked_recv)}` : ""}</p>`; };
-  const linkBody = l => `
-        ${l.e2e.state !== "ok" ? e2eBox(l) : ""}
-        ${commonNets(c, dirOf(l.peer)).includes("mt") ? `<div class="netbox mt"><div class="nb-head">Meshtastic — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
+  const linkBody = l => { const net = l.net || "mt", rr = c.rules[l.peer] || c.defaults;
+    const mine = net === "mt"
+      ? `<div class="netbox mt"><div class="nb-head">${t("nl.my_rules", { n: "Meshtastic" })}</div><div class="nb-body"><p class="muted small">${t("l.rules.hint", { x: esc(l.peer_code) })}</p>
           ${mtTable(l.peer, rulesOf(l.peer).send, rulesOf(l.peer).receive)}</div></div>`
-          : `<div class="netbox mt off"><div class="nb-head">Meshtastic</div><div class="nb-body muted small">${t("pipe.no_pipe_here", { n: "Meshtastic" })} — ${pipeWhy(c, dirOf(l.peer), "mt")}</div></div>`}
-        ${commonNets(c, dirOf(l.peer)).includes("mc") ? `<div class="netbox mc"><div class="nb-head">MeshCore — ${t("l.rules")}</div><div class="nb-body"><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
-          <div data-mcbox>${mcTable(esc(l.peer_code), mcRuleOf(c.rules[l.peer] || c.defaults, "send"), mcRuleOf(c.rules[l.peer] || c.defaults, "receive"), mcGroups)}</div></div></div>`
-          : `<div class="netbox mc off"><div class="nb-head">MeshCore</div><div class="nb-body muted small">${t("pipe.no_pipe_here", { n: "MeshCore" })} — ${pipeWhy(c, dirOf(l.peer), "mc")}</div></div>`}
-        <div class="row"><button class="primary" data-save="${l.peer}">${t("save")}</button><span class="muted" data-saved="${l.peer}"></span>
-          <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${t("l.remove")}</button></div>
+      : `<div class="netbox mc"><div class="nb-head">${t("nl.my_rules", { n: "MeshCore" })}</div><div class="nb-body"><p class="muted small">${t("mcr.hint", { x: esc(l.peer_code) })}</p>
+          <div data-mcbox>${mcTable(esc(l.peer_code), mcRuleOf(rr, "send"), mcRuleOf(rr, "receive"), mcGroups)}</div></div></div>`;
+    return `${l.e2e.state !== "ok" ? e2eBox(l) : ""}${mine}
+        <div class="row"><button class="primary" data-save="${l.peer}" data-net="${net}">${t("save")}</button><span class="muted" data-saved="${l.id}"></span>
+          <span style="flex:1"></span><button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}" data-net="${net}">${t("nl.end", { n: NETNAME[net] })}</button></div>
         <details class="about"><summary><b>${t("ab.title", { x: esc(l.peer_code) })}</b> <span class="muted small">${t("ab.sub")}</span></summary>
-          <div class="grid g3 about-grid">
-            <div class="netbox mt"><div class="nb-head">${t("ab.partner_rules", { x: esc(l.peer_code) })} — Meshtastic</div><div class="nb-body">${prHtml(peerRules(l), esc(l.peer_code))}</div></div>
-            <div class="netbox mc"><div class="nb-head">${t("ab.partner_rules", { x: esc(l.peer_code) })} — MeshCore</div><div class="nb-body">${mcPartner(l)}</div></div>
-            <div><div class="netbox mt"><div class="nb-head">${t("l.counts")} — Meshtastic</div><div class="nb-body">${countsHtml(l.peer)}</div></div>
-              <div class="netbox mc"><div class="nb-head">${t("l.counts")} — MeshCore</div><div class="nb-body">${mcCountsHtml(l.peer)}</div></div>
+          <div class="grid g2 about-grid">
+            <div class="netbox ${net}"><div class="nb-head">${t("ab.partner_rules", { x: esc(l.peer_code) })} — ${NETNAME[net]}</div><div class="nb-body">${net === "mt" ? prHtml(peerRules(l), esc(l.peer_code)) : mcPartner(l)}</div></div>
+            <div><div class="netbox ${net}"><div class="nb-head">${t("l.counts")} — ${NETNAME[net]}</div><div class="nb-body">${net === "mt" ? countsHtml(l.peer) : mcCountsHtml(l.peer)}</div></div>
               ${l.e2e.state === "ok" ? e2eBox(l) : ""}</div>
-          </div></details>`;
-  const reqRow = (l, mine) => `<div class="spread reqrow"><div><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)} ${netPills(dirOf(l.peer))}
-      <div class="muted small">${mine ? t("l.wait_peer", { x: esc(l.peer_code) }) : t("l.wait_me", { x: esc(l.peer_code) })} · ${linkOffer(c, dirOf(l.peer))}</div></div>
-      <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}" ${commonNets(c, dirOf(l.peer)).length ? "" : `disabled title="${esc(t("pipe.none"))}"`}>${t("l.accept")}</button>`}
-      <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`;
+          </div></details>`; };
+  const reqRow = (l, mine) => { const net = l.net || "mt";
+    return `<div class="spread reqrow"><div><span class="netpill ${net}">${NETNAME[net]}</span> <b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}
+      <div class="muted small">${t(mine ? "nl.wait_peer" : "nl.wait_me", { x: esc(l.peer_code), n: NETNAME[net] })}</div></div>
+      <div class="row">${mine ? "" : `<button class="primary small" data-acc="${l.id}" ${commonNets(c, dirOf(l.peer)).includes(net) ? "" : `disabled title="${esc(pipeWhy(c, dirOf(l.peer), net))}"`}>${t("l.accept")}</button>`}
+      <button class="danger small" data-rm="${l.id}" data-code="${esc(l.peer_code)}" data-net="${net}">${mine ? t("ls.cancel") : t("l.decline")}</button></div></div>`; };
+  // every link carries ONE network: the Meshtastic links and the MeshCore links are listed apart
+  const netSection = net => { const ls = active.filter(l => (l.net || "mt") === net);
+    return `<div class="netsec ${net}"><h3><span class="netpill ${net}">${NETNAME[net]}</span> ${t("nl.links_of", { n: NETNAME[net] })} (${ls.length})</h3>
+      ${!myNets(c).has(net) ? `<p class="muted small">${t("pipe.no_mine", { n: NETNAME[net] })}</p>`
+        : ls.length ? ls.map(l => `
+      <div class="linkwrap">
+      <details class="linkbox" data-link="${l.id}" data-peer="${l.peer}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openLinks.has(l.id) ? "open" : ""}>
+        <summary>${linkLine(l)}</summary><div class="linkbody">${linkBody(l)}</div></details></div>`).join("")
+        : `<p class="muted small">${t("nl.none", { n: NETNAME[net] })}</p>`}</div>`; };
   app().innerHTML = `${ok ? "" : `<div class="msg warn">${why}</div>`}
-    ${active.length ? `<div class="card"><h2>${t("ns.title")}</h2><p class="muted small">${t("ns.hint")}</p>
-      <div class="tablewrap"><table class="nstable"><tr><th>${t("links")}</th><th>Meshtastic</th><th>MeshCore</th></tr>
-      ${active.map(l => { const h = dirOf(l.peer), cm = commonNets(c, h);
-        const cell = net => cm.includes(net) ? netSwitch(c, l.peer, net) : `<span class="muted small">— ${pipeWhy(c, h, net)}</span>`;
-        return `<tr><td><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)} ${onlineBadge(l.peer_online)}</td><td>${cell("mt")}</td><td>${cell("mc")}</td></tr>`; }).join("")}
-      </table></div></div>` : ""}
     ${incoming.length ? `<div class="card attention"><h2>${t("ls.incoming")} (${incoming.length})</h2>${incoming.map(l => reqRow(l, false)).join("")}</div>` : ""}
     <div class="card"><div class="spread"><h2>${t("l.mylinks")} (${active.length})</h2>
       ${active.length > 1 ? `<div class="row"><button class="small" data-lall="1">${t("adv.open_all")}</button><button class="small" data-lall="0">${t("adv.close_all")}</button></div>` : ""}</div>
       ${active.length > 5 ? `<input type="text" id="lfilter" placeholder="${t("dt.search")}" style="max-width:280px;margin-bottom:.5rem">` : ""}
-      ${active.length ? `<p class="muted small">${t("ls.hint2")}</p>` + active.map(l => `
-      <div class="linkwrap">
-      <details class="linkbox" data-link="${l.id}" data-peer="${l.peer}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openLinks.has(l.peer) ? "open" : ""}>
-        <summary>${linkLine(l)}</summary><div class="linkbody">${linkBody(l)}</div></details></div>`).join("") : `<p class="muted">${t("l.none")}</p>`}
+      <p class="muted small">${t("nl.hint")}</p>
+      ${netSection("mt")}${netSection("mc")}
       ${outgoing.length ? `<h3>${t("ls.outgoing")} (${outgoing.length})</h3>${outgoing.map(l => reqRow(l, true)).join("")}` : ""}</div>
     <div class="card"><h2>${t("l.dir")} (${others.length})</h2><div id="hubdir"></div></div>`;
   dataTable($("#hubdir"), others, [
@@ -938,30 +946,37 @@ async function pageLinks() {
     { key: "online", label: t("status"), render: h => onlineBadge(h.online), sort: h => h.online ? 1 : 0 },
     { key: "radios", label: t("pipe.col"), render: h => netPills(h), sort: h => hubNets(h).size },
     { key: "lat", label: t("position"), render: h => fmtPos(h.lat, h.lon), sort: h => h.lat },
-    { key: "id", label: "", render: h => linked.has(h.id) ? `<span class="muted small">${t(s.links.find(l => l.peer === h.id).state === "active" ? "ls.linked" : "l.state.pending")}</span>`
-        : commonNets(c, h).length ? `<button class="small" data-ask="${h.id}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("l.ask")}</button> ${linkOffer(c, h)}`
-        : linkOffer(c, h), sort: h => linked.has(h.id) ? 1 : 0 }],
+    { key: "id", label: "", render: h => { const cm = commonNets(c, h);
+        if (!cm.length) return linkOffer(c, h);
+        return cm.map(net => { const l = s.links.find(x => x.peer === h.id && (x.net || "mt") === net);
+          return l ? `<span class="netpill ${net}">${NETNAME[net]} · ${t(l.state === "active" ? "ls.linked" : "l.state.pending")}</span>`
+            : `<button class="small" data-ask="${h.id}" data-net="${net}" ${ok ? "" : `disabled title="${esc(why)}"`}>${t("nl.ask", { n: NETNAME[net] })}</button>`; }).join(" "); },
+      sort: h => s.links.filter(l => l.peer === h.id).length }],
     { searchKeys: ["code", "name"], initialSort: "online", pageSize: 25, empty: t("l.dir.none") });
-  $$("details.linkbox").forEach(d => d.addEventListener("toggle", () => { if (d.open) openLinks.add(d.dataset.peer); else openLinks.delete(d.dataset.peer); }));
+  $$("details.linkbox").forEach(d => d.addEventListener("toggle", () => { if (d.open) openLinks.add(+d.dataset.link); else openLinks.delete(+d.dataset.link); }));
   $$("button[data-lall]").forEach(b => b.onclick = () => $$("details.linkbox").forEach(d => d.open = b.dataset.lall === "1"));
   if ($("#lfilter")) $("#lfilter").oninput = e => { const q = e.target.value.toLowerCase(); $$("details.linkbox").forEach(d => d.style.display = d.dataset.q.includes(q) ? "" : "none"); };
   const act = async (path, body, btn) => { btn.disabled = true; btn.textContent = "…"; try { await api("POST", path, body); } catch (e) { const k = "err." + e.message; alert(t(k) !== k ? t(k) : e.message); } setTimeout(pageLinks, 800); };
-  $("#hubdir").addEventListener("click", e => { const b = e.target.closest("button[data-ask]"); if (b) act("/api/links/request", { to: b.dataset.ask }, b); });
+  $("#hubdir").addEventListener("click", e => { const b = e.target.closest("button[data-ask]"); if (b) act("/api/links/request", { to: b.dataset.ask, net: b.dataset.net }, b); });
   $$("button[data-acc]").forEach(b => b.onclick = () => act("/api/links/accept", { link: +b.dataset.acc }, b));
-  bindNetSwitches(c, () => setTimeout(route, 300));
-  $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("l.remove_q", { x: b.dataset.code }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
+  $$("button[data-rm]").forEach(b => b.onclick = () => { if (confirm(t("nl.end_q", { x: b.dataset.code, n: NETNAME[b.dataset.net || "mt"] }))) act("/api/links/remove", { link: +b.dataset.rm }, b); });
   $$("button[data-trust]").forEach(b => b.onclick = () => act("/api/links/trust_key", { peer: b.dataset.trust }, b));
   $$("[data-reachbox]").forEach(box => { syncReach(box); box.addEventListener("change", () => syncReach(box)); });
-  $$("button[data-save]").forEach(b => b.onclick = async () => {
-    const peer = b.dataset.save, box = b.closest("[data-peer]"), rules = { send: { groups: [] }, receive: { groups: [] } };
-    $$("input[data-k]", box).forEach(i => rules[i.dataset.dir][i.dataset.k] = i.checked);
-    $$("input[data-g]", box).forEach(i => { if (i.checked) rules[i.dataset.dir].groups.push(i.dataset.g); });
-    rules.send.onward_to = $$("input[data-onward]", box).filter(i => i.checked).map(i => i.dataset.onward);
-    rules.send.reach = +$("[data-reach]", box).value;
-    rules.mc = mcRead(box);
+  $$("button[data-save]").forEach(b => b.onclick = async () => {      // saves only this link's network; the other stays as it is
+    const peer = b.dataset.save, net = b.dataset.net, box = b.closest("details.linkbox"), lid = box.dataset.link;
+    const rules = JSON.parse(JSON.stringify(c.rules[peer] || c.defaults));
+    if (net === "mc") rules.mc = mcRead(box);
+    else {
+      const n = { send: { groups: [] }, receive: { groups: [] } };
+      $$("input[data-k]", box).forEach(i => n[i.dataset.dir][i.dataset.k] = i.checked);
+      $$("input[data-g]", box).forEach(i => { if (i.checked) n[i.dataset.dir].groups.push(i.dataset.g); });
+      n.send.onward_to = $$("input[data-onward]", box).filter(i => i.checked).map(i => i.dataset.onward);
+      n.send.reach = +$("[data-reach]", box).value;
+      rules.send = Object.assign({}, rules.send, n.send); rules.receive = Object.assign({}, rules.receive, n.receive);
+    }
     b.disabled = true;
-    try { await api("POST", "/api/rules", { peer, rules }); $(`[data-saved="${peer}"]`).textContent = "✓ " + t("saved"); }
-    catch (e) { $(`[data-saved="${peer}"]`).textContent = errText(e); }
+    try { await api("POST", "/api/rules", { peer, rules }); c.rules[peer] = rules; $(`[data-saved="${lid}"]`).textContent = "✓ " + t("saved"); }
+    catch (e) { $(`[data-saved="${lid}"]`).textContent = errText(e); }
     b.disabled = false;
   });
 }
@@ -1547,18 +1562,19 @@ async function pageSetup() {
 function wzLinks(el, s, hint, c) {      // every other hub: ask for a link / waiting / accept / linked
   const others = (s.directory || []).filter(h => h.id !== s.server.hub_id);
   const lk = id => (s.links || []).find(l => l.peer === id);
-  const row = h => { const l = lk(h.id), can = c ? commonNets(c, h).length > 0 : true;
-    const act = !l ? (can ? `<button class="primary small" data-wzask="${h.id}">${t("l.ask")}</button>` : "")
-      : l.state === "active" ? B("ok", t("ls.linked"))
-      : l.i_accepted ? `<span class="small">${wzSpin(t("l.wait_peer", { x: esc(h.code) }))}</span>`
-      : can ? `<button class="primary small" data-wzacc="${l.id}">${t("l.accept")}</button> <span class="small">${t("l.wait_me", { x: esc(h.code) })}</span>` : "";
+  const row = h => { const cm = c ? commonNets(c, h) : ["mt"];
+    const one = net => { const l = (s.links || []).find(x => x.peer === h.id && (x.net || "mt") === net), nm = NETNAME[net];
+      return !l ? `<button class="primary small" data-wzask="${h.id}" data-net="${net}">${t("nl.ask", { n: nm })}</button>`
+        : l.state === "active" ? B("ok", `${nm} · ${t("ls.linked")}`)
+        : l.i_accepted ? `<span class="small">${wzSpin(t("nl.wait_peer", { x: esc(h.code), n: nm }))}</span>`
+        : `<button class="primary small" data-wzacc="${l.id}">${t("l.accept")} · ${nm}</button>`; };
     return `<div class="spread reqrow"><div><b>${esc(h.code)}</b> · ${esc(h.name)} ${onlineBadge(h.online)} ${netPills(h)}
-      ${c ? `<div>${linkOffer(c, h)}</div>` : ""}</div><div class="row">${act}</div></div>`; };
+      ${cm.length ? "" : `<div>${linkOffer(c, h)}</div>`}</div><div class="row">${cm.map(one).join(" ")}</div></div>`; };
   el.innerHTML = `<p class="small">${hint}</p>
     ${others.length ? others.map(row).join("") : `<div class="msg info">${wzSpin(t("wz.link.none"))}</div>`}<div class="wzlmsg"></div>`;
   const go = async (path, body, b) => { b.disabled = true; b.innerHTML = wzSpin(t("wz.sending"));
     try { await api("POST", path, body); } catch (e) { wzMsg($(".wzlmsg", el), "bad", errText(e)); } setTimeout(() => wz.tick(true), 800); };
-  $$("button[data-wzask]", el).forEach(b => b.onclick = () => go("/api/links/request", { to: b.dataset.wzask }, b));
+  $$("button[data-wzask]", el).forEach(b => b.onclick = () => go("/api/links/request", { to: b.dataset.wzask, net: b.dataset.net }, b));
   $$("button[data-wzacc]", el).forEach(b => b.onclick = () => go("/api/links/accept", { link: +b.dataset.wzacc }, b));
 }
 function wzMsg(el, kind, html) { el.innerHTML = html ? `<div class="msg ${kind}">${html}</div>` : ""; }
@@ -1737,7 +1753,7 @@ async function wzBody(k, el, s, c) {
   const act = (s.links || []).filter(l => l.state === "active");
   const pend = s.server.status === "pending" ? `<div class="msg info">${wzSpin(t("wz.srv.pending_link"))}</div>`
     : !act.length ? `<div class="msg info">${t("wz.done.nolink")}</div>` : "";
-  el.innerHTML = `${act.length && s.server.status === "approved" ? `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || (s.mc_radio || {}).name || ""), n: r.nodes ?? (s.mc_radio || {}).contacts ?? "?", l: act.map(l => esc(l.peer_code)).join(", ") })}</div>`
+  el.innerHTML = `${act.length && s.server.status === "approved" ? `<div class="msg ok">${t("wz.done.ok", { r: esc(r.name || (s.mc_radio || {}).name || ""), n: r.nodes ?? (s.mc_radio || {}).contacts ?? "?", l: act.map(l => `${esc(l.peer_code)} (${NETNAME[l.net || "mt"]})`).join(", ") })}</div>`
       : `<div class="msg ok">${t("wz.done.setup", { r: esc(r.name || (s.mc_radio || {}).name || ""), n: r.nodes ?? (s.mc_radio || {}).contacts ?? "?" })}</div>`}${pend}
     <p class="small">${t("wz.done.hint")}</p>
     <div class="row"><button class="primary" id="wzask">${t("wz.done.ask")}</button><a class="btn" href="#/">${t("wz.done.status")}</a></div><div id="wzdmsg">${wz.doneMsg || ""}</div>
@@ -1985,7 +2001,7 @@ Ura.add({
   "ls.hint2": { en: "One line per link: which networks go over it (✓ / off — switched in the table above) and the packets sent ↑ / received ↓ per network. Click the line for what exactly passes (the rules).",
                 sq: "Një rresht për çdo lidhje: cilat rrjete kalojnë (✓ / fikur — ndërrohen te tabela më lart) dhe paketat e dërguara ↑ / marra ↓ për rrjet. Klikoni rreshtin për çfarë saktësisht kalon (rregullat)." },
   "ab.mt_on": { en: "Meshtastic on this link", sq: "Meshtastic në këtë lidhje" },
-  "ab.title": { en: "About this link: the rules of {x}, traffic, encryption", sq: "Rreth kësaj lidhjeje: rregullat e {x}, trafiku, enkriptimi" },
+  "ab.title": { en: "About this tunnel: the rules of {x}, traffic, encryption", sq: "Rreth këtij tuneli: rregullat e {x}, trafiku, enkriptimi" },
   "ab.sub": { en: "(click to show)", sq: "(klikoni për ta shfaqur)" },
   "ab.partner_rules": { en: "Rules of {x}", sq: "Rregullat e {x}" },
   "ab.mc_none": { en: "{x} has not published MeshCore rules (older version or no MeshCore radio).", sq: "{x} nuk ka publikuar rregulla MeshCore (version më i vjetër ose pa radio MeshCore)." },
@@ -2089,7 +2105,7 @@ async function airtimeCard(net) {
 /* ───────── MeshCore overview ───────── */
 async function pageMcOverview() {
   const [st, s, contacts, cfgS] = await Promise.all([api("GET", "/api/mc/status"), api("GET", "/api/status"), api("GET", "/api/mc/contacts").catch(() => []), api("GET", "/api/config")]);
-  const r = st.radio, pc = (s.mc_counters || {}).peers || {}, act = (s.links || []).filter(l => l.state === "active");
+  const r = st.radio, pc = (s.mc_counters || {}).peers || {}, act = (s.links || []).filter(l => l.state === "active" && l.net === "mc");
   const mcOn = l => { const rr = (s.rules || {})[l.peer]; return true; };
   secs("mcov", ["radio", "links"]);
   const lines = [

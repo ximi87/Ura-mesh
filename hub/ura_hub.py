@@ -23,7 +23,7 @@ from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, config_pb2
 
 from meshcrypto import expand_psk, decrypt_packet, new_private, x25519_public, link_keys, safety_code, seal, open_box, WrongPipe
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(HERE, "data"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8091"))
@@ -1999,7 +1999,7 @@ class McRadio:
             return
         self.sync_last = time.time()
         online = {h["id"] for h in link.directory if h.get("online")}
-        partners = {p for p in active_peers() if p in online and mc_rule(p, "send").get("on", True) and mc_rule(p, "send").get("adverts", True)}
+        partners = {p for p in active_peers("mc") if p in online and mc_rule(p, "send").get("on", True) and mc_rule(p, "send").get("adverts", True)}
         if partners - self.sync_partners:
             self.sync_sent.clear()
         self.sync_partners = partners
@@ -2277,13 +2277,24 @@ class Link:
         rules in step with it: a new link gets its OWN copy of the defaults (changing the defaults later must
         not change existing links); rules of a link that ended — or of an old registration — are forgotten,
         so a new link with that hub starts from the defaults."""
+        before = {(l["peer"], l.get("net", "mt")) for l in (self.links or [])}
         self.links = links
+        now_keys = {(l["peer"], l.get("net", "mt")) for l in links}
         now_peers = {l["peer"] for l in links}
         c = cfg.get()
-        # direct partners whose link is gone (a hub further away, known only as a node's origin, is not one)
+        # direct partners with no link left at all (a hub further away, known only as a node's origin, is not one)
         ended = (set(c["rules"]) | set(c["peer_keys"])) - now_peers - {c["server"]["hub_id"]}
         for peer in ended:
             forget_peer(peer, everything=not now_peers)
+        # a link of ONE network ended while the other network's link with that hub stays: forget only that network
+        net_ended = [(p, n) for p, n in before - now_keys if p in now_peers]
+        for peer, net in net_ended:
+            name = "MeshCore" if net == "mc" else "Meshtastic"
+            forget_nodes_from(peer, net, f"the {name} link ended")
+            with (counters_mc if net == "mc" else counters).lock:
+                (counters_mc if net == "mc" else counters).peer.pop(peer, None)
+            log.info("%s link with %s ended — its %s nodes forgotten, the other network's link stays", name, hub_code(peer), name)
+        active = {(l["peer"], l.get("net", "mt")) for l in links if l["state"] == "active"}
         def upd(d):
             for peer in now_peers:
                 if peer not in d["rules"]:
@@ -2291,6 +2302,27 @@ class Link:
             for peer in list(d["rules"]):
                 if peer not in now_peers:
                     d["rules"].pop(peer, None)
+            for peer, net in net_ended:               # a new link of that network later starts from the defaults
+                r = d["rules"].get(peer)
+                if r is None:
+                    continue
+                if net == "mc":
+                    r.pop("mc", None)
+                else:
+                    keep = r.get("mc"); d["rules"][peer] = copy.deepcopy(d["defaults"])
+                    if keep is not None:
+                        d["rules"][peer]["mc"] = keep
+            for peer, net in active:                   # the link itself is the switch: an active link is on both ways
+                r = d["rules"].get(peer)
+                if r is None:
+                    continue
+                if net == "mc":
+                    r.setdefault("mc", copy.deepcopy(d["defaults"].get("mc") or {"send": {}, "receive": {}}))
+                    for k in ("send", "receive"):
+                        r["mc"].setdefault(k, {})["on"] = True
+                else:
+                    for k in ("send", "receive"):
+                        r.setdefault(k, {})["on"] = True
         cfg.update(upd)
 
     def kick(self):
@@ -2411,7 +2443,7 @@ class Link:
             await asyncio.sleep(max(2, adv("node_sync_gap_s")))
             r = mt_radio()
             online = {h["id"] for h in self.directory if h.get("online")}
-            now_partners = set(active_peers()) & online
+            now_partners = set(active_peers("mt")) & online
             if now_partners - partners:
                 sent.clear()                  # a partner came (back): it gets every node
             partners = now_partners
@@ -2478,8 +2510,18 @@ def fp_of(der):
 link: Link = None
 
 
-def active_peers():
-    return [l["peer"] for l in link.links if l["state"] == "active"]
+def active_peers(net=None):
+    """Partners with an active link — of network `net` ("mt" Meshtastic, "mc" MeshCore), or of any network (None).
+    Every link carries exactly one network; two hubs can have one link per network, each on its own."""
+    return list(dict.fromkeys(l["peer"] for l in link.links
+                              if l["state"] == "active" and (net is None or l.get("net", "mt") == net)))
+
+
+def end_net_links(net, why):
+    """This hub no longer has that network (its radio was removed): end every link of that network."""
+    for l in [l for l in link.links if l.get("net", "mt") == net]:
+        run_coro(link.send({"t": "link_remove", "link": l["id"]}))
+        log.info("%s link with %s ended (%s)", "MeshCore" if net == "mc" else "Meshtastic", hub_code(l["peer"]), why)
 
 
 # Which networks a hub has = the radios it has set up (also while one is unplugged). The server passes every
@@ -2514,10 +2556,8 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):   # Me
         path = [my_id()]
         seen_cache.seen(b"p" + hashlib.sha256(data).digest())   # a copy coming back round a loop is dropped
     boxes = {}
-    for peer in active_peers():
+    for peer in active_peers("mt"):
         if peer in exclude:
-            continue
-        if "mt" not in common_nets(peer):      # no Meshtastic pipe on this link
             continue
         rule = cfg.rules_for(peer)["send"]
         if not own and not rule.get("transit", True):
@@ -2548,7 +2588,7 @@ def send_to_peers(topic, data, path=None, exclude=(), origin_rules=None):   # Me
         names = {h["id"]: h.get("code") for h in link.directory}
         log.info("%s %s: sent to %s%s", "radio ->" if own else "passing on", pkt_desc(c),
                  ", ".join(names.get(x, x) for x in boxes) or "nobody",
-                 "".join(f"; not to {names.get(x, x)} ({counters.last_block.get(x, '?')})" for x in active_peers() if x not in boxes and x not in exclude))
+                 "".join(f"; not to {names.get(x, x)} ({counters.last_block.get(x, '?')})" for x in active_peers("mt") if x not in boxes and x not in exclude))
     if boxes:
         counters.add("sent" if len(path) == 1 else "transit")
         asyncio.run_coroutine_threadsafe(link.send({"t": "mesh", "net": "mt", "boxes": boxes}), loop)
@@ -2577,7 +2617,7 @@ def receive_box(peer, box):
     if TEST_MODE:
         test_boxes.append((peer, box))
         del test_boxes[:-50]
-    if "mt" not in common_nets(peer):                  # this link has no Meshtastic pipe (one hub has no Meshtastic)
+    if peer not in active_peers("mt"):                 # no Meshtastic link with this hub
         counters.peer_add(peer, "blocked_recv", "no_pipe")
         return
     keys, state = identity.keys_for(peer, "mt")
@@ -2762,10 +2802,8 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
     if own:
         path = [my_id()]
     boxes = {}
-    for peer in active_peers():
+    for peer in active_peers("mc"):
         if peer in exclude:
-            continue
-        if "mc" not in common_nets(peer):      # no MeshCore pipe on this link
             continue
         if not own and not mc_rule(peer, "send").get("transit", True):
             counters_mc.peer_add(peer, "blocked_send", "transit_off")
@@ -2798,7 +2836,7 @@ def mc_send_to_peers(raw, announce=None, path=None, exclude=(), max_hops=None):
 def mc_receive_box(peer, box):
     """A MeshCore packet from a linked hub: check the box, the link's receive rule and the airtime limit, then put it
     on air unchanged with this hub's MeshCore radio."""
-    if "mc" not in common_nets(peer):                  # this link has no MeshCore pipe
+    if peer not in active_peers("mc"):                 # no MeshCore link with this hub
         counters_mc.peer_add(peer, "blocked_recv", "no_pipe")
         return
     keys, state = identity.keys_for(peer, "mc")
@@ -3017,7 +3055,7 @@ def send_forget(net, peers=None, origin=None, path=None, why="radio removed"):
     origin = origin or my_id()
     path = path or [my_id()]
     boxes = {}
-    for peer in (peers if peers is not None else active_peers()):
+    for peer in (peers if peers is not None else active_peers(net)):
         if peer in path:
             continue
         keys, state = identity.keys_for(peer, "ctl")
@@ -3051,7 +3089,7 @@ def ctl_receive_box(peer, box):
     # pass it on to hubs further away that may have the same nodes (multi-hop)
     tr = cfg.get().get("transit_mc" if m["net"] == "mc" else "transit") or {}
     if tr.get("enabled"):
-        send_forget(m["net"], peers=[p_ for p_ in active_peers() if p_ != peer], origin=origin, path=path + [my_id()],
+        send_forget(m["net"], peers=[p_ for p_ in active_peers(m["net"]) if p_ != peer], origin=origin, path=path + [my_id()],
                     why=str(m.get("why") or "")[:60])
 
 
@@ -3497,12 +3535,16 @@ class Web(http.server.BaseHTTPRequestHandler):
             msg = {"t": "link_" + kind}
             if kind == "request":
                 msg["to"] = b.get("to")
-                peer = msg["to"]
+                peer, net = msg["to"], b.get("net")
+                if net not in ("mt", "mc"):
+                    return self.reply({"error": "bad_net"}, 400)
+                msg["net"] = net
             else:
                 msg["link"] = int(b.get("link") or 0)
-                peer = next((l["peer"] for l in link.links if l.get("id") == msg["link"]), None)
-            if kind in ("request", "accept") and peer and not common_nets(peer):
-                return self.reply({"error": "no_common_net", "mine": sorted(my_nets()), "theirs": sorted(peer_nets(peer))}, 400)
+                l_ = next((l for l in link.links if l.get("id") == msg["link"]), None)
+                peer, net = (l_["peer"], l_.get("net", "mt")) if l_ else (None, None)
+            if kind in ("request", "accept") and peer and net not in common_nets(peer):
+                return self.reply({"error": "net_not_both", "net": net, "mine": sorted(my_nets()), "theirs": sorted(peer_nets(peer))}, 400)
             if not run_coro(link.send(msg)):
                 return self.reply({"error": "not_connected"}, 400)
             return self.reply({"ok": True})
@@ -3625,6 +3667,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             if link.writer is not None:
                 run_coro(link.send({"t": "nodes", "net": "mc", "nodes": []}))
             send_forget("mc", why="MeshCore radio removed")
+            end_net_links("mc", "MeshCore radio removed")
             log.info("MeshCore radio removed from the hub by the operator (its nodes on the server deleted too)")
             return self.reply({"ok": True})
         if p == "/api/radio/remove":                 # forget the radio completely; it can be connected again as new
@@ -3640,6 +3683,7 @@ class Web(http.server.BaseHTTPRequestHandler):
             if link.writer is not None:            # its nodes leave the server map too (an empty report deletes them)
                 run_coro(link.send({"t": "nodes", "net": "mt", "nodes": []}))
             send_forget("mt", why="Meshtastic radio removed")
+            end_net_links("mt", "Meshtastic radio removed")
             log.info("radio removed from the hub by the operator (settings, saved channels, node origins and its nodes on the server forgotten)")
             return self.reply({"ok": True})
         if p in ("/api/radio/section", "/api/radio/owner", "/api/radio/channel", "/api/radio/fixed"):

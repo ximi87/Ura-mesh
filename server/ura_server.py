@@ -16,7 +16,7 @@ import socket
 
 from acme import Acme, parse_client_hello, ACME_TLS_ALPN
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 DATA_DIR = os.environ.get("URA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 HUB_PORT = int(os.environ.get("URA_PORT", "8100"))
 WEB_PORT = int(os.environ.get("URA_WEB_PORT", "8443"))
@@ -150,6 +150,21 @@ class DB:
         cols = [r[1] for r in self.c.execute("PRAGMA table_info(hubs)")]
         if "pubkey" not in cols:
             self.c.execute("ALTER TABLE hubs ADD COLUMN pubkey TEXT")
+        # Each link carries ONE network (Meshtastic "mt" or MeshCore "mc"); two hubs can have one link per network,
+        # each requested, accepted and ended on its own. Older databases had one link for both: it becomes the
+        # Meshtastic link, plus a MeshCore link in the same state where both hubs have a MeshCore radio.
+        lcols = [r[1] for r in self.c.execute("PRAGMA table_info(links)")]
+        if "net" not in lcols:
+            self.c.execute("ALTER TABLE links ADD COLUMN net TEXT DEFAULT 'mt'")
+            nets = {}
+            for r in self.c.execute("SELECT id, radios FROM hubs").fetchall():
+                try:
+                    nets[r[0]] = {x.get("net") for x in json.loads(r[1] or "[]")}
+                except Exception:
+                    nets[r[0]] = set()
+            for r in self.c.execute("SELECT a,b,requested_by,a_ok,b_ok,state,created,activated FROM links WHERE state!='removed'").fetchall():
+                if "mc" in nets.get(r[0], set()) and "mc" in nets.get(r[1], set()):
+                    self.c.execute("INSERT INTO links(a,b,requested_by,a_ok,b_ok,state,created,activated,net) VALUES(?,?,?,?,?,?,?,?,'mc')", tuple(r))
         for r in self.c.execute("SELECT id, key FROM hubs WHERE key NOT LIKE 'sha256:%'").fetchall():
             self.c.execute("UPDATE hubs SET key=? WHERE id=?", (key_hash(r[1]), r[0]))   # never keep hub keys in clear
         self.c.commit()
@@ -269,9 +284,35 @@ def link_peer(link, hub):
     return link["b"] if link["a"] == hub else link["a"]
 
 
-def active_peers(hub):
+NETS = ("mt", "mc")
+
+
+def active_peers(hub, net=None):
+    """Hubs with an active link to `hub` — of network `net` (mt / mc), or of any network (net None)."""
     rows = db.q("SELECT * FROM links WHERE state='active' AND (a=? OR b=?)", (hub, hub))
-    return {link_peer(r, hub) for r in rows}
+    return {link_peer(r, hub) for r in rows if net is None or (r.get("net") or "mt") == net}
+
+
+def hub_nets(hub):
+    """The networks a hub has declared (its radios)."""
+    h = db.one("SELECT radios FROM hubs WHERE id=?", (hub,))
+    try:
+        return {x.get("net") for x in json.loads((h or {}).get("radios") or "[]")} & set(NETS)
+    except Exception:
+        return set()
+
+
+def pair_links(hub):
+    """For the public pages: one entry per linked hub, with the networks it is linked on."""
+    out = {}
+    for l in links_for(hub):
+        if l["state"] != "active":
+            continue
+        e = out.setdefault(l["peer"], {k: l[k] for k in ("peer", "peer_name", "peer_code", "peer_online", "state")} | {"nets": []})
+        e["nets"].append(l["net"])
+    for e in out.values():
+        e["nets"] = sorted(e["nets"], key=lambda n: NETS.index(n) if n in NETS else 9)
+    return list(out.values())
 
 
 def hub_public(h):
@@ -288,7 +329,7 @@ def links_for(hub):
         peer = db.one("SELECT id,name,code FROM hubs WHERE id=?", (link_peer(r, hub),)) or {}
         mine_ok = r["a_ok"] if r["a"] == hub else r["b_ok"]
         peer_ok = r["b_ok"] if r["a"] == hub else r["a_ok"]
-        out.append({"id": r["id"], "peer": peer.get("id"), "peer_name": peer.get("name"),
+        out.append({"id": r["id"], "net": r.get("net") or "mt", "peer": peer.get("id"), "peer_name": peer.get("name"),
                     "peer_code": peer.get("code"), "peer_online": peer.get("id") in online,
                     "state": r["state"], "requested_by": r["requested_by"],
                     "i_accepted": bool(mine_ok), "peer_accepted": bool(peer_ok),
@@ -478,7 +519,7 @@ async def handle(reader, writer):
                 await send(writer, {"t": "map", "hubs": hubs, "nodes": nodes,
                                     "offline_grey_h": adv("offline_grey_h"), "offline_hide_days": adv("offline_hide_days")})
             elif t == "link_request":
-                await link_request(hub_id, clean(msg.get("to"), 20))
+                await link_request(hub_id, clean(msg.get("to"), 20), msg.get("net") if msg.get("net") in NETS else "mt")
             elif t == "link_accept":
                 await link_accept(hub_id, int(msg.get("link") or 0))
             elif t == "link_remove":
@@ -495,7 +536,10 @@ async def handle(reader, writer):
                     continue
                 bucket[1] -= 1
                 # only end-to-end sealed boxes are relayed; the server cannot open them
-                allowed = active_peers(hub_id)
+                net = msg.get("net") or "mt"
+                if net not in NETS + ("ctl",):
+                    continue
+                allowed = active_peers(hub_id, None if net == "ctl" else net)
                 for dst, box in (msg.get("boxes") or {}).items():
                     if dst in allowed and dst in online and isinstance(box, str) and len(box) * 3 // 4 <= adv("max_box_bytes"):
                         await push(dst, {"t": "mesh", "net": msg.get("net"), "from": hub_id, "box": box})
@@ -561,17 +605,20 @@ async def hub_leave(hub):
     await push_directory()
 
 
-async def link_request(src, dst):
+async def link_request(src, dst, net="mt"):
     if dst == src or not db.one("SELECT id FROM hubs WHERE id=? AND status='approved'", (dst,)):
         return
-    existing = db.one("SELECT * FROM links WHERE state!='removed' AND ((a=? AND b=?) OR (a=? AND b=?))",
-                      (src, dst, dst, src))
+    if net not in hub_nets(src) or net not in hub_nets(dst):
+        log.info("link request %s -> %s for %s refused: not both hubs have that network", src, dst, net)
+        return
+    existing = db.one("SELECT * FROM links WHERE state!='removed' AND net=? AND ((a=? AND b=?) OR (a=? AND b=?))",
+                      (net, src, dst, dst, src))
     if existing:
         await link_accept(src, existing["id"])
         return
-    db.x("INSERT INTO links(a,b,requested_by,a_ok,b_ok,state,created) VALUES(?,?,?,1,0,'pending',?)",
-         (src, dst, src, now()))
-    log.info("link requested %s -> %s", src, dst)
+    db.x("INSERT INTO links(a,b,requested_by,a_ok,b_ok,state,created,net) VALUES(?,?,?,1,0,'pending',?,?)",
+         (src, dst, src, now(), net))
+    log.info("%s link requested %s -> %s", net, src, dst)
     await push_links(src, dst)
 
 
@@ -591,9 +638,10 @@ async def link_remove(hub, link_id):
     r = db.one("SELECT * FROM links WHERE id=?", (link_id,))
     if not r or (hub is not None and hub not in (r["a"], r["b"])):
         return
+    net = r.get("net") or "mt"
     db.x("DELETE FROM links WHERE id=?", (link_id,))   # as if it never existed: the link and its statistics
-    db.x("DELETE FROM stats WHERE (src=? AND dst=?) OR (src=? AND dst=?)", (r["a"], r["b"], r["b"], r["a"]))
-    log.info("link %d removed by %s (link and its statistics deleted)", link_id, hub or "admin")
+    db.x("DELETE FROM stats WHERE net=? AND ((src=? AND dst=?) OR (src=? AND dst=?))", (net, r["a"], r["b"], r["b"], r["a"]))
+    log.info("%s link %d removed by %s (link and its statistics deleted)", net, link_id, hub or "admin")
     await push_links(r["a"], r["b"])
 
 
@@ -694,7 +742,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 for h in hubs:
                     h["nodes"] = counts.get(h["id"], 0)
                     h["nodes_net"] = by_net.get(h["id"], {})
-                    h["links"] = [l for l in links_for(h["id"]) if l["state"] == "active"]
+                    h["links"] = pair_links(h["id"])
                 return self.reply(hubs)
             if p == "/api/public/nodes":
                 return self.reply(db.q("SELECT n.* FROM nodes n JOIN hubs h ON h.id=n.hub WHERE h.status='approved'"))
@@ -705,8 +753,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 h = db.one("SELECT * FROM hubs WHERE id=? AND status='approved'", (hub,))
                 if not n or not h:
                     return self.reply({"error": "not_found"}, 404)
-                links = [l for l in links_for(hub) if l["state"] == "active"]
-                return self.reply({"node": n, "hub": hub_public(h), "links": links})
+                return self.reply({"node": n, "hub": hub_public(h), "links": pair_links(hub)})
             m = re.match(r"^/api/public/hub/([^/]+)$", p)
             if m:
                 h = db.one("SELECT * FROM hubs WHERE id=? AND status='approved'", (m.group(1),))
@@ -716,7 +763,7 @@ class Web(http.server.BaseHTTPRequestHandler):
                 st = db.q("""SELECT src,dst,net,SUM(frames) frames,SUM(bytes) bytes FROM stats
                              WHERE (src=? OR dst=?) AND hour>=? GROUP BY src,dst,net""", (h["id"], h["id"], since))
                 return self.reply({"hub": hub_public(h), "nodes": db.q("SELECT * FROM nodes WHERE hub=?", (h["id"],)),
-                                   "links": [l for l in links_for(h["id"]) if l["state"] == "active"], "stats30d": st,
+                                   "links": pair_links(h["id"]), "stats30d": st,
                                    "complaints": db.q("""SELECT id,created,status,subject_type,subject_id FROM complaints
                                                          WHERE subject_id=? OR subject_id LIKE ? ORDER BY id DESC""",
                                                       (h["id"], h["id"] + "/%"))})

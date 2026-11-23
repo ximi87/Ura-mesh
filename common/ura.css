@@ -397,3 +397,7 @@ details.about > summary { cursor: pointer; }
 /* networks a hub has / a link carries */
 .netbox.off { opacity: .65; }
 .bad-text { color: var(--bad, #b42318); }
+
+/* Links page: one section per network */
+.netsec { margin: .6rem 0 1rem; }
+.netsec > h3 { display: flex; align-items: center; gap: .5rem; margin: .4rem 0 .5rem; }

@@ -187,6 +187,8 @@ Ura.add({
   "adv.offline_grey_h": { en: "Map: show nodes of a hub offline for longer than (hours) in grey", sq: "Harta: shfaq gri nyjet e një hub-i offline më shumë se (orë)" },
   "adv.offline_hide_days": { en: "Map: hide nodes of a hub offline for longer than (days)", sq: "Harta: fshih nyjet e një hub-i offline më shumë se (ditë)" },
     "map.nodes_short": { en: "nodes", sq: "nyje" },
+  "hub.no_link_net": { en: "no tunnel", sq: "pa tunel" },
+  "hub.mt_link": { en: "Meshtastic tunnel", sq: "Tuneli Meshtastic" }, "hub.mc_link": { en: "MeshCore tunnel", sq: "Tuneli MeshCore" },
   "hub.radio_none": { en: "not used by this hub", sq: "nuk përdoret nga ky hub" },
   "hub.radio_on": { en: "connected", sq: "e lidhur" }, "hub.radio_off": { en: "not connected", sq: "e palidhur" },
   "hub.mt_on": { en: "Meshtastic on this link", sq: "Meshtastic në këtë lidhje" },
@@ -442,10 +444,9 @@ async function pageHub(id) {
   const linkLine = l => { const x = rulesBy[l.peer_code], c = tr[l.peer] || { sent: 0, recv: 0 };
     return `<div class="linkrow srv">
       <div class="lr-peer"><a href="#/hub/${encodeURIComponent(l.peer)}"><b>${esc(l.peer_code)}</b> · ${esc(l.peer_name)}</a> ${onlineBadge(l.peer_online)}</div>
-      <div class="lr-nets">${["mt", "mc"].map(net => { const on = net === "mt" ? !!(x && ((x.send && x.send.on) || (x.receive && x.receive.on)))
-            : !!(x && x.mc && ((x.mc.send && x.mc.send.on !== false) || (x.mc.receive && x.mc.receive.on !== false)));
+      <div class="lr-nets">${["mt", "mc"].map(net => { const on = (l.nets || []).includes(net);
           const cc = (trn[l.peer] || {})[net] || { sent: 0, recv: 0 };
-          return `<span class="netpill ${net} ${on ? "" : "off"}">${net === "mc" ? "MeshCore" : "Meshtastic"} ${on ? "✓" : t("rule.off")} <span class="muted">↑ ${cc.sent} ↓ ${cc.recv}</span></span>`; }).join(" ")}</div>
+          return `<span class="netpill ${net} ${on ? "" : "off"}">${net === "mc" ? "MeshCore" : "Meshtastic"} ${on ? `✓ <span class="muted">↑ ${cc.sent} ↓ ${cc.recv}</span>` : `<span class="muted">${t("hub.no_link_net")}</span>`}</span>`; }).join(" ")}</div>
       <div class="lr-tr"><span class="lr-k">${t("ls.30d")}</span><span title="${esc(t("hub.sent_to", { x: l.peer_code }))}">↑ ${c.sent}</span> <span title="${esc(t("hub.recv_from", { x: l.peer_code }))}">↓ ${c.recv}</span></div></div>`; };
   app().innerHTML = `
     <div class="spread"><h1>${t("hub.title", { code: esc(h.code) })} · ${esc(h.name)}</h1>${onlineBadge(h.online)}</div>
@@ -469,8 +470,8 @@ async function pageHub(id) {
       ${links.length ? `<p class="muted small">${t("ls.hint_srv")}</p>` + links.map(l => `
         <details class="linkbox" data-k="${esc(h.id + ">" + l.peer)}" data-q="${esc((l.peer_code + " " + l.peer_name).toLowerCase())}" ${openHubLinks.has(h.id + ">" + l.peer) ? "open" : ""}>
           <summary>${linkLine(l)}</summary><div class="linkbody"><h3>${t("ls.rules_of", { x: esc(h.code), y: esc(l.peer_code) })}</h3>
-            <div class="grid g2"><div class="netbox mt"><div class="nb-head">Meshtastic</div><div class="nb-body">${ruleTable(rulesBy[l.peer_code])}</div></div>
-              <div class="netbox mc"><div class="nb-head">MeshCore</div><div class="nb-body">${mcRuleTable(rulesBy[l.peer_code] && rulesBy[l.peer_code].mc)}</div></div></div></div></details>`).join("")
+            <div class="grid g2">${(l.nets || []).includes("mt") ? `<div class="netbox mt"><div class="nb-head">${t("hub.mt_link")}</div><div class="nb-body">${ruleTable(rulesBy[l.peer_code])}</div></div>` : ""}
+              ${(l.nets || []).includes("mc") ? `<div class="netbox mc"><div class="nb-head">${t("hub.mc_link")}</div><div class="nb-body">${mcRuleTable(rulesBy[l.peer_code] && rulesBy[l.peer_code].mc)}</div></div>` : ""}</div></div></details>`).join("")
         : `<p class="muted">${t("none")}</p>`}</div>
     <div class="card"><h2>${t("nodes")} (${d.nodes.length})</h2><div id="hubnodes"></div></div>
     <div class="card"><h2>${t("hub.complaints")}</h2>${d.complaints.length ? d.complaints.map(c => `<div>#${c.id} · ${dt(c.created)} · ${cStatus(c.status)}</div>`).join("") : `<p class="muted">${t("c.none")}</p>`}
