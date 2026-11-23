@@ -82,6 +82,13 @@ hubs, grouped by hub). Whether the network goes over a link is decided on *Links
 - **MeshCore** — *Prepare for Ura* (name, approximate location shared in adverts), contacts,
   packets heard per type, messages the radio itself received from its own mesh.
 
+> **Companion, not repeater.** The MeshCore radio on a hub must run **companion** firmware (USB).
+> Repeater and room-server firmware do not work with Ura: over USB they only offer a settings console,
+> so the hub could neither see the packets nor put any on air. You do not need a repeater there — **the
+> hub itself is the repeater over the internet**: what its radio hears goes to the linked hubs, and what
+> they send is put on air here. A companion radio does not repeat packets by radio locally; for better
+> local coverage, add separate repeater devices — they work together with the hub.
+
 ### Device settings
 - **Meshtastic** — the radio's own settings, section by section (name, position, channels — including
   *Add channels from a Meshtastic link* —, LoRa, Bluetooth, modules …). Changes are written to the radio.

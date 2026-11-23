@@ -197,14 +197,21 @@ packets from further away, and the passing hub's own chain limit is not exceeded
 
 ## MeshCore radio (optional, or instead of Meshtastic) — *MeshCore → Radio*
 
+> **Companion, not repeater.** The MeshCore radio on a hub must run **companion** firmware (USB).
+> Repeater and room-server firmware do not work with Ura: over USB they only offer a settings console,
+> so the hub could neither see the packets nor put any on air. You do not need a repeater there — **the
+> hub itself is the repeater over the internet**: what its radio hears goes to the linked hubs, and what
+> they send is put on air here. A companion radio does not repeat packets by radio locally; for better
+> local coverage, add separate repeater devices — they work together with the hub.
+
 1. Flash the radio with **MeshCore companion firmware, USB variant** (the official web flasher
    flasher.meshcore.co.uk, or the release files on MeshCore's GitHub). Same rule as for Meshtastic:
    nothing else may be connected to it while the hub runs.
-2. Plug it in, open *MeshCore → Radio & contacts*: the port list names the device ("MeshCore radio “…”");
+2. Plug it in, open *MeshCore → Radio*: the port list names the device ("MeshCore radio “…”");
    choose it, **Connect**. The page shows its name, firmware, radio settings, channels and contacts.
 3. **Prepare for Ura**: give it a name, press *Prepare and announce* — it gets the hub's approximate
-   location (≈ 1 km) shared in its adverts, and announces itself once. The radio must not repeat
-   packets itself (companion default).
+   location (≈ 1 km) shared in its adverts, and announces itself once. The radio does not repeat
+   packets itself by radio (companion default) — the hub does the repeating over the internet.
 4. On the link (*Links & rules*), the **MeshCore** tick box (send / receive) is on by default.
 
 What crosses: every MeshCore packet the hub radio hears — adverts, Public, channels, private messages
