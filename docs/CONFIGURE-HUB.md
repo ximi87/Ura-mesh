@@ -10,7 +10,7 @@ behind Ura, see [the complete guide](GUIDE.md).
  Ura (logo)      Meshtastic ▾          MeshCore ▾            Links & rules        Settings ▾
  = home map       ├ Overview            ├ Overview            (everything about    ├ Hub details
                   ├ Radio               ├ Radio                links, both         ├ Location of this hub
-                  ├ Device settings     ├ Device settings      networks)           ├ Change hub password
+                  ├ Device settings     ├ Device settings      networks)           ├ Change login password
                   └ Logs                └ Logs                                     ├ Program
                                                                                    ├ Advanced settings
                                                                                    ├ Factory reset
@@ -30,7 +30,7 @@ On a phone the menu is a row below the logo; tap an item with ▾ to open its su
 
 ## First start: the setup wizard
 
-After choosing the hub password the hub opens **Setup** — one box with six steps, each turning green
+After choosing the hub's login password the hub opens **Setup** — one box with six steps, each turning green
 by itself when it is really done:
 
 1. **Name this hub** — hub name, your e-mail (seen only by the server's administrator), **country
@@ -131,7 +131,7 @@ everything.
 
 - **Hub details** — name, e-mail, country and city/region code, description (locked after registering).
 - **Location of this hub** — from the radio, or typed in / clicked on the map (approximate).
-- **Change hub password**, *Log out*.
+- **Change login password**, *Log out*.
 - **Program** — restart or stop the ura-hub program (not the computer).
 - **Advanced settings** — location following, security and login, map and website.
 - **Factory reset** — enter your **login password** for this hub and type `RESET` (a wrong password deletes nothing and counts like a wrong login): the server is told the hub leaves (it deletes the hub, its links,

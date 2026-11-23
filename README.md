@@ -30,7 +30,7 @@ blind.
 
 ## How it works
 
-- Every participating mesh runs a **ura-hub**: a small Linux computer (Raspberry Pi, mini PC,
+- Every participating mesh runs a **ura-hub**: a small Linux computer (Raspberry Pi, mini PC, Proxmox container,
   virtual machine) connected to one Meshtastic radio. The hub decides **everything** about its
   traffic — which partners, which channels, which direction, how much airtime.
 - One public **ura-server** is the meeting point: hubs register there, find each other, and
@@ -124,18 +124,19 @@ Wi-Fi/IP, and the address of a Ura server.
    [docs/FIRMWARE.md](docs/FIRMWARE.md). Only the hub radio; all other radios stay as they are.
 2. **Install:**
    ```bash
+   sudo apt update && sudo apt install -y git      # a minimal Debian/Ubuntu has no git
    git clone https://github.com/ximi87/Ura-mesh.git && cd Ura-mesh
    sudo bash contrib/install-hub.sh
    ```
-3. **Open** `https://<hub-ip>:8091`, accept the self-signed certificate once and choose a password.
+3. **Open** `https://<hub-ip>:8091`, accept the self-signed certificate once and choose the hub's **login password**.
 4. The **setup wizard** opens: hub name, your e-mail, **country code** and **city / region code**
    (2–3 letters each, e.g. `XX` + `YY`), approximate location (typed in or clicked on the map); the
    radio (Meshtastic or MeshCore — the hub names each USB device); *Prepare*; the server address,
    *Check server*, compare the fingerprint with the one on the server's *Register a hub* page, trust
    it and send the registration. (Experienced? *Skip the wizard* and use the pages instead.)
-6. After the server admin approves you: **Links & rules** — ask other hubs for a link, set your
+5. After the server admin approves you: **Links & rules** — ask other hubs for a link, set your
    rules per link, compare the safety code with the other operator.
-7. **Meshtastic → Radio → Diagnostics** — send a private message to a remote node; *delivered*
+6. **Meshtastic → Radio → Diagnostics** — send a private message to a remote node; *delivered*
    means both directions work.
 
 > While the hub runs, **nothing else may be connected to the hub radio** (no app over
@@ -147,7 +148,7 @@ Wi-Fi/IP, and the address of a Ura server.
 > from a Meshtastic link*). The hub warns when its radio hears a channel it cannot read.
 > [More](docs/INSTALL-HUB.md#channels-and-keys--read-this-before-you-continue)
 
-Full guide: [docs/INSTALL-HUB.md](docs/INSTALL-HUB.md)
+Full guide: [docs/INSTALL-HUB.md](docs/INSTALL-HUB.md) — including [running the hub in a Proxmox container](docs/INSTALL-HUB.md#running-the-hub-in-a-proxmox-container-ct--lxc).
 
 ### Run a server (to create a network of hubs)
 
@@ -155,6 +156,7 @@ You need: a small Linux server with a public address (a domain name is recommend
 open TCP ports, 8100 for hubs and one for the website.
 
 ```bash
+sudo apt update && sudo apt install -y git      # a minimal Debian/Ubuntu has no git
 git clone https://github.com/ximi87/Ura-mesh.git && cd Ura-mesh
 sudo bash contrib/install-server.sh
 ```

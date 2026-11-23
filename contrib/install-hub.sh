@@ -28,4 +28,4 @@ systemctl --no-pager status ura-hub | head -5
 IP=$(hostname -I | awk '{print $1}')
 echo
 echo "Done. Open https://$IP:8091 in a browser (accept the self-signed certificate once),"
-echo "choose the hub password, then follow docs/INSTALL-HUB.md from step 4."
+echo "choose the login password; the setup wizard then guides you (docs/INSTALL-HUB.md, step 3)."

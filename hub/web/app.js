@@ -69,7 +69,8 @@ Ura.add({
   "st.announce": { en: "Announce this radio now", sq: "Njofto këtë radio tani" },
   "st.ask": { en: "Ask neighbours to answer", sq: "Kërkoju fqinjëve të përgjigjen" },
   "st.announced": { en: "Sent.", sq: "U dërgua." },
-  "srv.not_configured": { en: "not set up — go to Settings", sq: "e pakonfiguruar — shkoni te Cilësimet" },
+  "setup.title": { en: "First start: choose the login password for this hub", sq: "Nisja e parë: zgjidhni fjalëkalimin e hyrjes për këtë hub" },
+  "srv.not_configured": { en: "not set up — enter the server address below", sq: "e pakonfiguruar — vendosni adresën e serverit më poshtë" },
   "srv.connecting": { en: "connecting…", sq: "duke u lidhur…" }, "srv.connected": { en: "connected", sq: "e lidhur" },
   "srv.disconnected": { en: "disconnected", sq: "e shkëputur" }, "srv.error": { en: "error", sq: "gabim" },
   "srv.refused": { en: "refused by server", sq: "refuzuar nga serveri" },
@@ -205,7 +206,7 @@ Ura.add({
   "s.fp_hint": { en: "Compare it with the fingerprint shown on the server's “Register a hub” page. Trust it only if they match.",
                  sq: "Krahasojeni me gjurmën që shfaqet në faqen “Regjistro një hub” të serverit. Besojeni vetëm nëse përputhen." },
   "s.trust": { en: "Fingerprint matches – trust this server", sq: "Gjurma përputhet – besoje këtë server" },
-  "s.trusted": { en: "Trusted fingerprint", sq: "Gjurma e besuar" },
+  "s.trusted": { en: "Server fingerprint", sq: "Gjurma e serverit" },
   "s.join": { en: "Send registration request", sq: "Dërgo kërkesën për regjistrim" },
   "s.joined": { en: "Request sent. Hub id {x}. Waiting for approval.", sq: "Kërkesa u dërgua. ID e hub-it {x}. Në pritje të miratimit." },
   "s.registration": { en: "Registration", sq: "Regjistrimi" },
@@ -383,7 +384,7 @@ Ura.add({
                   sq: "BE 868 MHz: cikli ligjor i punës është 1% ose 10% sipas nën-brezit. Paketat e largëta mbi kufi nuk nxirren në ajër." },
   "s.share_pos": { en: "Show my nodes' positions on the public Ura map", sq: "Shfaq pozicionet e nyjeve të mia në hartën publike të Ura" },
   "s.defaults": { en: "Default rules for new links", sq: "Rregullat e parazgjedhura për lidhjet e reja" },
-  "s.password": { en: "Change hub password", sq: "Ndrysho fjalëkalimin e hub-it" },
+  "s.password": { en: "Change login password", sq: "Ndrysho fjalëkalimin e hyrjes" },
   "err.code_taken": { en: "This country/place code is already used by another hub.", sq: "Ky kod shteti/vendi përdoret tashmë nga një hub tjetër." },
   "err.code_invalid": { en: "Country and place code must be 2–3 letters each.", sq: "Kodi i shtetit dhe i vendit duhet të jenë 2–3 shkronja secili." },
   "err.email_required": { en: "A valid e-mail address is required.", sq: "Nevojitet një adresë e vlefshme e-mail-i." },
@@ -571,7 +572,7 @@ async function hubMap(el, net, opts) {
   panel.onAdd = () => {
     const x = L.DomUtil.create("div", "livebox mappanel hm-panel");
     x.innerHTML = `<details class="hm-fold" ${window.matchMedia("(max-width: 760px)").matches ? "" : "open"}><summary><b>${esc(d.me.code)}</b> · ${esc(d.me.name)}
-      <span class="small muted">· ${(net ? [net] : ["mt", "mc"]).map(k => (st[k].local + st[k].remote) + (k === "mc" ? " MC" : " MT")).join(" · ")}</span></summary>
+      <span class="small muted">· ${(net ? [net] : ["mt", "mc"]).map(k => (st[k].local + st[k].remote) + (k === "mc" ? " MeshCore" : " Meshtastic")).join(" · ")}</span></summary>
       <div class="small muted">${t("hm.links_online", { n: st.links_online, m: st.links })}</div>
       ${(net ? [net] : ["mt", "mc"]).map(row).join("")}
       <div class="small muted" style="margin-top:.3rem">${t("hm.legend")}</div>
@@ -1264,8 +1265,8 @@ async function pageSettings(want, opts) {
       <div class="pickmap" data-lat="hlat" data-lon="hlon"></div>
       <div id="locmsg"></div><button class="primary" id="locsave">${t("save")}</button>`),
     secBox("settings", "limits", `<b>${t("s.linkset")}</b>`,
-      [[t("tr.title") + " MT", onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
-       [t("tr.title") + " MC", onoff(c.transit_mc && c.transit_mc.enabled) + (c.transit_mc && c.transit_mc.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit_mc.max_hops || 2 })}</span>` : "")],
+      [[t("tr.title") + " — Meshtastic", onoff(c.transit && c.transit.enabled) + (c.transit && c.transit.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit.max_hops || 2 })}</span>` : "")],
+       [t("tr.title") + " — MeshCore", onoff(c.transit_mc && c.transit_mc.enabled) + (c.transit_mc && c.transit_mc.enabled ? ` <span class="small">${t("tr.max_n", { n: c.transit_mc.max_hops || 2 })}</span>` : "")],
        [t("s.share_pos_short"), onoff(c.share_positions_on_map)]],
       `<label class="check"><input type="checkbox" id="spos" ${c.share_positions_on_map ? "checked" : ""}> ${t("s.share_pos")}</label>
       <div class="netbox mt"><div class="nb-head">${t("tr.title")} — Meshtastic</div><div class="nb-body"><p class="hint">${t("tr.hint")}</p>
@@ -1787,7 +1788,7 @@ Ura.add({
   "wz.radio.other_mt": { en: "Meshtastic: choose “Meshtastic” above", sq: "Meshtastic: zgjidhni “Meshtastic” më lart" },
   "wz.prep.hint_all": { en: "Every radio of this hub gets what Ura needs (marked ❌), including its approximate location. A Meshtastic radio restarts once; a MeshCore radio announces itself once. This step continues by itself.", sq: "Çdo radio e këtij hub-i merr atë që i duhet Ura (shënuar ❌), përfshirë vendndodhjen e përafërt. Një radio Meshtastic rindizet një herë; një radio MeshCore njoftohet një herë. Ky hap vazhdon vetë." },
   "wz.link.more_t": { en: "Link with more hubs", sq: "Lidhu me më shumë hub-e" },
-  "wz.link.more": { en: "You can ask more hubs at any time; each one accepts on its side. Rules per link and ending a link are on the “Links” page.", sq: "Mund të kërkoni më shumë hub-e në çdo kohë; secili pranon nga ana e vet. Rregullat për çdo lidhje dhe mbyllja e një lidhjeje janë te faqja “Lidhjet”." },
+  "wz.link.more": { en: "You can ask more hubs at any time; each one accepts on its side. Rules per link and ending a link are on the “Links & rules” page.", sq: "Mund të kërkoni më shumë hub-e në çdo kohë; secili pranon nga ana e vet. Rregullat për çdo lidhje dhe mbyllja e një lidhjeje janë te faqja “Lidhjet”." },
   "wz.srv.waiting_short": { en: "waiting for approval", sq: "në pritje të miratimit" },
   "wz.srv.pending_link": { en: "The registration is sent; the server's administrator still has to approve this hub. Everything else works meanwhile — links can be made once it is approved (this updates by itself).", sq: "Regjistrimi u dërgua; administratori i serverit duhet ende ta miratojë këtë hub. Gjithçka tjetër punon ndërkohë — lidhjet mund të bëhen pasi të miratohet (kjo përditësohet vetë)." },
   "wz.link.later": { en: "later", sq: "më vonë" },
@@ -1796,7 +1797,7 @@ Ura.add({
   "wz.done.setup": { en: "Setup finished: radio “{r}” with {n} nodes is ready.", sq: "Konfigurimi përfundoi: radio “{r}” me {n} nyje është gati." },
   "wz.done.nolink": { en: "No link yet. As soon as another hub is on the server, ask it below.", sq: "Ende pa lidhje. Sapo një hub tjetër të jetë në server, kërkojeni më poshtë." },
   "wz.link.after": { en: "Links can be made once the server has approved this hub.", sq: "Lidhjet mund të bëhen pasi serveri ta ketë miratuar këtë hub." },
-  "wz.done.status": { en: "Go to the status page", sq: "Shko te faqja e gjendjes" },
+  "wz.done.status": { en: "Go to the home map", sq: "Shko te harta kryesore" },
 });
 
 

@@ -11,7 +11,7 @@ You need about 30 minutes.
 
 | | |
 |---|---|
-| Computer | Raspberry Pi 3/4/5, a mini PC or a virtual machine — Debian, Ubuntu or Raspberry Pi OS, always on |
+| Computer | Raspberry Pi 3/4/5, a mini PC, a virtual machine or a Proxmox container ([see below](#running-the-hub-in-a-proxmox-container-ct--lxc)) — Debian, Ubuntu or Raspberry Pi OS, always on |
 | Radio | A Meshtastic radio (tested: Heltec V3, Heltec Wireless Tracker; other ESP32 boards work the same) on **USB** (recommended) or Wi-Fi/IP — and/or a **MeshCore** radio with **companion firmware (USB)** (tested: Heltec V3 v1.16, RAK3401 v1.17) |
 | Firmware | Meshtastic 2.7.x **with the Ura patch** on the hub radio — see [FIRMWARE.md](FIRMWARE.md) |
 | Network | Internet access to the Ura server (TCP port 8100 and 8443) |
@@ -35,6 +35,7 @@ marked "via MQTT" on air and many nodes (those with *Ignore MQTT* on) drop them.
 On the hub computer, as a normal user with sudo rights:
 
 ```bash
+sudo apt update && sudo apt install -y git      # a minimal Debian/Ubuntu has no git
 git clone https://github.com/ximi87/Ura-mesh.git
 cd Ura-mesh
 sudo bash contrib/install-hub.sh
@@ -64,10 +65,71 @@ default `hub/data`), `URA_WEB_PORT` (website port, default `8091`). Everything e
 on the website.
 </details>
 
+## Running the hub in a Proxmox container (CT / LXC)
+
+Tested 2026-11 on Proxmox VE 9.0 and 9.1 with the standard **Ubuntu 24.04** template, **unprivileged**
+container, *Nesting* on (the defaults of *Create CT*), 1 core, 1 GB RAM, 8 GB disk. Install the hub
+inside the CT exactly as in step 2. The program runs unchanged; only the **USB radio** needs one
+setting on the Proxmox host, because a container cannot see USB devices by itself.
+
+A Meshtastic radio over **Wi-Fi/IP** needs nothing of this.
+
+**1. Find the radio's fixed name on the Proxmox host** (radio plugged into the host):
+
+```bash
+ls -l /dev/serial/by-id/
+# usb-RAKwireless_WisCore_RAK3401_Board_86F0…-if00 -> ../../ttyACM0
+```
+
+Use this long `/dev/serial/by-id/…` name, not `/dev/ttyACM0`: with two USB radios, `ttyACM0` and
+`ttyACM1` can swap after a host restart, and the container would get the wrong radio.
+
+If the folder is empty or missing, the host has no driver for the radio: `ls /dev/ttyACM* /dev/ttyUSB*`
+shows nothing. Check `/etc/modprobe.d/` for a `blacklist cdc_acm` (ESP32-S3, nRF52 radios) or
+`blacklist cp210x` / `ch341` (older ESP32 boards) and remove it, then `modprobe cdc_acm`.
+
+**2. Pass it into the container:** *CT → Resources → Add → Device Passthrough*. Device path: the
+`/dev/serial/by-id/…` name. Then tick **Advanced** (bottom right) and set **GID in CT = 20**
+(the `dialout` group, which the hub's user `ura` is in). Restart the container.
+
+![Proxmox: Add → Device Passthrough, Advanced, GID in CT](img/ct-test/pve-04-device-passthrough-advanced.png)
+
+Or on the host's shell (CT number 103 as an example):
+
+```bash
+pct set 103 --dev0 /dev/serial/by-id/usb-…-if00,gid=20
+pct reboot 103
+```
+
+> **Do not leave GID at 0** (the default). The device then belongs to root inside the container and
+> the hub cannot open it: its log says `Permission denied`, and the radio cannot be connected.
+
+![The container's Resources with the radio passed in](img/ct-test/pve-01-ct-resources-passthrough.png)
+
+**3. In the hub**, the radio appears in the wizard (or *Meshtastic / MeshCore → Radio*) under its own
+name, e.g. *MeshCore radio "…" — usb-RAKwireless_WisCore_RAK3401_Board…*. Choose it and *Connect*.
+
+What we tested in a CT:
+
+| | result |
+|---|---|
+| install script, website, wizard, registration, link | ✅ unchanged |
+| hub names the radio by asking it (also without `/dev/serial/by-id` inside the CT) | ✅ |
+| MeshCore radio (RAK3401) on USB: packets heard → sent over the link → received by the other hub | ✅ |
+| radio unplugged and plugged in again | ✅ the hub reconnects by itself within ~20 s |
+| passthrough with GID 0 | ❌ `Permission denied` — use GID 20 |
+| Meshtastic radio on USB in a CT | not tested (same serial code as MeshCore; Meshtastic over Wi-Fi/IP needs no passthrough) |
+
+If you change the passthrough path later (e.g. from `/dev/ttyACM0` to the by-id name), choose the radio
+again on the hub's *Radio* page — the hub remembers the old path.
+
+The full test report with screenshots: [tests/ct-install-2026-11](../tests/ct-install-2026-11/README.md).
+
 ## 3. Open the hub's website
 
 Plug in the radio, then open `https://<hub-ip>:8091` in a browser. The certificate is
-self-signed: accept it once. Choose the **hub password** (at least 8 characters).
+self-signed: accept it once. Choose the hub's **login password** (at least 8 characters) — the one
+password of this hub's website (also asked for a factory reset).
 
 Keep the website to your local network (a firewall rule, or simply no port forwarding).
 
@@ -78,7 +140,7 @@ steps in order. Each step shows what is really happening (checking, connecting, 
 and turns green by itself when it is done; then the next one opens. You never need another page.
 
 1. **Name this hub** — name, e-mail, **country code** and **city / region code** (2–3 letters each: the country, then the city, province or district). Latitude and longitude can be typed in or clicked on the small map. Also its **approximate location** (required): every radio that is part of Ura has one; Ura keeps it to about 1 km and never sends it more exactly. A radio without GPS gets it as its fixed position; a radio with GPS sends its own position only approximately (≈ 700 m).
-2. **Connect the radio** — radio type (Meshtastic; MeshCore later), then the USB port. The hub asks
+2. **Connect the radio** — radio type (Meshtastic or MeshCore; add the other one later in its menu), then the USB port. The hub asks
    every USB device what it is and shows its real name; *Connect* shows the radio's name and how
    many nodes it holds — or what else is on the port.
 3. **Prepare the radio for Ura** — one click; the radio restarts once.
@@ -88,7 +150,7 @@ and turns green by itself when it is done; then the next one opens. You never ne
    with *Accept*. Done when one link is active.
 6. **Ready** — summary, *Ask neighbours to answer*, and *Link with more hubs*.
 
-Once everything has been done, the wizard no longer opens by itself (problems show on *Status*); it
+Once everything has been done, the wizard no longer opens by itself (problems show on the home map and the *Overview* pages); it
 stays in the menu under **Setup**. Leaving the server is a fresh start: the wizard opens again.
 
 **Set it up yourself (advanced).** *Skip the wizard* at the bottom of it, then use the pages below

@@ -6,7 +6,8 @@ sealed boxes through it. It shows the public map and statistics. It needs **only
 
 ## What you need
 
-- A small Linux server (1 CPU, 512 MB RAM is plenty) with a public address, Debian/Ubuntu.
+- A small Linux server (1 CPU, 512 MB RAM is plenty) with a public address, Debian/Ubuntu — a virtual
+  machine or a Proxmox container (CT) works as well (tested: Ubuntu 24.04 CT, unprivileged).
 - A domain name pointing to it (e.g. `ura.example.org`) — recommended; Ura then gets its own
   browser-trusted certificate automatically.
 - Two open TCP ports: **8100** (hubs) and **8443** (website). Both can be changed.
@@ -14,6 +15,7 @@ sealed boxes through it. It shows the public map and statistics. It needs **only
 ## 1. Install
 
 ```bash
+sudo apt update && sudo apt install -y git      # a minimal Debian/Ubuntu has no git
 git clone https://github.com/ximi87/Ura-mesh.git
 cd Ura-mesh
 sudo bash contrib/install-server.sh
@@ -41,10 +43,15 @@ on the admin page.
 
 ## 2. Open the firewall
 
+Only if the server runs a firewall. With `ufw` (`sudo ufw status` says *active*):
+
 ```bash
 sudo ufw allow 8100/tcp     # hubs
 sudo ufw allow 8443/tcp     # website
 ```
+
+If `ufw status` says *inactive*, no firewall is running on this machine and the ports are already
+open — nothing to do (the router or the hosting provider may still need the ports opened).
 
 ## 3. Choose the admin password
 

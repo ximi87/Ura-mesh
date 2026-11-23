@@ -50,8 +50,9 @@ One radio per mesh becomes the hub radio. It gets Meshtastic 2.7 with the small 
 Place it where it hears the local mesh well. No other radio needs changes.
 
 ### Step 3 — Install the hub
-On a Raspberry Pi, mini PC or virtual machine next to the radio:
+On a Raspberry Pi, mini PC, virtual machine or Proxmox container next to the radio (a container needs the radio passed in — see [INSTALL-HUB.md](INSTALL-HUB.md#running-the-hub-in-a-proxmox-container-ct--lxc)):
 ```bash
+sudo apt update && sudo apt install -y git
 git clone https://github.com/ximi87/Ura-mesh.git && cd Ura-mesh && sudo bash contrib/install-hub.sh
 ```
 Open `https://<hub>:8091`, choose a password.
