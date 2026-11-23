@@ -373,3 +373,13 @@ details.about > summary { cursor: pointer; }
 
 /* phones: two-column field rows become one column (no box sticks out on the right) */
 @media (max-width: 760px) { .grid.g2, .grid.g3 { grid-template-columns: 1fr; } .fld input, .fld select { width: 100%; min-width: 0; box-sizing: border-box; } }
+
+/* server map box: one line on phones, open on a tap */
+.mp-fold > summary { cursor: pointer; list-style: none; font-size: .85rem; } .mp-fold > summary::-webkit-details-marker { display: none; }
+.mp-fold > summary::before { content: "▸ "; color: var(--muted); } .mp-fold[open] > summary::before { content: "▾ "; }
+.mp-fold[open] > summary { margin-bottom: .3rem; }
+@media (max-width: 760px) {
+  .mappanel { max-width: 230px; font-size: .85rem; padding: .35rem .55rem; }
+  .mappanel input[type=checkbox] { width: 1rem; height: 1rem; }
+  .fullmap { border-radius: 0; }
+}

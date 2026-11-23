@@ -87,7 +87,7 @@ Ura.add({
   "stats.range": { en: "Period", sq: "Periudha" }, "stats.24h": { en: "24 hours", sq: "24 orë" },
   "stats.7d": { en: "7 days", sq: "7 ditë" }, "stats.30d": { en: "30 days", sq: "30 ditë" },
   "stats.total": { en: "Total", sq: "Gjithsej" }, "stats.none": { en: "No traffic in this period.", sq: "Nuk ka trafik në këtë periudhë." },
-  "map.hubs": { en: "Hubs", sq: "Hub-et" }, "map.links_n": { en: "{n} links", sq: "{n} lidhje" },
+  "map.hubs": { en: "Hubs", sq: "Hub-et" }, "map.links_n": { en: "links: {n}", sq: "lidhje: {n}" },
   "map.show_nodes": { en: "Show nodes", sq: "Shfaq nyjet" }, "map.zoom_for_nodes": { en: "Zoom in to see the nodes", sq: "Zmadhoni për të parë nyjet" },
   "map.linked_with": { en: "Linked with", sq: "E lidhur me" }, "map.link7d": { en: "Packets in the last 7 days", sq: "Paketa në 7 ditët e fundit" },
   "stats.share": { en: "Share", sq: "Pjesa" }, "stats.no_traffic": { en: "no traffic", sq: "pa trafik" },
@@ -186,7 +186,8 @@ Ura.add({
   "map.hub_offline": { en: "its hub has been offline since {x}", sq: "hub-i i saj është offline që nga {x}" },
   "adv.offline_grey_h": { en: "Map: show nodes of a hub offline for longer than (hours) in grey", sq: "Harta: shfaq gri nyjet e një hub-i offline më shumë se (orë)" },
   "adv.offline_hide_days": { en: "Map: hide nodes of a hub offline for longer than (days)", sq: "Harta: fshih nyjet e një hub-i offline më shumë se (ditë)" },
-    "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
+    "map.nodes_short": { en: "nodes", sq: "nyje" },
+  "net.mt": { en: "Meshtastic", sq: "Meshtastic" }, "net.mc": { en: "MeshCore", sq: "MeshCore" },
 });
 
 const MENU = [["#/", "nav.map"], ["#/hubs", "nav.hubs"], ["#/stats", "nav.stats"],
@@ -289,7 +290,9 @@ async function pageMap() {
   const panel = L.control({ position: "topright" });
   panel.onAdd = () => {
     const d = L.DomUtil.create("div", "livebox mappanel");
-    d.innerHTML = `<label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>
+    const phone = window.matchMedia("(max-width: 760px)").matches;     // on phones: folded into one line
+    d.innerHTML = `<details class="mp-fold" ${phone ? "" : "open"}><summary><b>${t("map.hubs")} ${hubs.length}</b> · ${t("map.links_n", { n: Object.keys(lines).length })} · ${netCount.mt + netCount.mc} ${t("map.nodes_short")}</summary>
+      <label class="check small"><input type="checkbox" id="liveon" checked> ${t("live.on")}</label><div class="small muted" id="livecount"></div>
       <label class="check small"><input type="checkbox" id="nodeson" checked> ${t("map.show_nodes")}</label>
       <div class="small" style="margin:.1rem 0 .2rem 1.4rem">
         <label class="check small"><input type="checkbox" id="net_mt" checked> <span class="mkr mt"></span> Meshtastic (${netCount.mt})</label>
@@ -300,7 +303,7 @@ async function pageMap() {
         <div class="hublist">${hubs.slice().sort((x, y) => (y.online - x.online) || x.code.localeCompare(y.code)).map(h => `
           <a class="hubline" data-hub="${h.id}" data-q="${esc((h.code + " " + h.name).toLowerCase())}">
             <span class="dot" style="background:${color[h.id]}"></span><b>${esc(h.code)}</b> <span class="muted">${esc(h.name)}</span>
-            <span class="hl-meta"><span class="dot ${h.online ? "ok" : "bad"}"></span>${h.nodes} · ${(h.links || []).length}⇄</span></a>`).join("")}</div></details>`;
+            <span class="hl-meta"><span class="dot ${h.online ? "ok" : "bad"}"></span>${h.nodes} · ${(h.links || []).length}⇄</span></a>`).join("")}</div></details></details>`;
     L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
     return d;
   };
@@ -316,7 +319,13 @@ async function pageMap() {
     $$(".hubline").forEach(x => x.classList.toggle("sel", x === a));
     if (h.lat != null) { m.setView([h.lat, h.lon], Math.max(m.getZoom(), 8)); hubMarker[h.id].openPopup(); }
   });
-  if (bounds.length) m.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  const hubPts = hubs.filter(h => h.lat != null).map(h => L.latLng(h.lat, h.lon));
+  const near = hubPts.length ? bounds.filter(b => hubPts.some(h => h.distanceTo(b) < 600000)) : bounds;
+  if (near.length) m.fitBounds(near, { padding: [40, 40], maxZoom: 12 });
+  // the map fills the screen below the menu (the menu is taller on phones)
+  const fitH = () => { const el = $("#map"); if (!el) { window.removeEventListener("resize", fitH); return; }
+    el.style.height = Math.max(320, window.innerHeight - el.getBoundingClientRect().top - window.scrollY - 12) + "px"; m.invalidateSize(); };
+  fitH(); window.addEventListener("resize", fitH);
   syncNodes();
   liveTraffic(m, byId, color, true);
 }
