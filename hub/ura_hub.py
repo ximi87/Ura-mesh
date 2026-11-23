@@ -3314,6 +3314,15 @@ class Web(http.server.BaseHTTPRequestHandler):
         if p == "/api/factory_reset":
             if b.get("confirm") != "RESET":
                 return self.reply({"error": "confirm"}, 400)
+            ip = self.client_address[0]                  # the current hub password is required (counts like a login)
+            if locked_out(ip):
+                return self.reply({"error": "locked"}, 429)
+            time.sleep(0.5)
+            if not check_pw(str(b.get("password") or ""), cfg.get()["web_password"]):
+                login_fail.setdefault(ip, []).append(time.time())
+                log.warning("factory reset refused: wrong hub password (from %s)", ip)
+                return self.reply({"error": "wrong_password"}, 403)
+            log.info("factory reset confirmed with the hub password (from %s)", ip)
             if reset_state.get("running"):
                 return self.reply({"ok": True, "already": True})
             threading.Thread(target=factory_reset, daemon=True).start()

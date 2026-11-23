@@ -1285,6 +1285,7 @@ async function pageSettings(want, opts) {
     secBox("settings", "reset", `<b>${t("fr.title")}</b>`, [["", `<span class="muted small">${t("fr.short")}</span>`]],
       `<p class="small">${t("fr.hint")}</p><ul class="small">${["fr.l1", "fr.l2", "fr.l3", "fr.l4"].map(k => `<li>${t(k)}</li>`).join("")}</ul>
       <p class="small muted">${t("fr.keep")}</p>
+      <label>${t("fr.pw")}</label><input type="password" id="frpw" autocomplete="current-password" style="max-width:260px">
       <label>${t("fr.type")}</label><input type="text" id="frconfirm" autocomplete="off" placeholder="RESET" style="max-width:200px">
       <div class="row" style="margin-top:.6rem"><button class="danger" id="frgo">${t("fr.button")}</button></div><div id="frmsg"></div>`),
     secBox("settings", "adv", `<b>${t("adv.title")}</b>`, [["", advChanged ? B("warn", t("adv.changed_n", { n: advChanged })) : `<span class="muted small">${t("adv.all_default")}</span>`]],
@@ -1298,10 +1299,11 @@ async function pageSettings(want, opts) {
   if (locBox) { if (locBox.open) bindPickMaps(locBox); locBox.addEventListener("toggle", () => { if (locBox.open) bindPickMaps(locBox); }); }
   if (want && $(`details.secline[data-sec="${want}"]`)) $(`details.secline[data-sec="${want}"]`).scrollIntoView({ block: "start" });
   if ($("#frgo")) $("#frgo").onclick = async () => {
+    if (!$("#frpw").value) return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.pw_missing")}</div>`;
     if ($("#frconfirm").value.trim() !== "RESET") return $("#frmsg").innerHTML = `<div class="msg bad">${t("fr.type_bad")}</div>`;
     if (!confirm(t("fr.q"))) return;
     $("#frgo").disabled = true; $("#frconfirm").disabled = true;
-    try { await api("POST", "/api/factory_reset", { confirm: "RESET" }); }
+    try { await api("POST", "/api/factory_reset", { confirm: "RESET", password: $("#frpw").value }); }
     catch (e) { $("#frmsg").innerHTML = `<div class="msg bad">${errText(e)}</div>`; $("#frgo").disabled = false; return; }
     clearInterval(timer);
     let steps = [];
@@ -1720,8 +1722,11 @@ Ura.add({
   "fr.l1": { en: "the server is told that this hub leaves — it deletes the hub, its links, statistics and nodes; partners are told", sq: "serveri njoftohet se ky hub largohet — fshin hub-in, lidhjet, statistikat dhe nyjet; partnerët njoftohen" },
   "fr.l2": { en: "the partners' nodes are removed from the radio (the radio's own settings are not changed)", sq: "nyjet e partnerëve hiqen nga radio (cilësimet e vetë radios nuk ndryshohen)" },
   "fr.l3": { en: "settings, password, hub name, keys, saved radio and channels, node memory, logs and map cache are deleted", sq: "fshihen cilësimet, fjalëkalimi, emri i hub-it, çelësat, radio dhe kanalet e ruajtura, kujtesa e nyjeve, regjistrat dhe harta" },
-  "fr.l4": { en: "the program restarts: choose a new password, then the setup wizard begins at step 1", sq: "programi rindizet: zgjidhni fjalëkalim të ri, pastaj udhëzuesi fillon nga hapi 1" },
+  "fr.l4": { en: "the old hub password is deleted too; the program restarts and a new password must be chosen, then the setup wizard begins at step 1", sq: "fshihet edhe fjalëkalimi i vjetër i hub-it; programi rindizet dhe duhet zgjedhur një fjalëkalim i ri, pastaj udhëzuesi fillon nga hapi 1" },
   "fr.keep": { en: "Kept: only the website's certificate (it holds no data; your browser would otherwise warn again).", sq: "Mbetet: vetëm certifikata e faqes (nuk mban të dhëna; përndryshe shfletuesi do të paralajmëronte përsëri)." },
+  "fr.pw": { en: "Current hub password (required)", sq: "Fjalëkalimi aktual i hub-it (i detyrueshëm)" },
+  "fr.pw_missing": { en: "Enter the current hub password first.", sq: "Shkruani fillimisht fjalëkalimin aktual të hub-it." },
+  "err.wrong_password": { en: "Wrong password — nothing was deleted.", sq: "Fjalëkalim i gabuar — asgjë nuk u fshi." },
   "fr.type": { en: "Type RESET to confirm", sq: "Shkruani RESET për ta konfirmuar" },
   "fr.type_bad": { en: "Type RESET (capital letters) in the box first.", sq: "Shkruani fillimisht RESET (shkronja të mëdha) në kuti." },
   "fr.button": { en: "Delete everything and start again", sq: "Fshi gjithçka dhe fillo nga e para" },

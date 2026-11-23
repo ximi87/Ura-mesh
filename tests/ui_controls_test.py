@@ -420,7 +420,9 @@ with sync_playwright() as pw:
     d.locator("details.secline[data-sec='reset'] > summary").click()
     d.click("#frgo")
     check("Settings/Factory reset: without typing RESET -> refused with a message", "RESET" in d.locator("#frmsg").inner_text())
-    d.fill("#frconfirm", "RESET"); d.click("#frgo")
+    d.fill("#frconfirm", "RESET"); d.fill("#frpw", "wrong-password"); d.click("#frgo"); d.wait_for_timeout(1500)
+    check("Settings/Factory reset: wrong password -> refused, nothing deleted", "Wrong password" in d.locator("#frmsg").inner_text(), d.locator("#frmsg").inner_text())
+    d.fill("#frpw", PW); d.fill("#frconfirm", "RESET"); d.click("#frgo")
     d.wait_for_selector("#pw", timeout=150000)
     check("Settings/Factory reset: click -> the hub comes back in first-start mode (new password)", hd("/api/session").get("setup_needed") is True or
           client(f"https://127.0.0.1:{PD}")("/api/session").get("setup_needed") is True)

@@ -866,7 +866,9 @@ idB = ids["B"]
 MY_KEY_B = h["B"]("/api/status")["my_key"]
 r_ = h["B"]("/api/factory_reset", {"confirm": "wrong"})
 check("factory reset without typing RESET -> refused", r_.get("_status") == 400)
-h["B"]("/api/factory_reset", {"confirm": "RESET"})
+r_ = h["B"]("/api/factory_reset", {"confirm": "RESET", "password": "wrong-password"})
+check("factory reset with a wrong hub password -> refused, nothing deleted", r_.get("_status") == 403 and h["B"]("/api/config")["server"]["hub_id"] == idB, r_)
+h["B"]("/api/factory_reset", {"confirm": "RESET", "password": PW})
 fresh = lambda: client(f"https://127.0.0.1:{HUBS['B'][0]}")("/api/session")
 check("factory reset -> the hub restarts in first-start mode (choose a password)", wait(lambda: fresh().get("setup_needed") is True, 120))
 def srv_left(hid):
