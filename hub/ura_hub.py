@@ -321,8 +321,11 @@ class Origins:
             self.map = {}
         self.dirty, self.saved = 0, 0
 
-    def note(self, node_id, peer):
+    def note(self, node_id, peer, keep=False):
+        """keep=True: only a claim (a partner's node list) — a node already known to come from a hub stays with it."""
         with self.lock:
+            if keep and node_id in self.map:
+                return
             if self.map.get(node_id) != peer:
                 self.map[node_id] = peer
                 self.dirty += 1
@@ -993,8 +996,10 @@ class Radio:
             return []
         out = []
         my = iface.myInfo.my_node_num
+        remote = set(origins.map)             # nodes that came over Ura — also when the radio did not mark them viaMqtt
         for num, n in list((iface.nodesByNum or {}).items()):
-            if num != my and (n.get("viaMqtt") or not n.get("lastHeard") or time.time() - n["lastHeard"] > adv("node_max_age_days") * 86400):
+            if num != my and (n.get("viaMqtt") or not n.get("lastHeard") or time.time() - n["lastHeard"] > adv("node_max_age_days") * 86400
+                              or ((n.get("user") or {}).get("id") or f"!{num:08x}") in remote):
                 continue                      # remote nodes belong to the hub that heard them; old/no time = stale memory
             u, p = n.get("user", {}), n.get("position", {})
             if num == my and self.own_fix:
@@ -2376,7 +2381,7 @@ class Link:
             await self.push_info()
         elif t == "peer_nodes" and m.get("hub") in active_peers():
             for nid in (m.get("ids") or [])[:3000]:
-                origins.note(str(nid)[:12], m["hub"])
+                origins.note(str(nid)[:12], m["hub"], keep=True)
         elif t == "status":
             cfg.update(lambda d: d["server"].update(status=m.get("status")))
             if m.get("status") == "approved":
@@ -3824,7 +3829,9 @@ class Web(http.server.BaseHTTPRequestHandler):
             node = "!" + node.lstrip("!").lower()
             r.iface.localNode.removeNode(node)
             drop_from_cache(r.iface, node)
-            origins.map.pop(node, None)
+            with origins.lock:
+                origins.map.pop(node, None)
+                origins.save()
             log.info("radio forgot node %s (it will be learned again with its current key)", node)
             return self.reply({"ok": True})
         if p == "/api/radio/announce":
