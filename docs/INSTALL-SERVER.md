@@ -7,7 +7,8 @@ sealed boxes through it. It shows the public map and statistics. It needs **only
 ## What you need
 
 - A small Linux server (1 CPU, 512 MB RAM is plenty) with a public address, Debian/Ubuntu — a virtual
-  machine or a Proxmox container (CT) works as well (tested: Ubuntu 24.04 CT, unprivileged).
+  machine or a Proxmox container (CT) works as well (tested: Ubuntu 24.04 CT, unprivileged; moving a
+  running server from a VM into a CT without the hubs noticing: [PROXMOX.md](PROXMOX.md)).
 - A domain name pointing to it (e.g. `ura.example.org`) — recommended; Ura then gets its own
   browser-trusted certificate automatically.
 - Two open TCP ports: **8100** (hubs) and **8443** (website). Both can be changed.

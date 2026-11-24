@@ -98,7 +98,8 @@ shows nothing. Check `/etc/modprobe.d/` for a `blacklist cdc_acm` (ESP32-S3, nRF
 
 **2. Pass it into the container:** *CT → Resources → Add → Device Passthrough*. Device path: the
 `/dev/serial/by-id/…` name. Then tick **Advanced** (bottom right) and set **GID in CT = 20**
-(the `dialout` group, which the hub's user `ura` is in). Restart the container.
+(the `dialout` group, which the hub's user `ura` is in). Restart the container (on Proxmox VE 9.1 the
+radio also appeared in the running container without a restart).
 
 ![Proxmox: Add → Device Passthrough, Advanced, GID in CT](img/ct-test/pve-04-device-passthrough-advanced.png)
 
@@ -132,6 +133,8 @@ If you change the passthrough path later (e.g. from `/dev/ttyACM0` to the by-id 
 again on the hub's *Radio* page — the hub remembers the old path.
 
 The full test report with screenshots: [tests/ct-install-2026-11](../tests/ct-install-2026-11/README.md).
+Start on boot, one hub per radio (a radio moved from a VM hub into a CT hub) and moving a server from a VM
+into a CT: [PROXMOX.md](PROXMOX.md).
 
 ## 3. Open the hub's website
 

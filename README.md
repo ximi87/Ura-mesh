@@ -149,6 +149,8 @@ Wi-Fi/IP, and the address of a Ura server.
 > [More](docs/INSTALL-HUB.md#channels-and-keys--read-this-before-you-continue)
 
 Full guide: [docs/INSTALL-HUB.md](docs/INSTALL-HUB.md) — including [running the hub in a Proxmox container](docs/INSTALL-HUB.md#running-the-hub-in-a-proxmox-container-ct--lxc).
+Server and hubs in Proxmox containers day to day (start on boot, one hub per radio, moving a server from a VM
+into a CT): [docs/PROXMOX.md](docs/PROXMOX.md).
 
 ### Run a server (to create a network of hubs)
 

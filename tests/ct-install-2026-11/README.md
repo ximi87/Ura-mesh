@@ -106,3 +106,18 @@ After switching the passthrough from `ttyACM0` to the by-id name, the hub's *Mes
 
 Not changed (worth doing later): when the radio's port path changes, the hub could follow the same
 radio to its new path by itself instead of asking to choose it again.
+
+## Follow-up 2026-11-24: running for real (0.4.0)
+
+After the test the containers went into daily use:
+
+- The **live server** moved from its virtual machine into a CT (data folder copied, the CT took the VM's
+  address, VM shut down). Both live hubs reconnected within seconds with the same fingerprint; nothing
+  changed on the router or the hubs.
+- One site split into **one hub per radio**: the Meshtastic radio stays with the hub in a VM, the
+  MeshCore radio moved into a **hub in a CT** with its own address (passed in while the CT was running).
+  Both connected their tunnel with the other site's tunnel of the same kind, and traffic of both
+  networks flowed at the same time.
+- Server CT and hub CT start on boot.
+
+How it was done, step by step: [docs/PROXMOX.md](../../docs/PROXMOX.md).
