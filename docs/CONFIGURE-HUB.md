@@ -139,7 +139,7 @@ which tunnel and passes on sealed boxes it cannot open.
    **defaults for new connections** (one table per network), **multi-hop** per network (does this hub
    pass traffic between its connections, and over how many at most), positions on the public map.
 5. **Advanced settings — links and server** — the **Ura server offered to a new hub** (filled in on
-   the Connect field; also set by the installer with `URA_SERVER=…`), reconnect / keep-alive / timeout to the server, packets
+   the Connect field; default the public server `ura.leka-cc.al:8100`, another one with the installer's `URA_SERVER=…`), reconnect / keep-alive / timeout to the server, packets
    kept while it is unreachable, the server's web port; node announcements to linked hubs (on/off, each
    node again every … hours, one node every … seconds, only nodes heard within …), node reports.
 

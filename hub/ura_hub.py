@@ -51,7 +51,7 @@ ADV_SPEC = {
     "lockout_attempts":    (5, 3, 50),
     "lockout_minutes":     (15, 1, 1440),
     "password_min":        (8, 8, 64),
-    "default_server":      (os.environ.get("URA_DEFAULT_SERVER", ""), None, None),   # filled in for a hub that has no server yet
+    "default_server":      (os.environ.get("URA_DEFAULT_SERVER", "ura.leka-cc.al:8100"), None, None),   # filled in for a hub that has no server yet
     "server_retry_s":      (5, 2, 600),
     "refused_retry_s":     (120, 10, 3600),
     "keepalive_s":         (30, 5, 300),

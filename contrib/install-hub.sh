@@ -3,8 +3,8 @@
 # It shows every change first and asks before doing anything.
 set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/ximi87/Ura-mesh.git}"
-# Optional: the Ura server this hub will connect to (host:port) — it is then already filled in on the hub's
-# website, the operator only presses "Connect". Example:  URA_SERVER=ura.example.org:8100 sudo -E bash contrib/install-hub.sh
+# Optional: another Ura server than the public ura.leka-cc.al:8100 (host:port) — it is then filled in on the
+# hub's website instead, the operator only presses "Connect". Example:  URA_SERVER=ura.example.org:8100 sudo -E bash contrib/install-hub.sh
 URA_SERVER="${URA_SERVER:-}"
 cat <<INFO
 This will:

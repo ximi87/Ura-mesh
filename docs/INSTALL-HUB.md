@@ -41,8 +41,9 @@ cd Ura-mesh
 sudo bash contrib/install-hub.sh
 ```
 
-If you know the Ura server you will use, give it to the installer — it is then already filled in on the
-hub's website and the operator only presses *Connect*:
+The public Ura server `ura.leka-cc.al:8100` is already filled in on the hub's website — the operator
+only presses *Connect*. To use your own server instead, give it to the installer (or change the address
+on the website before pressing *Connect*):
 
 ```bash
 URA_SERVER=ura.example.org:8100 sudo -E bash contrib/install-hub.sh
